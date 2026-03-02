@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Outfit:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #C8410B;
+  --brand-dark: #8B2D07;
+  --brand-light: #F4A261;
+  --earth: #6B4226;
+  --cream: #FDF6EC;
+  --dark: #1A0D06;
+  --mid: #3D2314;
+  --text: #2D1810;
+  --muted: #8C6A5A;
+  --green: #2D6A4F;
+  --amber: #E07B30;
+  --shadow: 0 4px 24px rgba(26, 13, 6, 0.1);
+  --shadow-lg: 0 16px 48px rgba(26, 13, 6, 0.18);
+}
+
+body {
+  margin: 0;
+  background-color: var(--cream);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d0b8a0;
+  border-radius: 3px;
+}
