@@ -3,7 +3,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 serve(async (req) => {
   const { client_ip, client_fingerprint } = await req.json();
-  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const supabase = createClient(
+    Deno.env.get('PROJECT_URL') ?? Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
 
   const { data: blocked } = await supabase.from('blocked_entities').select('id').eq('value', client_ip).single();
 
