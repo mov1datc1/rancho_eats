@@ -30,6 +30,7 @@ export default function App() {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
+  const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
   const [adminRequests, setAdminRequests] = useState<AdminRequest[]>([
     { id: 'req-1', name: 'Antojitos Doña Petra', owner: 'Petra López', phone: '344 555 1111', status: 'PENDIENTE' },
     { id: 'req-2', name: 'Cocina El Ranchero', owner: 'Carlos Méndez', phone: '344 555 2222', status: 'PENDIENTE' }
@@ -53,6 +54,12 @@ export default function App() {
 
   const updateRequest = (id: string, status: AdminRequest['status']) => {
     setAdminRequests((prev) => prev.map((request) => (request.id === id ? { ...request, status } : request)));
+  };
+
+  const toggleZone = (zone: string) => {
+    setSelectedZones((prev) =>
+      prev.includes(zone) ? prev.filter((item) => item !== zone) : [...prev, zone]
+    );
   };
 
   const tabs: Array<{ key: TabKey; label: string }> = [
@@ -262,7 +269,46 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'registro' && <div className="page active"><div className="section"><div className="s-title">Registro</div></div></div>}
+      {activeTab === 'registro' && (
+        <div className="page active">
+          <div className="regpage">
+            <div className="regcard">
+              <div className="reghead">
+                <h2>Registra tu restaurante</h2>
+                <p>El admin revisará y activará tu cuenta en 24 hrs</p>
+              </div>
+              <div className="regbody">
+                <div className="fg"><label>Nombre del restaurante</label><input className="fi" placeholder="ej. Birriería La Guadalupana" /></div>
+                <div className="frow">
+                  <div className="fg"><label>Email</label><input className="fi" type="email" placeholder="tu@correo.com" /></div>
+                  <div className="fg"><label>WhatsApp</label><input className="fi" placeholder="344 000 0000" /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Contraseña del panel</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" /></div>
+                  <div className="fg"><label>Tipo de comida</label><select className="fs"><option>Carnes y parrilla</option><option>Birria y caldos</option><option>Tacos y antojitos</option><option>Pollos y asados</option><option>Mariscos</option><option>Comida corrida</option></select></div>
+                </div>
+                <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" /></div>
+                <div className="fg"><label>Radio de entrega máximo</label><select className="fs"><option>5 km (solo Aranda centro)</option><option>10 km</option><option>15 km</option><option>20 km (ranchos lejanos)</option><option>Sin límite fijo — caso por caso</option></select></div>
+                <div className="fg">
+                  <label>Zonas que cubre</label>
+                  <div className="zchips">
+                    {['Aranda centro','Arandas','El Saucito','Las Flores','La Providencia','San José','El Llano','Ranchos varios'].map((zone) => (
+                      <button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="fg"><label>Logo del restaurante</label><div className="upload"><div className="uico">📷</div><div>Arrastra o <strong>toca para subir</strong></div><div style={{ fontSize: '.71rem', marginTop: '.25rem' }}>JPG, PNG · Máx 5MB</div></div></div>
+                <div className="frow">
+                  <div className="fg"><label>Apertura</label><input className="fi" type="time" defaultValue="09:00" /></div>
+                  <div className="fg"><label>Cierre</label><input className="fi" type="time" defaultValue="21:00" /></div>
+                </div>
+                <button className="btnreg">Enviar registro →</button>
+                <div className="regterms">Al registrarte aceptas los términos de ArandaEats. Tu solicitud estará activa una vez aprobada.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeTab === 'admin' && (
         <div className="page active">
