@@ -6,6 +6,8 @@ import { formatPrice, statusLabel } from './lib/utils';
 import type {
   AdminActivityItem,
   AdminAntiSpamItem,
+  AdminMapPoint,
+  AdminOrderFeedItem,
   AdminOrdersByRestaurant,
   AdminRestaurantOverview,
   AdminSummary,
@@ -17,6 +19,7 @@ import type {
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'resumen' | 'pedidos' | 'menu' | 'promociones' | 'zona' | 'historial' | 'config';
+type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 
 
 
@@ -61,6 +64,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('cliente');
   const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('resumen');
   const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
+  const [adminPanel, setAdminPanel] = useState<AdminPanelKey>('dashboard');
 
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [pendingRestaurants, setPendingRestaurants] = useState<Restaurant[]>([]);
@@ -92,6 +96,8 @@ export default function App() {
   const [adminActivity, setAdminActivity] = useState<AdminActivityItem[]>([]);
   const [adminAntiSpam, setAdminAntiSpam] = useState<AdminAntiSpamItem[]>([]);
   const [adminOrdersChart, setAdminOrdersChart] = useState<AdminOrdersByRestaurant[]>([]);
+  const [adminOrders, setAdminOrders] = useState<AdminOrderFeedItem[]>([]);
+  const [adminMapPoints, setAdminMapPoints] = useState<AdminMapPoint[]>([]);
 
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -139,14 +145,20 @@ export default function App() {
       return;
     }
 
-    void Promise.all([loadPendingRestaurants(), loadAdminDashboardData()]);
+    void Promise.all([loadPendingRestaurants(), loadAdminDashboardData(), loadAdminOrders(), loadAdminMapPoints()]);
   }, [isAdmin]);
 
   useEffect(() => {
     if (activeTab === 'admin' && isAdmin) {
-      void Promise.all([loadPendingRestaurants(), loadAdminDashboardData()]);
+      void Promise.all([loadPendingRestaurants(), loadAdminDashboardData(), loadAdminOrders(), loadAdminMapPoints()]);
     }
   }, [activeTab, isAdmin]);
+
+  useEffect(() => {
+    if (activeTab !== 'admin' || !isAdmin) return;
+    if (adminPanel === 'pedidos') void loadAdminOrders();
+    if (adminPanel === 'mapa') void loadAdminMapPoints();
+  }, [activeTab, isAdmin, adminPanel]);
 
   const loadCurrentSession = async () => {
     const { data, error } = await supabase.auth.getSession();
@@ -242,6 +254,45 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar el dashboard del super admin.');
+    }
+  };
+
+  const loadAdminOrders = async () => {
+    try {
+      const { data, error } = await supabase.rpc('admin_orders_feed', { p_limit: 60 });
+      if (error) throw error;
+      setAdminOrders((data ?? []) as AdminOrderFeedItem[]);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo cargar la sección de pedidos de admin.');
+    }
+  };
+
+  const loadAdminMapPoints = async () => {
+    try {
+      const { data, error } = await supabase.rpc('admin_live_map_points', { p_limit: 120 });
+      if (error) throw error;
+      setAdminMapPoints((data ?? []) as AdminMapPoint[]);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo cargar el mapa en vivo de admin.');
+    }
+  };
+
+  const blockEntity = async (value: string) => {
+    try {
+      setActionLoading(true);
+      const { error } = await supabase.rpc('admin_block_entity', {
+        p_value: value,
+        p_reason: 'Bloqueo manual desde panel super admin'
+      });
+      if (error) throw error;
+      await Promise.all([loadAdminDashboardData(), loadAdminOrders()]);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo bloquear la entidad sospechosa.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -660,13 +711,23 @@ export default function App() {
             <aside className="admin-sidebar">
               <h3>⚙️ Admin</h3>
               <ul>
-                <li className="active">📊 Dashboard</li>
-                <li>🍽️ Restaurantes</li>
-                <li>📦 Pedidos</li>
-                <li>🚨 Anti-spam</li>
-                <li>📍 Mapa en vivo</li>
-                <li>📈 Reportes</li>
-                <li>⚙️ Config</li>
+                {[
+                  { key: 'dashboard', label: '📊 Dashboard' },
+                  { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                  { key: 'pedidos', label: '📦 Pedidos' },
+                  { key: 'antispam', label: '🚨 Anti-spam' },
+                  { key: 'mapa', label: '📍 Mapa en vivo' },
+                  { key: 'reportes', label: '📈 Reportes' },
+                  { key: 'config', label: '⚙️ Config' }
+                ].map((panel) => (
+                  <li
+                    key={panel.key}
+                    className={adminPanel === panel.key ? 'active' : ''}
+                    onClick={() => setAdminPanel(panel.key as AdminPanelKey)}
+                  >
+                    {panel.label}
+                  </li>
+                ))}
               </ul>
             </aside>
 
@@ -693,15 +754,59 @@ export default function App() {
                     <button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button>
                   </div>
 
-                  <div className="admin-stats">
-                    <article className="admin-stat-card"><strong>{adminSummary.active_restaurants}</strong><span>REST. ACTIVOS</span></article>
-                    <article className="admin-stat-card"><strong style={{ color: 'var(--brand)' }}>{adminSummary.pending_restaurants}</strong><span>PEND. APROB.</span></article>
-                    <article className="admin-stat-card"><strong>{adminSummary.orders_month}</strong><span>PEDIDOS/MES</span></article>
-                    <article className="admin-stat-card"><strong style={{ color: 'var(--green)' }}>{formatPrice(adminSummary.moved_month)}</strong><span>MOVIDO/MES</span></article>
-                    <article className="admin-stat-card"><strong style={{ color: '#C00' }}>{adminSummary.blocked_entities}</strong><span>IPS BLOQ.</span></article>
+                  <div className="admin-panel-tabs">
+                    {[
+                      { key: 'dashboard', label: '📊 Dashboard' },
+                      { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                      { key: 'pedidos', label: '📦 Pedidos' },
+                      { key: 'antispam', label: '🚨 Anti-spam' },
+                      { key: 'mapa', label: '📍 Mapa en vivo' },
+                      { key: 'reportes', label: '📈 Reportes' },
+                      { key: 'config', label: '⚙️ Config' }
+                    ].map((panel) => (
+                      <button
+                        key={panel.key}
+                        className={`admin-panel-tab ${adminPanel === panel.key ? 'active' : ''}`}
+                        onClick={() => setAdminPanel(panel.key as AdminPanelKey)}
+                      >
+                        {panel.label}
+                      </button>
+                    ))}
                   </div>
 
-                  <div className="admin-grid-2">
+                  {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
+                    <div className="admin-stats">
+                      <article className="admin-stat-card"><strong>{adminSummary.active_restaurants}</strong><span>REST. ACTIVOS</span></article>
+                      <article className="admin-stat-card"><strong style={{ color: 'var(--brand)' }}>{adminSummary.pending_restaurants}</strong><span>PEND. APROB.</span></article>
+                      <article className="admin-stat-card"><strong>{adminSummary.orders_month}</strong><span>PEDIDOS/MES</span></article>
+                      <article className="admin-stat-card"><strong style={{ color: 'var(--green)' }}>{formatPrice(adminSummary.moved_month)}</strong><span>MOVIDO/MES</span></article>
+                      <article className="admin-stat-card"><strong style={{ color: '#C00' }}>{adminSummary.blocked_entities}</strong><span>IPS BLOQ.</span></article>
+                    </div>
+                  )}
+
+                  {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
+                    <article className="admin-card">
+                      <h4>📝 Solicitudes pendientes para aprobación</h4>
+                      <div className="admin-requests">
+                        {pendingRestaurants.map((request) => (
+                          <article className="admin-request-card" key={request.id}>
+                            <h4>{request.name}</h4>
+                            <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
+                            <div className="admin-status-row">
+                              <span className="status-pill pendiente">PENDIENTE</span>
+                              <div className="order-actions">
+                                <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
+                                <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                        {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
+                      </div>
+                    </article>
+                  )}
+
+                  {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <article className="admin-card">
                       <h4>🍽️ Restaurantes</h4>
                       {adminRestaurants.map((item) => (
@@ -714,79 +819,103 @@ export default function App() {
                         </div>
                       ))}
                     </article>
+                  )}
 
+                  {(adminPanel === 'dashboard' || adminPanel === 'pedidos') && (
                     <article className="admin-card">
-                      <h4>📡 Actividad reciente</h4>
-                      {adminActivity.map((activity, index) => (
-                        <div key={`${activity.kind}-${index}`} className="admin-activity-row">
-                          <div className={`dot ${activityDotClass[activity.kind] ?? 'dot-orange'}`} />
-                          <div>
-                            <strong>{activity.title}</strong>
-                            <p>{activity.detail}</p>
-                          </div>
-                          <small>{formatRelative(activity.happened_at)}</small>
-                        </div>
-                      ))}
+                      <h4>📦 Pedidos de la plataforma</h4>
+                      <div className="admin-orders-table-wrap">
+                        <table className="spam-table">
+                          <thead>
+                            <tr><th>#</th><th>Restaurante</th><th>Cliente</th><th>Total</th><th>Estado</th><th>Fecha</th></tr>
+                          </thead>
+                          <tbody>
+                            {adminOrders.map((order) => (
+                              <tr key={order.id}>
+                                <td>#{order.order_number}</td>
+                                <td>{order.restaurant_name}</td>
+                                <td>{order.client_name ?? 'Sin nombre'} · {order.client_phone ?? 'Sin teléfono'}</td>
+                                <td>{formatPrice(order.total)}</td>
+                                <td>{statusLabel(order.status)}</td>
+                                <td>{formatRelative(order.created_at)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </article>
-                  </div>
+                  )}
 
-                  <article className="admin-card spam-card">
-                    <h4>🚨 Panel Anti-Spam — IPs y dispositivos sospechosos</h4>
-                    <table className="spam-table">
-                      <thead>
-                        <tr><th>IP / Dispositivo</th><th>Pedidos hoy</th><th>Cancelados</th><th>Rechazados</th><th>Último pedido</th><th>Acción</th></tr>
-                      </thead>
-                      <tbody>
-                        {adminAntiSpam.map((row) => (
-                          <tr key={row.entity}>
-                            <td>{row.entity}</td>
-                            <td>{row.orders_today}</td>
-                            <td>{row.cancelled}</td>
-                            <td>{row.rejected}</td>
-                            <td>{formatRelative(row.last_order_at)}</td>
-                            <td><button className={`btn ${row.orders_today >= 5 ? 'red' : 'ghost'}`}>{row.orders_today >= 5 ? 'Bloquear IP' : 'Vigilar'}</button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </article>
+                  {(adminPanel === 'dashboard' || adminPanel === 'antispam') && (
+                    <article className="admin-card spam-card">
+                      <h4>🚨 Panel Anti-Spam — IPs y dispositivos sospechosos</h4>
+                      <table className="spam-table">
+                        <thead>
+                          <tr><th>IP / Dispositivo</th><th>Pedidos hoy</th><th>Cancelados</th><th>Rechazados</th><th>Último pedido</th><th>Acción</th></tr>
+                        </thead>
+                        <tbody>
+                          {adminAntiSpam.map((row) => (
+                            <tr key={row.entity}>
+                              <td>{row.entity}</td>
+                              <td>{row.orders_today}</td>
+                              <td>{row.cancelled}</td>
+                              <td>{row.rejected}</td>
+                              <td>{formatRelative(row.last_order_at)}</td>
+                              <td><button className={`btn ${row.orders_today >= 5 ? 'red' : 'ghost'}`} onClick={() => row.orders_today >= 5 && void blockEntity(row.entity)} disabled={actionLoading}>{row.orders_today >= 5 ? 'Bloquear IP' : 'Vigilar'}</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </article>
+                  )}
 
-                  <article className="admin-card">
-                    <h4>📊 Pedidos por restaurante — últimos 30 días</h4>
-                    <div className="bars">
-                      {adminOrdersChart.map((item) => {
-                        const max = adminOrdersChart[0]?.orders_count ?? 1;
-                        const width = Math.max(8, Math.round((item.orders_count / max) * 100));
-                        return (
-                          <div key={item.restaurant_name} className="bar-row">
-                            <span>{item.restaurant_name}</span>
-                            <div className="bar-track"><div className="bar-fill" style={{ width: `${width}%` }} /></div>
-                            <strong>{item.orders_count}</strong>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </article>
-
-                  <article className="admin-card">
-                    <h4>📝 Solicitudes pendientes para aprobación</h4>
-                    <div className="admin-requests">
-                      {pendingRestaurants.map((request) => (
-                        <article className="admin-request-card" key={request.id}>
-                          <h4>{request.name}</h4>
-                          <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
-                          <div className="admin-status-row">
-                            <span className="status-pill pendiente">PENDIENTE</span>
-                            <div className="order-actions">
-                              <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
-                              <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
+                  {(adminPanel === 'dashboard' || adminPanel === 'mapa') && (
+                    <article className="admin-card">
+                      <h4>📍 Mapa en vivo — restaurantes activos</h4>
+                      <div className="admin-live-map">
+                        {adminMapPoints.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((point) => {
+                          const x = Math.min(96, Math.max(4, ((point.lng + 103) / 1.5) * 100));
+                          const y = Math.min(94, Math.max(6, ((21.8 - point.lat) / 1.2) * 100));
+                          return (
+                            <div key={point.id} className="admin-map-point" style={{ left: `${x}%`, top: `${y}%` }}>
+                              <span className={`admin-map-dot ${point.status === 'ACTIVE' ? 'ok' : 'warn'}`}>📍</span>
+                              <small>{point.name}</small>
                             </div>
-                          </div>
-                        </article>
-                      ))}
-                      {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
-                    </div>
-                  </article>
+                          );
+                        })}
+                      </div>
+                    </article>
+                  )}
+
+                  {(adminPanel === 'dashboard' || adminPanel === 'reportes') && (
+                    <article className="admin-card">
+                      <h4>📊 Pedidos por restaurante — últimos 30 días</h4>
+                      <div className="bars">
+                        {adminOrdersChart.map((item) => {
+                          const max = adminOrdersChart[0]?.orders_count ?? 1;
+                          const width = Math.max(8, Math.round((item.orders_count / max) * 100));
+                          return (
+                            <div key={item.restaurant_name} className="bar-row">
+                              <span>{item.restaurant_name}</span>
+                              <div className="bar-track"><div className="bar-fill" style={{ width: `${width}%` }} /></div>
+                              <strong>{item.orders_count}</strong>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </article>
+                  )}
+
+                  {adminPanel === 'config' && (
+                    <article className="admin-card">
+                      <h4>⚙️ Configuración super admin</h4>
+                      <div className="frow">
+                        <div className="fg"><label>Cuenta actual</label><input className="fi" value={adminUser?.email ?? ''} readOnly /></div>
+                        <div className="fg"><label>Estatus de rol</label><input className="fi" value={isAdmin ? 'SUPER ADMIN ACTIVO' : 'Sin permisos'} readOnly /></div>
+                      </div>
+                      <p style={{ color: 'var(--muted)' }}>Aquí puedes conectar más ajustes operativos (comisiones, horarios globales, reglas anti-spam y notificaciones).</p>
+                    </article>
+                  )}
                 </>
               )}
             </section>

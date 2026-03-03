@@ -84,3 +84,25 @@ export interface AdminOrdersByRestaurant {
   restaurant_name: string;
   orders_count: number;
 }
+
+
+export interface AdminOrderFeedItem {
+  id: string;
+  order_number: number;
+  restaurant_name: string;
+  status: string;
+  total: number;
+  client_name: string | null;
+  client_phone: string | null;
+  client_location_note: string | null;
+  created_at: string;
+}
+
+export interface AdminMapPoint {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  status: RestaurantStatus;
+  is_open: boolean;
+}
