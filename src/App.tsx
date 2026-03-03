@@ -3,10 +3,47 @@ import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
 import { supabase } from './lib/supabase';
 import { formatPrice, statusLabel } from './lib/utils';
-import type { CartItem, MenuItem, Order, Restaurant } from './types';
+import type {
+  AdminActivityItem,
+  AdminAntiSpamItem,
+  AdminOrdersByRestaurant,
+  AdminRestaurantOverview,
+  AdminSummary,
+  CartItem,
+  MenuItem,
+  Order,
+  Restaurant
+} from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'resumen' | 'pedidos' | 'menu' | 'promociones' | 'zona' | 'historial' | 'config';
+
+
+
+const statusClassByRestaurant = {
+  ACTIVE: 'aprobado',
+  PENDING: 'pendiente',
+  SUSPENDED: 'rechazado'
+} as const;
+
+const activityDotClass: Record<string, string> = {
+  ORDER_CREATED: 'dot-orange',
+  ORDER_DELIVERED: 'dot-green',
+  ORDER_CANCELLED: 'dot-orange',
+  SPAM_BLOCK: 'dot-red',
+  REGISTRATION_PENDING: 'dot-amber'
+};
+
+const formatRelative = (value: string) => {
+  const now = Date.now();
+  const ts = new Date(value).getTime();
+  const diffMin = Math.max(1, Math.floor((now - ts) / 60000));
+  if (diffMin < 60) return `hace ${diffMin} min`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `hace ${diffHr} hr`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `hace ${diffDay} día${diffDay > 1 ? 's' : ''}`;
+};
 
 const baseForm = {
   restaurantName: '',
@@ -43,6 +80,18 @@ export default function App() {
 
   const [registerForm, setRegisterForm] = useState(baseForm);
   const [registerMessage, setRegisterMessage] = useState('');
+
+  const [adminSummary, setAdminSummary] = useState<AdminSummary>({
+    active_restaurants: 0,
+    pending_restaurants: 0,
+    orders_month: 0,
+    moved_month: 0,
+    blocked_entities: 0
+  });
+  const [adminRestaurants, setAdminRestaurants] = useState<AdminRestaurantOverview[]>([]);
+  const [adminActivity, setAdminActivity] = useState<AdminActivityItem[]>([]);
+  const [adminAntiSpam, setAdminAntiSpam] = useState<AdminAntiSpamItem[]>([]);
+  const [adminOrdersChart, setAdminOrdersChart] = useState<AdminOrdersByRestaurant[]>([]);
 
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -90,12 +139,12 @@ export default function App() {
       return;
     }
 
-    void loadPendingRestaurants();
+    void Promise.all([loadPendingRestaurants(), loadAdminDashboardData()]);
   }, [isAdmin]);
 
   useEffect(() => {
     if (activeTab === 'admin' && isAdmin) {
-      void loadPendingRestaurants();
+      void Promise.all([loadPendingRestaurants(), loadAdminDashboardData()]);
     }
   }, [activeTab, isAdmin]);
 
@@ -165,6 +214,34 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin.');
+    }
+  };
+
+  const loadAdminDashboardData = async () => {
+    try {
+      const [summaryRes, restaurantsRes, activityRes, antiSpamRes, chartRes] = await Promise.all([
+        supabase.rpc('admin_dashboard_summary'),
+        supabase.rpc('admin_restaurants_overview'),
+        supabase.rpc('admin_recent_activity'),
+        supabase.rpc('admin_antispam_overview'),
+        supabase.rpc('admin_orders_by_restaurant_30d')
+      ]);
+
+      if (summaryRes.error) throw summaryRes.error;
+      if (restaurantsRes.error) throw restaurantsRes.error;
+      if (activityRes.error) throw activityRes.error;
+      if (antiSpamRes.error) throw antiSpamRes.error;
+      if (chartRes.error) throw chartRes.error;
+
+      const summary = (summaryRes.data?.[0] ?? summaryRes.data ?? null) as AdminSummary | null;
+      if (summary) setAdminSummary(summary);
+      setAdminRestaurants((restaurantsRes.data ?? []) as AdminRestaurantOverview[]);
+      setAdminActivity((activityRes.data ?? []) as AdminActivityItem[]);
+      setAdminAntiSpam((antiSpamRes.data ?? []) as AdminAntiSpamItem[]);
+      setAdminOrdersChart((chartRes.data ?? []) as AdminOrdersByRestaurant[]);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo cargar el dashboard del super admin.');
     }
   };
 
@@ -354,7 +431,7 @@ export default function App() {
       });
 
       if (error) throw error;
-      await Promise.all([loadInitialData(), loadPendingRestaurants()]);
+      await Promise.all([loadInitialData(), loadPendingRestaurants(), loadAdminDashboardData()]);
     } catch (error) {
       console.error(error);
       setErrorMessage('No pudimos actualizar el estado del restaurante.');
@@ -579,42 +656,140 @@ export default function App() {
 
       {activeTab === 'admin' && (
         <div className="page active">
-          <div className="section">
-            <div className="s-title">Panel Admin — Solicitudes de restaurantes</div>
-            {!isAdmin ? (
-              <article className="admin-request-card">
-                <h4>Inicia sesión como super admin</h4>
-                <p>Solo las cuentas en <code>admin_profiles</code> pueden aprobar restaurantes pendientes.</p>
-                <div className="frow" style={{ marginTop: '1rem' }}>
-                  <div className="fg"><label>Email admin</label><input className="fi" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@arandaeats.com" /></div>
-                  <div className="fg"><label>Contraseña</label><input className="fi" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="••••••••" /></div>
-                </div>
-                <button className="btn" onClick={signInAdmin} disabled={actionLoading}>Entrar al panel admin</button>
-              </article>
-            ) : (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '1rem', flexWrap: 'wrap' }}>
-                  <p style={{ margin: 0, color: 'var(--muted)' }}>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
-                  <button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button>
-                </div>
-                <div className="admin-requests">
-                  {pendingRestaurants.map((request) => (
-                    <article className="admin-request-card" key={request.id}>
-                      <h4>{request.name}</h4>
-                      <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
-                      <div className="admin-status-row">
-                        <span className="status-pill pendiente">PENDIENTE</span>
-                        <div className="order-actions">
-                          <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
-                          <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
+          <div className="admin-layout">
+            <aside className="admin-sidebar">
+              <h3>⚙️ Admin</h3>
+              <ul>
+                <li className="active">📊 Dashboard</li>
+                <li>🍽️ Restaurantes</li>
+                <li>📦 Pedidos</li>
+                <li>🚨 Anti-spam</li>
+                <li>📍 Mapa en vivo</li>
+                <li>📈 Reportes</li>
+                <li>⚙️ Config</li>
+              </ul>
+            </aside>
+
+            <section className="admin-main">
+              <div className="admin-top">
+                <h2>Panel de Administración — ArandaEats</h2>
+                <span>{new Date().toLocaleDateString('es-MX', { weekday: 'short', day: '2-digit', month: 'short' })} · {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} hrs</span>
+              </div>
+
+              {!isAdmin ? (
+                <article className="admin-card">
+                  <h4>Inicia sesión como super admin</h4>
+                  <p>Solo las cuentas en <code>admin_profiles</code> pueden aprobar restaurantes pendientes.</p>
+                  <div className="frow" style={{ marginTop: '1rem' }}>
+                    <div className="fg"><label>Email admin</label><input className="fi" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@arandaeats.com" /></div>
+                    <div className="fg"><label>Contraseña</label><input className="fi" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="••••••••" /></div>
+                  </div>
+                  <button className="btn" onClick={signInAdmin} disabled={actionLoading}>Entrar al panel admin</button>
+                </article>
+              ) : (
+                <>
+                  <div className="admin-session">
+                    <p>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
+                    <button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button>
+                  </div>
+
+                  <div className="admin-stats">
+                    <article className="admin-stat-card"><strong>{adminSummary.active_restaurants}</strong><span>REST. ACTIVOS</span></article>
+                    <article className="admin-stat-card"><strong style={{ color: 'var(--brand)' }}>{adminSummary.pending_restaurants}</strong><span>PEND. APROB.</span></article>
+                    <article className="admin-stat-card"><strong>{adminSummary.orders_month}</strong><span>PEDIDOS/MES</span></article>
+                    <article className="admin-stat-card"><strong style={{ color: 'var(--green)' }}>{formatPrice(adminSummary.moved_month)}</strong><span>MOVIDO/MES</span></article>
+                    <article className="admin-stat-card"><strong style={{ color: '#C00' }}>{adminSummary.blocked_entities}</strong><span>IPS BLOQ.</span></article>
+                  </div>
+
+                  <div className="admin-grid-2">
+                    <article className="admin-card">
+                      <h4>🍽️ Restaurantes</h4>
+                      {adminRestaurants.map((item) => (
+                        <div key={item.id} className="admin-restaurant-row">
+                          <div>
+                            <strong>{item.name}</strong>
+                            <p>{item.orders_today} pedidos hoy</p>
+                          </div>
+                          <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
                         </div>
-                      </div>
+                      ))}
                     </article>
-                  ))}
-                  {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
-                </div>
-              </>
-            )}
+
+                    <article className="admin-card">
+                      <h4>📡 Actividad reciente</h4>
+                      {adminActivity.map((activity, index) => (
+                        <div key={`${activity.kind}-${index}`} className="admin-activity-row">
+                          <div className={`dot ${activityDotClass[activity.kind] ?? 'dot-orange'}`} />
+                          <div>
+                            <strong>{activity.title}</strong>
+                            <p>{activity.detail}</p>
+                          </div>
+                          <small>{formatRelative(activity.happened_at)}</small>
+                        </div>
+                      ))}
+                    </article>
+                  </div>
+
+                  <article className="admin-card spam-card">
+                    <h4>🚨 Panel Anti-Spam — IPs y dispositivos sospechosos</h4>
+                    <table className="spam-table">
+                      <thead>
+                        <tr><th>IP / Dispositivo</th><th>Pedidos hoy</th><th>Cancelados</th><th>Rechazados</th><th>Último pedido</th><th>Acción</th></tr>
+                      </thead>
+                      <tbody>
+                        {adminAntiSpam.map((row) => (
+                          <tr key={row.entity}>
+                            <td>{row.entity}</td>
+                            <td>{row.orders_today}</td>
+                            <td>{row.cancelled}</td>
+                            <td>{row.rejected}</td>
+                            <td>{formatRelative(row.last_order_at)}</td>
+                            <td><button className={`btn ${row.orders_today >= 5 ? 'red' : 'ghost'}`}>{row.orders_today >= 5 ? 'Bloquear IP' : 'Vigilar'}</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </article>
+
+                  <article className="admin-card">
+                    <h4>📊 Pedidos por restaurante — últimos 30 días</h4>
+                    <div className="bars">
+                      {adminOrdersChart.map((item) => {
+                        const max = adminOrdersChart[0]?.orders_count ?? 1;
+                        const width = Math.max(8, Math.round((item.orders_count / max) * 100));
+                        return (
+                          <div key={item.restaurant_name} className="bar-row">
+                            <span>{item.restaurant_name}</span>
+                            <div className="bar-track"><div className="bar-fill" style={{ width: `${width}%` }} /></div>
+                            <strong>{item.orders_count}</strong>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </article>
+
+                  <article className="admin-card">
+                    <h4>📝 Solicitudes pendientes para aprobación</h4>
+                    <div className="admin-requests">
+                      {pendingRestaurants.map((request) => (
+                        <article className="admin-request-card" key={request.id}>
+                          <h4>{request.name}</h4>
+                          <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
+                          <div className="admin-status-row">
+                            <span className="status-pill pendiente">PENDIENTE</span>
+                            <div className="order-actions">
+                              <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
+                              <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                      {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
+                    </div>
+                  </article>
+                </>
+              )}
+            </section>
           </div>
         </div>
       )}

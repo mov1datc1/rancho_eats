@@ -48,3 +48,39 @@ export interface Order {
   status: string;
   created_at: string;
 }
+
+
+export interface AdminSummary {
+  active_restaurants: number;
+  pending_restaurants: number;
+  orders_month: number;
+  moved_month: number;
+  blocked_entities: number;
+}
+
+export interface AdminRestaurantOverview {
+  id: string;
+  name: string;
+  status: RestaurantStatus;
+  orders_today: number;
+}
+
+export interface AdminActivityItem {
+  kind: string;
+  title: string;
+  detail: string;
+  happened_at: string;
+}
+
+export interface AdminAntiSpamItem {
+  entity: string;
+  orders_today: number;
+  cancelled: number;
+  rejected: number;
+  last_order_at: string;
+}
+
+export interface AdminOrdersByRestaurant {
+  restaurant_name: string;
+  orders_count: number;
+}
