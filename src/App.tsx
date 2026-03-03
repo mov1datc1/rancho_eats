@@ -93,6 +93,12 @@ export default function App() {
     void loadPendingRestaurants();
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (activeTab === 'admin' && isAdmin) {
+      void loadPendingRestaurants();
+    }
+  }, [activeTab, isAdmin]);
+
   const loadCurrentSession = async () => {
     const { data, error } = await supabase.auth.getSession();
     if (error) {
@@ -152,10 +158,7 @@ export default function App() {
   const loadPendingRestaurants = async () => {
     try {
       const { data: pendingData, error: pendingError } = await supabase
-        .from('restaurants')
-        .select('*')
-        .eq('status', 'PENDING')
-        .order('created_at', { ascending: false });
+        .rpc('admin_list_restaurant_requests');
 
       if (pendingError) throw pendingError;
       setPendingRestaurants((pendingData ?? []) as Restaurant[]);
@@ -345,7 +348,11 @@ export default function App() {
 
     try {
       setActionLoading(true);
-      const { error } = await supabase.from('restaurants').update({ status }).eq('id', restaurantId);
+      const { error } = await supabase.rpc('admin_update_restaurant_status', {
+        p_restaurant_id: restaurantId,
+        p_status: status
+      });
+
       if (error) throw error;
       await Promise.all([loadInitialData(), loadPendingRestaurants()]);
     } catch (error) {
