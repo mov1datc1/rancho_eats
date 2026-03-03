@@ -35,6 +35,10 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .mitem{display:flex;gap:.88rem;align-items:center;padding:.72rem 0;border-bottom:1px solid #F5EDE4}.mimg{width:64px;height:64px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.85rem;background:var(--cream)}
 .minfo{flex:1}.mname{font-weight:600;font-size:.9rem}.mprice{font-size:.95rem;font-weight:700;color:var(--brand)}.madd{background:var(--brand);color:#fff;border:none;width:27px;height:27px;border-radius:50%}
 .loc-box{background:#F0F7F4;border:1.5px solid #C3E6D8;border-radius:13px;padding:.95rem 1.1rem;margin-top:.95rem}.loc-map{height:90px;background:#D4EAD0;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1.5px dashed #89C9A8}.loc-set{background:var(--green);color:#fff;border-radius:9px;padding:.65rem 1rem;font-size:.82rem;font-weight:600}
+.loc-preview{width:100%;border-radius:10px;border:1.5px solid #C3E6D8;margin:.5rem 0 .8rem;display:block}
+.coord-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:.65rem}
+.coord-grid label span{display:block;font-size:.7rem;color:var(--muted);font-weight:600;margin-bottom:.2rem}
+
 .cart-bar{background:#fff;border-top:2px solid var(--brand);padding:.9rem 1.3rem;display:flex;align-items:center;justify-content:space-between;position:sticky;bottom:0;border-radius:0 0 22px 22px;margin-top:1rem}
 .track-wrap{max-width:500px;margin:2rem auto;padding:0 1.3rem 3rem}
 @media (max-width:860px){.nav-links{display:none}.ae-nav{padding:0 1rem}.hero{padding:3.5rem 1rem 2.5rem}.section{padding:1.2rem 1rem}}

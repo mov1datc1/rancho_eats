@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import MapPicker from './components/map/MapPicker';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 
@@ -7,7 +8,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [cartTotal, setCartTotal] = useState(0);
-  const [locationSet, setLocationSet] = useState(false);
+  const [clientPoint, setClientPoint] = useState({ lat: 21.0419, lng: -102.3425 });
   const [trackNumber, setTrackNumber] = useState('1043');
 
   const showOrder = useMemo(() => {
@@ -24,7 +25,6 @@ export default function App() {
     setMenuOpen(true);
     setCartCount(0);
     setCartTotal(0);
-    setLocationSet(false);
   };
 
   const tabs: Array<{ key: TabKey; label: string }> = [
@@ -133,14 +133,7 @@ export default function App() {
             <div className="mitem"><div className="mimg">🥩</div><div className="minfo"><div className="mname">Arrachera completa</div></div><div><div className="mprice">$140</div><button className="madd" onClick={() => addItem(140)}>+</button></div></div>
             <div className="mitem"><div className="mimg">🍖</div><div className="minfo"><div className="mname">Combo familiar parrillada</div></div><div><div className="mprice">$480</div><button className="madd" onClick={() => addItem(480)}>+</button></div></div>
 
-            <div className="loc-box">
-              <h4>📍 ¿A dónde te llevamos? <span style={{ color: '#C00' }}>*Requerido</span></h4>
-              {!locationSet ? (
-                <div className="loc-map" onClick={() => setLocationSet(true)}><p>🗺️ Toca para marcar tu ubicación exacta</p></div>
-              ) : (
-                <div className="loc-set" style={{ display: 'flex' }}>✓ Pin colocado — <span onClick={() => setLocationSet(false)}>Cambiar</span></div>
-              )}
-            </div>
+            <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} onChange={setClientPoint} />
 
             {cartCount > 0 && (
               <div className="cart-bar" style={{ display: 'flex' }}>
