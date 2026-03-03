@@ -2,6 +2,15 @@ import { useMemo, useState } from 'react';
 import MapPicker from './components/map/MapPicker';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
+type RestaurantPanelKey = 'resumen' | 'pedidos' | 'menu' | 'promociones' | 'zona' | 'historial' | 'config';
+
+type AdminRequest = {
+  id: string;
+  name: string;
+  owner: string;
+  phone: string;
+  status: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
+};
 
 const trackSteps = [
   { icon: '✓', title: 'Pedido enviado', desc: '2x Arrachera + 1x Combo familiar — $760 en efectivo', status: 'done' },
@@ -12,6 +21,7 @@ const trackSteps = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('cliente');
+  const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('resumen');
   const [menuOpen, setMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [cartTotal, setCartTotal] = useState(0);
@@ -20,6 +30,10 @@ export default function App() {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
+  const [adminRequests, setAdminRequests] = useState<AdminRequest[]>([
+    { id: 'req-1', name: 'Antojitos Doña Petra', owner: 'Petra López', phone: '344 555 1111', status: 'PENDIENTE' },
+    { id: 'req-2', name: 'Cocina El Ranchero', owner: 'Carlos Méndez', phone: '344 555 2222', status: 'PENDIENTE' }
+  ]);
 
   const showOrder = useMemo(() => trackNumber.replace('#', '').trim() === '1043' || trackNumber.trim() === '', [trackNumber]);
 
@@ -37,12 +51,26 @@ export default function App() {
     setCartTotal((v) => v + price);
   };
 
+  const updateRequest = (id: string, status: AdminRequest['status']) => {
+    setAdminRequests((prev) => prev.map((request) => (request.id === id ? { ...request, status } : request)));
+  };
+
   const tabs: Array<{ key: TabKey; label: string }> = [
     { key: 'cliente', label: '👤 Cliente' },
     { key: 'seguimiento', label: '📦 Seguimiento' },
     { key: 'restaurante', label: '🍽️ Restaurante' },
     { key: 'registro', label: '📝 Registro' },
     { key: 'admin', label: '⚙️ Admin' }
+  ];
+
+  const restaurantPanels: Array<{ key: RestaurantPanelKey; label: string }> = [
+    { key: 'resumen', label: '📊 Resumen' },
+    { key: 'pedidos', label: '📦 Pedidos activos' },
+    { key: 'menu', label: '📋 Mi menú' },
+    { key: 'promociones', label: '🏷️ Promociones' },
+    { key: 'zona', label: '📍 Zona de entrega' },
+    { key: 'historial', label: '📈 Historial' },
+    { key: 'config', label: '⚙️ Configuración' }
   ];
 
   return (
@@ -161,9 +189,103 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'restaurante' && <div className="page active"><div className="section"><div className="s-title">Panel Restaurante</div></div></div>}
+      {activeTab === 'restaurante' && (
+        <div className="page active restaurant-page">
+          <aside className="restaurant-sidebar">
+            <h3>🍽️ Mi Restaurante</h3>
+            <ul>
+              {restaurantPanels.map((panel) => (
+                <li key={panel.key}>
+                  <button className={restaurantPanel === panel.key ? 'active' : ''} onClick={() => setRestaurantPanel(panel.key)}>{panel.label}</button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+
+          <section className="restaurant-main">
+            <div className="restaurant-header-row">
+              <div>
+                <h2>El Asadero de Don Chuy</h2>
+                <p>Vie 28 Feb 2026 — <span>● Abierto</span></p>
+              </div>
+              <button className="btn dark">🛑 Cerrar por hoy</button>
+            </div>
+
+            {(restaurantPanel === 'resumen' || restaurantPanel === 'pedidos') && (
+              <>
+                <div className="stats-row">
+                  <article className="stat-card"><p>PEDIDOS HOY</p><strong>12</strong><small>↑ 3 vs ayer</small></article>
+                  <article className="stat-card"><p>EN CAMINO</p><strong>2</strong><small>Activos ahora</small></article>
+                  <article className="stat-card"><p>GANADO HOY</p><strong>$2,480</strong><small>Efectivo</small></article>
+                  <article className="stat-card"><p>CALIFICACIÓN</p><strong>4.8⭐</strong><small>48 reseñas</small></article>
+                </div>
+
+                <div className="orders-grid-title">📦 Pedidos entrantes — ve la ubicación antes de aceptar</div>
+                <div className="orders-grid">
+                  <article className="incoming-order new">
+                    <div className="order-head"><h4>Pedido #1043</h4><span>🔴 NUEVO</span></div>
+                    <p>• 2x Arrachera completa ($280)<br />• 1x Combo familiar ($480)<br /><strong>Total: $760</strong></p>
+                    <div className="client-box">👤 <strong>Juan Pérez</strong> · 📱 <strong>344 123 4567</strong><br />📝 Junto al árbol grande de la entrada, casa de block gris con portón azul</div>
+                    <div className="location-link">🗺️ Ver ubicación exacta — Rancho El Saucito (11.4 km)</div>
+                    <div className="order-actions"><button className="btn green">✓ Aceptar</button><button className="btn ghost">✗ No puedo ir</button></div>
+                  </article>
+
+                  <article className="incoming-order suspicious">
+                    <div className="order-head"><h4>Pedido #1044</h4><span>⚠️ SOSPECHOSO</span></div>
+                    <div className="alert-box">⚠️ Esta IP tiene 3 pedidos activos simultáneos — posible spam</div>
+                    <p>• 1x Arrachera completa ($140)<br /><strong>Total: $140</strong></p>
+                    <div className="client-box danger">👤 Sin nombre · Sin teléfono<br />📝 Sin referencia de ubicación</div>
+                    <div className="location-link">🗺️ Ver ubicación — Coordenadas inusuales</div>
+                    <div className="order-actions"><button className="btn ghost">✗ Rechazar</button><button className="btn red">🚩 Reportar spam</button></div>
+                  </article>
+                </div>
+              </>
+            )}
+
+            {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
+              <div className="menu-editor">
+                <div className="menu-editor-head"><h3>📋 Mi Menú</h3><button className="btn">+ Agregar platillo</button></div>
+                <div className="menu-cards">
+                  <article className="menu-card"><div className="menu-emoji">🥩</div><div className="menu-info"><h4>Arrachera completa</h4><p>$140</p><small>🏷️ 2x1 miércoles</small></div></article>
+                  <article className="menu-card"><div className="menu-emoji">🍗</div><div className="menu-info"><h4>Combo familiar</h4><p>$480</p><small>✅ 4-6 personas</small></div></article>
+                  <article className="menu-card"><div className="menu-emoji">🧀</div><div className="menu-info"><h4>Queso asado</h4><p>$80</p><small>Disponible</small></div></article>
+                  <article className="menu-card dashed"><div>+<br />Nuevo platillo</div></article>
+                </div>
+              </div>
+            )}
+
+            {restaurantPanel === 'promociones' && <div className="panel-placeholder">Promociones: crea descuentos por día, combos y banners para Home.</div>}
+            {restaurantPanel === 'zona' && <div className="panel-placeholder">Zona de entrega: ajusta radio, comunidades y cobertura por rancho.</div>}
+            {restaurantPanel === 'historial' && <div className="panel-placeholder">Historial: consulta pedidos entregados, cancelados y rechazados.</div>}
+            {restaurantPanel === 'config' && <div className="panel-placeholder">Configuración: perfil, horarios, WhatsApp, contraseña y estado abierto/cerrado.</div>}
+          </section>
+        </div>
+      )}
+
       {activeTab === 'registro' && <div className="page active"><div className="section"><div className="s-title">Registro</div></div></div>}
-      {activeTab === 'admin' && <div className="page active"><div className="section"><div className="s-title">Panel Admin</div></div></div>}
+
+      {activeTab === 'admin' && (
+        <div className="page active">
+          <div className="section">
+            <div className="s-title">Panel Admin — Solicitudes de restaurantes</div>
+            <div className="admin-requests">
+              {adminRequests.map((request) => (
+                <article className="admin-request-card" key={request.id}>
+                  <h4>{request.name}</h4>
+                  <p>Propietario: {request.owner} · WhatsApp: {request.phone}</p>
+                  <div className="admin-status-row">
+                    <span className={`status-pill ${request.status.toLowerCase()}`}>{request.status}</span>
+                    <div className="order-actions">
+                      <button className="btn green" onClick={() => updateRequest(request.id, 'APROBADO')}>Aprobar</button>
+                      <button className="btn ghost" onClick={() => updateRequest(request.id, 'RECHAZADO')}>Rechazar</button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
