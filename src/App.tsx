@@ -1,74 +1,287 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import MapPicker from './components/map/MapPicker';
+import { supabase } from './lib/supabase';
+import { formatPrice, statusLabel } from './lib/utils';
+import type { CartItem, MenuItem, Order, Restaurant } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'resumen' | 'pedidos' | 'menu' | 'promociones' | 'zona' | 'historial' | 'config';
 
-type AdminRequest = {
-  id: string;
-  name: string;
-  owner: string;
-  phone: string;
-  status: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
+const baseForm = {
+  restaurantName: '',
+  email: '',
+  whatsapp: '',
+  password: '',
+  type: 'OTRO',
+  description: '',
+  radius: '10',
+  openTime: '09:00',
+  closeTime: '21:00'
 };
-
-const trackSteps = [
-  { icon: '✓', title: 'Pedido enviado', desc: '2x Arrachera + 1x Combo familiar — $760 en efectivo', status: 'done' },
-  { icon: '👀', title: 'Restaurante revisando tu ubicación', desc: 'Verificando si pueden llegar a Rancho Las Flores (8.2 km)', status: 'active' },
-  { icon: '🛵', title: 'En camino', desc: 'Esperando confirmación del restaurante', status: 'wait' },
-  { icon: '✅', title: 'Entregado', desc: 'Pago en efectivo al recibir', status: 'wait' }
-] as const;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('cliente');
   const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('resumen');
+  const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
+
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [pendingRestaurants, setPendingRestaurants] = useState<Restaurant[]>([]);
+  const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [restaurantOrders, setRestaurantOrders] = useState<Order[]>([]);
+
   const [menuOpen, setMenuOpen] = useState(false);
-  const [cartCount, setCartCount] = useState(0);
-  const [cartTotal, setCartTotal] = useState(0);
   const [trackNumber, setTrackNumber] = useState('1043');
+  const [searchedOrder, setSearchedOrder] = useState<Order | null>(null);
+
   const [clientPoint, setClientPoint] = useState({ lat: 21.0419, lng: -102.3425 });
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
-  const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
-  const [adminRequests, setAdminRequests] = useState<AdminRequest[]>([
-    { id: 'req-1', name: 'Antojitos Doña Petra', owner: 'Petra López', phone: '344 555 1111', status: 'PENDIENTE' },
-    { id: 'req-2', name: 'Cocina El Ranchero', owner: 'Carlos Méndez', phone: '344 555 2222', status: 'PENDIENTE' }
-  ]);
+  const [cart, setCart] = useState<Record<string, CartItem>>({});
 
-  const showOrder = useMemo(() => trackNumber.replace('#', '').trim() === '1043' || trackNumber.trim() === '', [trackNumber]);
+  const [registerForm, setRegisterForm] = useState(baseForm);
+  const [registerMessage, setRegisterMessage] = useState('');
 
-  const openMenu = () => {
+  const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const cartItems = useMemo(() => Object.values(cart), [cart]);
+  const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
+  const cartTotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+
+  useEffect(() => {
+    void loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedRestaurant) return;
+    void loadRestaurantData(selectedRestaurant.id);
+  }, [selectedRestaurant?.id]);
+
+  const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      setErrorMessage('');
+
+      const { data: activeData, error: activeError } = await supabase
+        .from('restaurants')
+        .select('*')
+        .eq('status', 'ACTIVE')
+        .order('created_at', { ascending: false });
+
+      if (activeError) throw activeError;
+
+      const parsedActive = (activeData ?? []) as Restaurant[];
+      setRestaurants(parsedActive);
+      setSelectedRestaurant(parsedActive[0] ?? null);
+
+      const { data: pendingData, error: pendingError } = await supabase
+        .from('restaurants')
+        .select('*')
+        .eq('status', 'PENDING')
+        .order('created_at', { ascending: false });
+
+      if (pendingError) throw pendingError;
+      setPendingRestaurants((pendingData ?? []) as Restaurant[]);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRestaurantData = async (restaurantId: string) => {
+    try {
+      const { data: menuData, error: menuError } = await supabase
+        .from('menu_items')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .order('sort_order', { ascending: true });
+
+      if (menuError) throw menuError;
+      setMenuItems((menuData ?? []) as MenuItem[]);
+
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (ordersError) throw ordersError;
+      setRestaurantOrders((ordersData ?? []) as Order[]);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo cargar el menú o los pedidos del restaurante.');
+    }
+  };
+
+  const openMenu = (restaurant: Restaurant) => {
+    setSelectedRestaurant(restaurant);
     setMenuOpen(true);
-    setCartCount(0);
-    setCartTotal(0);
+    setCart({});
     setClientName('');
     setClientPhone('');
     setClientRef('');
   };
 
-  const addItem = (price: number) => {
-    setCartCount((v) => v + 1);
-    setCartTotal((v) => v + price);
+  const addItem = (item: MenuItem) => {
+    setCart((prev) => {
+      const existing = prev[item.id];
+      if (existing) {
+        const qty = existing.qty + 1;
+        return {
+          ...prev,
+          [item.id]: { ...existing, qty, subtotal: qty * existing.unit_price }
+        };
+      }
+
+      return {
+        ...prev,
+        [item.id]: {
+          menu_item_id: item.id,
+          name: item.name,
+          qty: 1,
+          unit_price: item.price,
+          subtotal: item.price
+        }
+      };
+    });
   };
 
-  const updateRequest = (id: string, status: AdminRequest['status']) => {
-    setAdminRequests((prev) => prev.map((request) => (request.id === id ? { ...request, status } : request)));
+  const submitOrder = async () => {
+    if (!selectedRestaurant) return;
+    if (cartCount === 0) {
+      setErrorMessage('Agrega al menos un platillo antes de enviar el pedido.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const { data: orderNumberData, error: orderNumberError } = await supabase.rpc('get_next_order_number');
+      if (orderNumberError) throw orderNumberError;
+
+      const { data: orderData, error: orderInsertError } = await supabase
+        .from('orders')
+        .insert({
+          order_number: Number(orderNumberData),
+          restaurant_id: selectedRestaurant.id,
+          client_name: clientName || null,
+          client_phone: clientPhone || null,
+          client_location_note: clientRef || null,
+          client_lat: clientPoint.lat,
+          client_lng: clientPoint.lng,
+          items: cartItems,
+          total: cartTotal,
+          status: 'PENDING'
+        })
+        .select('*')
+        .single();
+
+      if (orderInsertError) throw orderInsertError;
+
+      setSearchedOrder(orderData as Order);
+      setTrackNumber(`#${orderData.order_number}`);
+      setMenuOpen(false);
+      setActiveTab('seguimiento');
+      await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos enviar el pedido. Inténtalo de nuevo en unos segundos.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const searchOrder = async () => {
+    try {
+      setActionLoading(true);
+      const cleanOrderNumber = Number(trackNumber.replace('#', '').trim());
+      if (!cleanOrderNumber) {
+        setSearchedOrder(null);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('order_number', cleanOrderNumber)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      setSearchedOrder((data as Order | null) ?? null);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos buscar el pedido en este momento.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const submitRegister = async () => {
+    try {
+      setActionLoading(true);
+      setRegisterMessage('');
+
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: registerForm.email,
+        password: registerForm.password
+      });
+
+      if (signUpError) throw signUpError;
+
+      const { error: insertError } = await supabase.from('restaurants').insert({
+        name: registerForm.restaurantName,
+        description: registerForm.description,
+        phone: registerForm.whatsapp,
+        email: registerForm.email,
+        type: registerForm.type,
+        delivery_radius_km: Number(registerForm.radius),
+        zones: selectedZones,
+        open_time: registerForm.openTime,
+        close_time: registerForm.closeTime,
+        owner_id: signUpData.user?.id ?? null,
+        status: 'PENDING'
+      });
+
+      if (insertError) throw insertError;
+
+      setRegisterMessage('✅ Tu solicitud fue enviada. El admin la revisará para activarte.');
+      setRegisterForm(baseForm);
+      setSelectedZones(['Aranda centro']);
+      await loadInitialData();
+    } catch (error) {
+      console.error(error);
+      setRegisterMessage('❌ No se pudo enviar tu registro. Revisa tus datos e inténtalo de nuevo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+    try {
+      setActionLoading(true);
+      const { error } = await supabase.from('restaurants').update({ status }).eq('id', restaurantId);
+      if (error) throw error;
+      await loadInitialData();
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos actualizar el estado del restaurante.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const toggleZone = (zone: string) => {
-    setSelectedZones((prev) =>
-      prev.includes(zone) ? prev.filter((item) => item !== zone) : [...prev, zone]
-    );
+    setSelectedZones((prev) => (prev.includes(zone) ? prev.filter((item) => item !== zone) : [...prev, zone]));
   };
-
-  const tabs: Array<{ key: TabKey; label: string }> = [
-    { key: 'cliente', label: '👤 Cliente' },
-    { key: 'seguimiento', label: '📦 Seguimiento' },
-    { key: 'restaurante', label: '🍽️ Restaurante' },
-    { key: 'registro', label: '📝 Registro' },
-    { key: 'admin', label: '⚙️ Admin' }
-  ];
 
   const restaurantPanels: Array<{ key: RestaurantPanelKey; label: string }> = [
     { key: 'resumen', label: '📊 Resumen' },
@@ -93,20 +306,24 @@ export default function App() {
       </nav>
 
       <div className="tabs">
-        {tabs.map((tab) => (
-          <button key={tab.key} className={`tab ${activeTab === tab.key ? 'active' : ''}`} onClick={() => setActiveTab(tab.key)}>
+        {[
+          { key: 'cliente', label: '👤 Cliente' },
+          { key: 'seguimiento', label: '📦 Seguimiento' },
+          { key: 'restaurante', label: '🍽️ Restaurante' },
+          { key: 'registro', label: '📝 Registro' },
+          { key: 'admin', label: '⚙️ Admin' }
+        ].map((tab) => (
+          <button key={tab.key} className={`tab ${activeTab === tab.key ? 'active' : ''}`} onClick={() => setActiveTab(tab.key as TabKey)}>
             {tab.label}
           </button>
         ))}
       </div>
 
+      {errorMessage && <div className="global-error">{errorMessage}</div>}
+      {loading && <div className="global-loading">Cargando datos de la plataforma…</div>}
+
       {activeTab === 'cliente' && (
         <div className="page active">
-          <div className="pwa-banner">
-            <p>📱 <strong>Instala ArandaEats</strong> en tu celular — sin App Store, directo desde aquí</p>
-            <button className="pwa-install">+ Instalar app</button>
-          </div>
-
           <div className="hero">
             <div className="hero-inner">
               <div className="hero-badge">📍 Aranda de Arandas, Jalisco — y todos sus ranchos</div>
@@ -118,33 +335,15 @@ export default function App() {
           <div className="section">
             <div className="s-title">Restaurantes disponibles</div>
             <div className="rest-grid">
-              <div className="rcard" onClick={openMenu}>
-                <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🥩<div className="rbadge open">Abierto</div></div>
-                <div className="rcard-body"><div className="rname">El Asadero de Don Chuy</div><div className="rmeta"><span>⭐ 4.8</span><span>🕐 ~45 min</span></div></div>
-              </div>
-              <div className="rcard" onClick={openMenu}>
-                <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#4A1A05,#8B4513)' }}>🌮<div className="rbadge open">Abierto</div></div>
-                <div className="rcard-body"><div className="rname">Birriería Don Lupe</div><div className="rmeta"><span>⭐ 4.9</span><span>🕐 ~30 min</span></div></div>
-              </div>
-              <div className="rcard">
-                <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#1A3A1A,#2D6A4F)' }}>🍗<div className="rbadge closed">Cerrado</div></div>
-                <div className="rcard-body"><div className="rname">Pollos Rosticería La Palma</div><div className="rmeta"><span>⭐ 4.6</span><span>🕐 ~35 min</span></div></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="section">
-            <div className="s-title">Mapa de restaurantes</div>
-            <div className="s-sub">Toca el mapa para colocar tu pin. Funciona aunque estés en camino de tierra sin dirección.</div>
-            <div className="map-wrap">
-              <div className="road h" />
-              <div className="road v" />
-              <div className="road dirt" />
-              <div className="map-hint">👆 Toca para colocar tu ubicación</div>
-              <div className="pin" style={{ left: '38%', top: '45%' }}><div className="pin-dot pr"><span>🍽️</span></div><div className="pin-lbl">El Asadero</div></div>
-              <div className="pin" style={{ left: '42%', top: '58%' }}><div className="pin-dot pr"><span>🌮</span></div><div className="pin-lbl">Don Lupe</div></div>
-              <div className="pin" style={{ left: '72%', top: '65%' }}><div className="pin-dot pu"><span>📍</span></div><div className="pin-lbl">Tú — Rancho Las Flores</div></div>
-              <div className="map-legend"><div><span className="ldot" style={{ background: 'var(--brand)' }} />Restaurantes</div><div><span className="ldot" style={{ background: 'var(--green)' }} />Tu ubicación</div></div>
+              {restaurants.map((restaurant) => (
+                <div key={restaurant.id} className="rcard" onClick={() => openMenu(restaurant)}>
+                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🍽️<div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div></div>
+                  <div className="rcard-body">
+                    <div className="rname">{restaurant.name}</div>
+                    <div className="rmeta"><span>📦 {restaurant.type}</span><span>📍 {restaurant.delivery_radius_km} km</span></div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -157,40 +356,26 @@ export default function App() {
               <h3>🔍 Buscar tu pedido</h3>
               <div className="track-input-row">
                 <input className="track-input" value={trackNumber} onChange={(e) => setTrackNumber(e.target.value)} placeholder="ej. 1043 o #1043" />
-                <button className="btn">Buscar</button>
+                <button className="btn" onClick={searchOrder} disabled={actionLoading}>Buscar</button>
               </div>
-              <div className="lookup-help">También puedes entrar directo al link que te compartió el restaurante</div>
             </div>
 
-            {showOrder ? (
+            {searchedOrder ? (
               <div className="track-result">
                 <div className="tr-header">
-                  <div className="tr-num">Pedido</div>
-                  <div className="tr-rest">El Asadero de Don Chuy</div>
-                  <div className="tr-time">Hoy 2:14 PM · Total: $760</div>
+                  <div className="tr-num">Pedido #{searchedOrder.order_number}</div>
+                  <div className="tr-rest">{restaurants.find((item) => item.id === searchedOrder.restaurant_id)?.name ?? 'Restaurante'}</div>
+                  <div className="tr-time">Total: {formatPrice(Number(searchedOrder.total))} · Estado: {statusLabel(searchedOrder.status)}</div>
                 </div>
                 <div className="order-summary">
-                  <div>• 2x Arrachera completa · $280</div>
-                  <div>• 1x Combo familiar parrillada · $480</div>
-                  <div className="summary-foot"><strong>Total: $760</strong> · Pago en efectivo<br />📍 Rancho Las Flores — junto al árbol grande de la entrada<br />👤 Juan Pérez · 📱 344 123 4567</div>
-                </div>
-                <div className="cancel-expired">⏱️ Tiempo de cancelación vencido · Para cancelar llama directamente al restaurante por WhatsApp.</div>
-                <div className="steps">
-                  {trackSteps.map((step) => (
-                    <div className="step" key={step.title}>
-                      <div className={`sdot ${step.status}`}>{step.icon}</div>
-                      <div className="sinfo"><div className="sname">{step.title}</div><div className="sdesc">{step.desc}</div></div>
-                    </div>
+                  {(searchedOrder.items ?? []).map((item) => (
+                    <div key={`${item.menu_item_id}-${item.qty}`}>• {item.qty}x {item.name} · {formatPrice(item.subtotal)}</div>
                   ))}
-                </div>
-                <div className="tr-actions">
-                  <button className="btn ghost">✕ Cancelar pedido</button>
-                  <div className="limit-note">Solo antes de que el restaurante acepte y dentro de los primeros 5 min</div>
-                  <button className="btn green">📲 Llamar al restaurante por WhatsApp · 344 123 4567</button>
+                  <div className="summary-foot"><strong>Total: {formatPrice(Number(searchedOrder.total))}</strong><br />👤 {searchedOrder.client_name ?? 'Sin nombre'} · 📱 {searchedOrder.client_phone ?? 'Sin teléfono'}<br />📍 {searchedOrder.client_location_note ?? 'Sin referencia'}</div>
                 </div>
               </div>
             ) : (
-              <div className="track-lookup">Pedido no encontrado</div>
+              <div className="track-lookup">No hay pedido seleccionado aún. Busca por número para ver el detalle.</div>
             )}
           </div>
         </div>
@@ -202,9 +387,7 @@ export default function App() {
             <h3>🍽️ Mi Restaurante</h3>
             <ul>
               {restaurantPanels.map((panel) => (
-                <li key={panel.key}>
-                  <button className={restaurantPanel === panel.key ? 'active' : ''} onClick={() => setRestaurantPanel(panel.key)}>{panel.label}</button>
-                </li>
+                <li key={panel.key}><button className={restaurantPanel === panel.key ? 'active' : ''} onClick={() => setRestaurantPanel(panel.key)}>{panel.label}</button></li>
               ))}
             </ul>
           </aside>
@@ -212,59 +395,44 @@ export default function App() {
           <section className="restaurant-main">
             <div className="restaurant-header-row">
               <div>
-                <h2>El Asadero de Don Chuy</h2>
-                <p>Vie 28 Feb 2026 — <span>● Abierto</span></p>
+                <h2>{selectedRestaurant?.name ?? 'Sin restaurante activo'}</h2>
+                <p>{selectedRestaurant?.is_open ? '● Abierto' : '● Cerrado'} · {selectedRestaurant?.type ?? 'Sin tipo'}</p>
               </div>
-              <button className="btn dark">🛑 Cerrar por hoy</button>
+            </div>
+
+            <div className="stats-row">
+              <article className="stat-card"><p>PEDIDOS</p><strong>{restaurantOrders.length}</strong><small>Últimos registros</small></article>
+              <article className="stat-card"><p>PENDIENTES</p><strong>{restaurantOrders.filter((o) => o.status === 'PENDING').length}</strong><small>Activos ahora</small></article>
+              <article className="stat-card"><p>GANADO</p><strong>{formatPrice(restaurantOrders.filter((o) => o.status === 'DELIVERED').reduce((acc, item) => acc + Number(item.total), 0))}</strong><small>Entregados</small></article>
+              <article className="stat-card"><p>MENÚ</p><strong>{menuItems.length}</strong><small>Platillos cargados</small></article>
             </div>
 
             {(restaurantPanel === 'resumen' || restaurantPanel === 'pedidos') && (
               <>
-                <div className="stats-row">
-                  <article className="stat-card"><p>PEDIDOS HOY</p><strong>12</strong><small>↑ 3 vs ayer</small></article>
-                  <article className="stat-card"><p>EN CAMINO</p><strong>2</strong><small>Activos ahora</small></article>
-                  <article className="stat-card"><p>GANADO HOY</p><strong>$2,480</strong><small>Efectivo</small></article>
-                  <article className="stat-card"><p>CALIFICACIÓN</p><strong>4.8⭐</strong><small>48 reseñas</small></article>
-                </div>
-
-                <div className="orders-grid-title">📦 Pedidos entrantes — ve la ubicación antes de aceptar</div>
+                <div className="orders-grid-title">📦 Pedidos entrantes</div>
                 <div className="orders-grid">
-                  <article className="incoming-order new">
-                    <div className="order-head"><h4>Pedido #1043</h4><span>🔴 NUEVO</span></div>
-                    <p>• 2x Arrachera completa ($280)<br />• 1x Combo familiar ($480)<br /><strong>Total: $760</strong></p>
-                    <div className="client-box">👤 <strong>Juan Pérez</strong> · 📱 <strong>344 123 4567</strong><br />📝 Junto al árbol grande de la entrada, casa de block gris con portón azul</div>
-                    <div className="location-link">🗺️ Ver ubicación exacta — Rancho El Saucito (11.4 km)</div>
-                    <div className="order-actions"><button className="btn green">✓ Aceptar</button><button className="btn ghost">✗ No puedo ir</button></div>
-                  </article>
-
-                  <article className="incoming-order suspicious">
-                    <div className="order-head"><h4>Pedido #1044</h4><span>⚠️ SOSPECHOSO</span></div>
-                    <div className="alert-box">⚠️ Esta IP tiene 3 pedidos activos simultáneos — posible spam</div>
-                    <p>• 1x Arrachera completa ($140)<br /><strong>Total: $140</strong></p>
-                    <div className="client-box danger">👤 Sin nombre · Sin teléfono<br />📝 Sin referencia de ubicación</div>
-                    <div className="location-link">🗺️ Ver ubicación — Coordenadas inusuales</div>
-                    <div className="order-actions"><button className="btn ghost">✗ Rechazar</button><button className="btn red">🚩 Reportar spam</button></div>
-                  </article>
+                  {restaurantOrders.slice(0, 2).map((order) => (
+                    <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
+                      <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
+                      <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                      <div className="client-box">👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}<br />📝 {order.client_location_note ?? 'Sin referencia de ubicación'}</div>
+                      <div className="order-actions"><button className="btn green">✓ Aceptar</button><button className="btn ghost">✗ No puedo ir</button></div>
+                    </article>
+                  ))}
                 </div>
               </>
             )}
 
             {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
               <div className="menu-editor">
-                <div className="menu-editor-head"><h3>📋 Mi Menú</h3><button className="btn">+ Agregar platillo</button></div>
+                <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
                 <div className="menu-cards">
-                  <article className="menu-card"><div className="menu-emoji">🥩</div><div className="menu-info"><h4>Arrachera completa</h4><p>$140</p><small>🏷️ 2x1 miércoles</small></div></article>
-                  <article className="menu-card"><div className="menu-emoji">🍗</div><div className="menu-info"><h4>Combo familiar</h4><p>$480</p><small>✅ 4-6 personas</small></div></article>
-                  <article className="menu-card"><div className="menu-emoji">🧀</div><div className="menu-info"><h4>Queso asado</h4><p>$80</p><small>Disponible</small></div></article>
-                  <article className="menu-card dashed"><div>+<br />Nuevo platillo</div></article>
+                  {menuItems.map((item) => (
+                    <article className="menu-card" key={item.id}><div className="menu-emoji">🍽️</div><div className="menu-info"><h4>{item.name}</h4><p>{formatPrice(item.price)}</p><small>{item.available ? 'Disponible' : 'No disponible'}</small></div></article>
+                  ))}
                 </div>
               </div>
             )}
-
-            {restaurantPanel === 'promociones' && <div className="panel-placeholder">Promociones: crea descuentos por día, combos y banners para Home.</div>}
-            {restaurantPanel === 'zona' && <div className="panel-placeholder">Zona de entrega: ajusta radio, comunidades y cobertura por rancho.</div>}
-            {restaurantPanel === 'historial' && <div className="panel-placeholder">Historial: consulta pedidos entregados, cancelados y rechazados.</div>}
-            {restaurantPanel === 'config' && <div className="panel-placeholder">Configuración: perfil, horarios, WhatsApp, contraseña y estado abierto/cerrado.</div>}
           </section>
         </div>
       )}
@@ -278,32 +446,21 @@ export default function App() {
                 <p>El admin revisará y activará tu cuenta en 24 hrs</p>
               </div>
               <div className="regbody">
-                <div className="fg"><label>Nombre del restaurante</label><input className="fi" placeholder="ej. Birriería La Guadalupana" /></div>
+                <div className="fg"><label>Nombre del restaurante</label><input className="fi" placeholder="ej. Birriería La Guadalupana" value={registerForm.restaurantName} onChange={(e) => setRegisterForm((p) => ({ ...p, restaurantName: e.target.value }))} /></div>
                 <div className="frow">
-                  <div className="fg"><label>Email</label><input className="fi" type="email" placeholder="tu@correo.com" /></div>
-                  <div className="fg"><label>WhatsApp</label><input className="fi" placeholder="344 000 0000" /></div>
+                  <div className="fg"><label>Email</label><input className="fi" type="email" placeholder="tu@correo.com" value={registerForm.email} onChange={(e) => setRegisterForm((p) => ({ ...p, email: e.target.value }))} /></div>
+                  <div className="fg"><label>WhatsApp</label><input className="fi" placeholder="344 000 0000" value={registerForm.whatsapp} onChange={(e) => setRegisterForm((p) => ({ ...p, whatsapp: e.target.value }))} /></div>
                 </div>
                 <div className="frow">
-                  <div className="fg"><label>Contraseña del panel</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" /></div>
-                  <div className="fg"><label>Tipo de comida</label><select className="fs"><option>Carnes y parrilla</option><option>Birria y caldos</option><option>Tacos y antojitos</option><option>Pollos y asados</option><option>Mariscos</option><option>Comida corrida</option></select></div>
+                  <div className="fg"><label>Contraseña del panel</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" value={registerForm.password} onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))} /></div>
+                  <div className="fg"><label>Tipo de comida</label><select className="fs" value={registerForm.type} onChange={(e) => setRegisterForm((p) => ({ ...p, type: e.target.value }))}><option value="CARNES">Carnes y parrilla</option><option value="BIRRIA">Birria y caldos</option><option value="TACOS">Tacos y antojitos</option><option value="POLLOS">Pollos y asados</option><option value="MARISCOS">Mariscos</option><option value="CORRIDA">Comida corrida</option><option value="ANTOJITOS">Antojitos</option><option value="OTRO">Otro</option></select></div>
                 </div>
-                <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" /></div>
-                <div className="fg"><label>Radio de entrega máximo</label><select className="fs"><option>5 km (solo Aranda centro)</option><option>10 km</option><option>15 km</option><option>20 km (ranchos lejanos)</option><option>Sin límite fijo — caso por caso</option></select></div>
-                <div className="fg">
-                  <label>Zonas que cubre</label>
-                  <div className="zchips">
-                    {['Aranda centro','Arandas','El Saucito','Las Flores','La Providencia','San José','El Llano','Ranchos varios'].map((zone) => (
-                      <button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="fg"><label>Logo del restaurante</label><div className="upload"><div className="uico">📷</div><div>Arrastra o <strong>toca para subir</strong></div><div style={{ fontSize: '.71rem', marginTop: '.25rem' }}>JPG, PNG · Máx 5MB</div></div></div>
-                <div className="frow">
-                  <div className="fg"><label>Apertura</label><input className="fi" type="time" defaultValue="09:00" /></div>
-                  <div className="fg"><label>Cierre</label><input className="fi" type="time" defaultValue="21:00" /></div>
-                </div>
-                <button className="btnreg">Enviar registro →</button>
-                <div className="regterms">Al registrarte aceptas los términos de ArandaEats. Tu solicitud estará activa una vez aprobada.</div>
+                <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" value={registerForm.description} onChange={(e) => setRegisterForm((p) => ({ ...p, description: e.target.value }))} /></div>
+                <div className="fg"><label>Radio de entrega máximo</label><select className="fs" value={registerForm.radius} onChange={(e) => setRegisterForm((p) => ({ ...p, radius: e.target.value }))}><option value="5">5 km</option><option value="10">10 km</option><option value="15">15 km</option><option value="20">20 km</option><option value="30">30 km</option></select></div>
+                <div className="fg"><label>Zonas que cubre</label><div className="zchips">{['Aranda centro', 'Arandas', 'El Saucito', 'Las Flores', 'La Providencia', 'San José', 'El Llano', 'Ranchos varios'].map((zone) => (<button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>))}</div></div>
+                <div className="frow"><div className="fg"><label>Apertura</label><input className="fi" type="time" value={registerForm.openTime} onChange={(e) => setRegisterForm((p) => ({ ...p, openTime: e.target.value }))} /></div><div className="fg"><label>Cierre</label><input className="fi" type="time" value={registerForm.closeTime} onChange={(e) => setRegisterForm((p) => ({ ...p, closeTime: e.target.value }))} /></div></div>
+                <button className="btnreg" onClick={submitRegister} disabled={actionLoading}>Enviar registro →</button>
+                {registerMessage && <div className="regterms">{registerMessage}</div>}
               </div>
             </div>
           </div>
@@ -315,19 +472,20 @@ export default function App() {
           <div className="section">
             <div className="s-title">Panel Admin — Solicitudes de restaurantes</div>
             <div className="admin-requests">
-              {adminRequests.map((request) => (
+              {pendingRestaurants.map((request) => (
                 <article className="admin-request-card" key={request.id}>
                   <h4>{request.name}</h4>
-                  <p>Propietario: {request.owner} · WhatsApp: {request.phone}</p>
+                  <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
                   <div className="admin-status-row">
-                    <span className={`status-pill ${request.status.toLowerCase()}`}>{request.status}</span>
+                    <span className="status-pill pendiente">PENDIENTE</span>
                     <div className="order-actions">
-                      <button className="btn green" onClick={() => updateRequest(request.id, 'APROBADO')}>Aprobar</button>
-                      <button className="btn ghost" onClick={() => updateRequest(request.id, 'RECHAZADO')}>Rechazar</button>
+                      <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
+                      <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
                     </div>
                   </div>
                 </article>
               ))}
+              {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
             </div>
           </div>
         </div>
@@ -335,44 +493,31 @@ export default function App() {
 
       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🥩
-            <button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button>
-          </div>
+          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🍽️<button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button></div>
           <div className="modal-body">
-            <div className="mtitle">El Asadero de Don Chuy</div>
-            <div className="mitem"><div className="mimg">🥩</div><div className="minfo"><div className="mname">Arrachera completa</div><div className="mdesc">300g marinada, tortillas, frijoles y salsas</div></div><div><div className="mprice">$140</div><button className="madd" onClick={() => addItem(140)}>+</button></div></div>
-            <div className="mitem"><div className="mimg">🍖</div><div className="minfo"><div className="mname">Combo familiar parrillada</div><div className="mdesc">1kg carne + costillas + pollo + tortillas + aguas</div></div><div><div className="mprice">$480</div><button className="madd" onClick={() => addItem(480)}>+</button></div></div>
-            <div className="mitem"><div className="mimg">🧀</div><div className="minfo"><div className="mname">Queso asado</div><div className="mdesc">200g con rajas</div></div><div><div className="mprice">$80</div><button className="madd" onClick={() => addItem(80)}>+</button></div></div>
-            <div className="mitem"><div className="mimg">🥤</div><div className="minfo"><div className="mname">Agua fresca 1.5L</div><div className="mdesc">Horchata, limón o Jamaica</div></div><div><div className="mprice">$60</div><button className="madd" onClick={() => addItem(60)}>+</button></div></div>
+            <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div>
+            {menuItems.filter((item) => item.available).map((item) => (
+              <div className="mitem" key={item.id}><div className="mimg">🍽️</div><div className="minfo"><div className="mname">{item.name}</div><div className="mdesc">{item.description ?? 'Sin descripción'}</div></div><div><div className="mprice">{formatPrice(item.price)}</div><button className="madd" onClick={() => addItem(item)}>+</button></div></div>
+            ))}
 
             <div className="client-form">
               <div className="client-form-title">Tus datos de contacto <span>(opcionales pero muy útiles)</span></div>
               <div className="cf-grid">
-                <div>
-                  <label className="cfl">Tu nombre</label>
-                  <input className="cfi" placeholder="ej. Juan Pérez" value={clientName} onChange={(e) => setClientName(e.target.value)} />
-                </div>
-                <div>
-                  <label className="cfl">WhatsApp</label>
-                  <input className="cfi" placeholder="344 123 4567" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} />
-                </div>
+                <div><label className="cfl">Tu nombre</label><input className="cfi" placeholder="ej. Juan Pérez" value={clientName} onChange={(e) => setClientName(e.target.value)} /></div>
+                <div><label className="cfl">WhatsApp</label><input className="cfi" placeholder="344 123 4567" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></div>
               </div>
-              <div>
-                <label className="cfl">Referencia de tu ubicación</label>
-                <textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} />
-              </div>
-              <div className="cf-hint">💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir. Mientras más detallada la referencia, más fácil llega.</div>
+              <div><label className="cfl">Referencia de tu ubicación</label><textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} /></div>
+              <div className="cf-hint">💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir.</div>
             </div>
 
             <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} onChange={setClientPoint} />
 
             {cartCount > 0 && (
               <div className="cart-bar" style={{ display: 'flex' }}>
-                <div className="cart-info">🛒 {cartCount} items · Total: <strong>${cartTotal}</strong></div>
-                <button className="btn" onClick={() => { setMenuOpen(false); setActiveTab('seguimiento'); }}>Enviar pedido →</button>
+                <div className="cart-info">🛒 {cartCount} items · Total: <strong>{formatPrice(cartTotal)}</strong></div>
+                <button className="btn" onClick={submitOrder} disabled={actionLoading}>Enviar pedido →</button>
               </div>
             )}
-            <div className="foot-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
           </div>
         </div>
       </div>
