@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
 import { supabase } from './lib/supabase';
 import { formatPrice, statusLabel } from './lib/utils';
@@ -43,6 +44,11 @@ export default function App() {
   const [registerForm, setRegisterForm] = useState(baseForm);
   const [registerMessage, setRegisterMessage] = useState('');
 
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminUser, setAdminUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -53,12 +59,70 @@ export default function App() {
 
   useEffect(() => {
     void loadInitialData();
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAdminUser(session?.user ?? null);
+      if (!session?.user) {
+        setIsAdmin(false);
+        return;
+      }
+
+      void checkAdminProfile(session.user.id);
+    });
+
+    void loadCurrentSession();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     if (!selectedRestaurant) return;
     void loadRestaurantData(selectedRestaurant.id);
   }, [selectedRestaurant?.id]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setPendingRestaurants([]);
+      return;
+    }
+
+    void loadPendingRestaurants();
+  }, [isAdmin]);
+
+  const loadCurrentSession = async () => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    const currentUser = data.session?.user ?? null;
+    setAdminUser(currentUser);
+
+    if (currentUser) {
+      await checkAdminProfile(currentUser.id);
+    }
+  };
+
+  const checkAdminProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('admin_profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setIsAdmin(Boolean(data));
+    } catch (error) {
+      console.error(error);
+      setIsAdmin(false);
+    }
+  };
 
   const loadInitialData = async () => {
     try {
@@ -77,6 +141,16 @@ export default function App() {
       setRestaurants(parsedActive);
       setSelectedRestaurant(parsedActive[0] ?? null);
 
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadPendingRestaurants = async () => {
+    try {
       const { data: pendingData, error: pendingError } = await supabase
         .from('restaurants')
         .select('*')
@@ -87,9 +161,7 @@ export default function App() {
       setPendingRestaurants((pendingData ?? []) as Restaurant[]);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
-    } finally {
-      setLoading(false);
+      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin.');
     }
   };
 
@@ -266,17 +338,48 @@ export default function App() {
   };
 
   const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+    if (!isAdmin) {
+      setErrorMessage('Solo usuarios admin pueden aprobar o rechazar restaurantes.');
+      return;
+    }
+
     try {
       setActionLoading(true);
       const { error } = await supabase.from('restaurants').update({ status }).eq('id', restaurantId);
       if (error) throw error;
-      await loadInitialData();
+      await Promise.all([loadInitialData(), loadPendingRestaurants()]);
     } catch (error) {
       console.error(error);
       setErrorMessage('No pudimos actualizar el estado del restaurante.');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const signInAdmin = async () => {
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase.auth.signInWithPassword({
+        email: adminEmail,
+        password: adminPassword
+      });
+
+      if (error) throw error;
+      setAdminPassword('');
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo iniciar sesión como admin. Revisa tus credenciales.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const signOutAdmin = async () => {
+    await supabase.auth.signOut();
+    setIsAdmin(false);
+    setAdminUser(null);
+    setPendingRestaurants([]);
   };
 
   const toggleZone = (zone: string) => {
@@ -471,22 +574,40 @@ export default function App() {
         <div className="page active">
           <div className="section">
             <div className="s-title">Panel Admin — Solicitudes de restaurantes</div>
-            <div className="admin-requests">
-              {pendingRestaurants.map((request) => (
-                <article className="admin-request-card" key={request.id}>
-                  <h4>{request.name}</h4>
-                  <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
-                  <div className="admin-status-row">
-                    <span className="status-pill pendiente">PENDIENTE</span>
-                    <div className="order-actions">
-                      <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
-                      <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
-                    </div>
-                  </div>
-                </article>
-              ))}
-              {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
-            </div>
+            {!isAdmin ? (
+              <article className="admin-request-card">
+                <h4>Inicia sesión como super admin</h4>
+                <p>Solo las cuentas en <code>admin_profiles</code> pueden aprobar restaurantes pendientes.</p>
+                <div className="frow" style={{ marginTop: '1rem' }}>
+                  <div className="fg"><label>Email admin</label><input className="fi" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@arandaeats.com" /></div>
+                  <div className="fg"><label>Contraseña</label><input className="fi" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="••••••••" /></div>
+                </div>
+                <button className="btn" onClick={signInAdmin} disabled={actionLoading}>Entrar al panel admin</button>
+              </article>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '1rem', flexWrap: 'wrap' }}>
+                  <p style={{ margin: 0, color: 'var(--muted)' }}>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
+                  <button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button>
+                </div>
+                <div className="admin-requests">
+                  {pendingRestaurants.map((request) => (
+                    <article className="admin-request-card" key={request.id}>
+                      <h4>{request.name}</h4>
+                      <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
+                      <div className="admin-status-row">
+                        <span className="status-pill pendiente">PENDIENTE</span>
+                        <div className="order-actions">
+                          <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
+                          <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                  {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
