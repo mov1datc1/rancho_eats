@@ -1197,6 +1197,23 @@ export default function App() {
                 Si aquí solo ves ACTIVE, casi siempre es por RLS: la policy pública de <code>restaurants</code> permite leer únicamente <code>status = ACTIVE</code>.
                 La confirmación de correo de Supabase Auth no cambia el filtro de estatus; lo que define visibilidad es la sesión + policies/migraciones.
               </p>
+
+              {testViewerInfo.isAdmin && testViewerInfo.pendingVisibleCount === 0 && (
+                <div style={{ marginTop: '.7rem', border: '1px solid #f0b28f', background: '#fff6ef', borderRadius: '10px', padding: '.7rem .85rem' }}>
+                  <p style={{ fontSize: '.82rem', marginBottom: '.35rem' }}><strong>Diagnóstico:</strong> tu cuenta sí está en <code>admin_profiles</code>, pero no está pudiendo leer filas <code>PENDING</code>.</p>
+                  <p style={{ fontSize: '.8rem', color: 'var(--mid)', marginBottom: '.2rem' }}>1) Ejecuta la migración <code>002_admin_restaurant_policies.sql</code> en este mismo proyecto Supabase.</p>
+                  <p style={{ fontSize: '.8rem', color: 'var(--mid)', marginBottom: '.2rem' }}>2) Verifica que exista la policy <code>restaurants_select_admin</code> en la tabla <code>restaurants</code>.</p>
+                  <p style={{ fontSize: '.8rem', color: 'var(--mid)' }}>3) (Opcional) Despliega <code>admin-restaurants</code> para fallback de pendientes si faltan RPCs.</p>
+                </div>
+              )}
+
+              {testViewerInfo.isAdmin && !testViewerInfo.functionAvailable && (
+                <div style={{ marginTop: '.55rem', border: '1px solid #e7d4c2', background: '#fff', borderRadius: '10px', padding: '.65rem .8rem' }}>
+                  <p style={{ fontSize: '.8rem', color: 'var(--muted)' }}>
+                    <strong>Fallback Edge Function:</strong> no disponible. Si quieres validación cruzada de pendientes, despliega <code>supabase/functions/admin-restaurants</code> con CORS habilitado.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="admin-card" style={{ overflow: 'auto' }}>

@@ -25,6 +25,12 @@ Frontend + Supabase para flujo completo de registro de restaurantes, aprobación
 
 - Si en `/pruebas` solo aparecen restaurantes `ACTIVE`, eso normalmente **no** es error de Supabase Auth por confirmación de correo: es RLS. La policy pública de `restaurants` solo deja leer `ACTIVE` para sesiones anónimas/no-admin.
 
+
+- Checklist rápido cuando eres admin pero no ves `PENDING`:
+  1. `select id, status, owner_id from restaurants order by created_at desc;`
+  2. `select policyname from pg_policies where tablename='restaurants';` (debe incluir `restaurants_select_admin`)
+  3. Si falta, aplica `002_admin_restaurant_policies.sql` en el **mismo proyecto** de `VITE_SUPABASE_URL`.
+
 - Si recibes `404` en endpoints `/rpc/admin_*`, el frontend ahora usa fallback automático con consultas directas para que el panel no quede vacío mientras aplicas migraciones.
 
 - Si tu proyecto aún no tiene RPCs y tampoco permite leer `PENDING` por RLS, despliega la Edge Function `admin-restaurants` (`supabase/functions/admin-restaurants`) para listar/aprobar pendientes vía service role como respaldo.
