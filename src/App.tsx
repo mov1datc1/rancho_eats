@@ -84,6 +84,7 @@ export default function App() {
   const [restaurantOrders, setRestaurantOrders] = useState<Order[]>([]);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuLoading, setMenuLoading] = useState(false);
   const [trackNumber, setTrackNumber] = useState('1043');
   const [searchedOrder, setSearchedOrder] = useState<Order | null>(null);
 
@@ -535,6 +536,7 @@ export default function App() {
 
   const loadRestaurantData = async (restaurantId: string) => {
     try {
+      setMenuLoading(true);
       const { data: menuData, error: menuError } = await supabase
         .from('menu_items')
         .select('*')
@@ -556,6 +558,8 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar el menú o los pedidos del restaurante.');
+    } finally {
+      setMenuLoading(false);
     }
   };
 
@@ -566,7 +570,10 @@ export default function App() {
     setClientName('');
     setClientPhone('');
     setClientRef('');
+    void loadRestaurantData(restaurant.id);
   };
+
+  const getItemQty = (menuItemId: string) => cart[menuItemId]?.qty ?? 0;
 
   const addItem = (item: MenuItem) => {
     setCart((prev) => {
@@ -588,6 +595,24 @@ export default function App() {
           unit_price: item.price,
           subtotal: item.price
         }
+      };
+    });
+  };
+
+  const removeItem = (item: MenuItem) => {
+    setCart((prev) => {
+      const existing = prev[item.id];
+      if (!existing) return prev;
+      if (existing.qty <= 1) {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      }
+
+      const qty = existing.qty - 1;
+      return {
+        ...prev,
+        [item.id]: { ...existing, qty, subtotal: qty * existing.unit_price }
       };
     });
   };
@@ -1239,14 +1264,27 @@ export default function App() {
                       <div className="mname">{item.name}</div>
                       <div className="mdesc">{item.description ?? 'Sin descripción'}</div>
                     </div>
-                    <div>
+                    <div className="mcontrols">
                       <div className="mprice">{formatPrice(item.price)}</div>
-                      <button className="madd" onClick={() => addItem(item)}>+</button>
+                      <div className="qty-row">
+                        <button className="madd msub" onClick={() => removeItem(item)}>-</button>
+                        <span className="mqty">{getItemQty(item.id)}</span>
+                        <button className="madd" onClick={() => addItem(item)}>+</button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             ))}
+
+            {menuLoading && <div className="menu-empty">Cargando platillos del restaurante…</div>}
+            {!menuLoading && Object.keys(groupedMenuItems).length === 0 && (
+              <div className="menu-empty">
+                Este restaurante aún no tiene platillos publicados.
+                <br />
+                Pídele al restaurante que agregue su menú en el panel de restaurantes.
+              </div>
+            )}
 
             <div className="client-form">
               <div className="client-form-title">Tus datos de contacto <span>(opcionales pero muy útiles)</span></div>
@@ -1262,12 +1300,10 @@ export default function App() {
 
             <div className="cash-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
 
-            {cartCount > 0 && (
-              <div className="cart-bar" style={{ display: 'flex' }}>
-                <div className="cart-info">🛒 {cartCount} productos · Total: <strong>{formatPrice(cartTotal)}</strong></div>
-                <button className="btn btn-order" onClick={submitOrder} disabled={actionLoading}>HACER PEDIDO</button>
-              </div>
-            )}
+            <div className="cart-bar" style={{ display: 'flex' }}>
+              <div className="cart-info">🛒 {cartCount} productos · Total: <strong>{formatPrice(cartTotal)}</strong></div>
+              <button className="btn btn-order" onClick={submitOrder} disabled={actionLoading || cartCount === 0}>HACER PEDIDO</button>
+            </div>
           </div>
         </div>
       </div>

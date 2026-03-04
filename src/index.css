@@ -203,3 +203,12 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .map-touch{position:relative;cursor:crosshair}
 .map-touch.dragging{cursor:grabbing}
 .map-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:2rem;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3));pointer-events:none}
+
+
+.mcontrols{display:flex;flex-direction:column;align-items:flex-end;gap:.4rem;min-width:128px}
+.qty-row{display:flex;align-items:center;gap:.35rem}
+.mqty{display:inline-flex;min-width:28px;justify-content:center;font-weight:800;color:var(--mid)}
+.msub{background:#8f5c44}
+.menu-empty{border:1.5px dashed #e5cdbd;background:#fff8f2;color:#8b5d46;padding:1rem;border-radius:12px;text-align:center;font-weight:600;margin:.6rem 0 1rem}
+.btn-order:disabled{opacity:.58;cursor:not-allowed}
+.cart-bar{z-index:5}
