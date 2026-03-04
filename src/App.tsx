@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
 import { supabase } from './lib/supabase';
@@ -71,6 +72,7 @@ const baseForm = {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('cliente');
+  const [restaurantsMenuOpen, setRestaurantsMenuOpen] = useState(false);
   const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('resumen');
   const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
   const [adminPanel, setAdminPanel] = useState<AdminPanelKey>('dashboard');
@@ -108,6 +110,9 @@ export default function App() {
   const [adminOrders, setAdminOrders] = useState<AdminOrderFeedItem[]>([]);
   const [adminMapPoints, setAdminMapPoints] = useState<AdminMapPoint[]>([]);
 
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminUser, setAdminUser] = useState<User | null>(null);
@@ -119,6 +124,10 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState('');
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
+  const isAdminRoute = location.pathname === '/administrador';
+  const isRestaurantsRoute = location.pathname === '/restaurantes';
+  const restaurantsMode = new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register';
+
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
   const cartTotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
@@ -172,6 +181,12 @@ export default function App() {
     if (adminPanel === 'pedidos') void loadAdminOrders();
     if (adminPanel === 'mapa') void loadAdminMapPoints();
   }, [activeTab, isAdmin, adminPanel]);
+
+  useEffect(() => {
+    if (isAdminRoute) setActiveTab('admin');
+    else if (isRestaurantsRoute && restaurantsMode === 'register') setActiveTab('registro');
+    else if (isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante') setActiveTab('registro');
+  }, [isAdminRoute, isRestaurantsRoute, restaurantsMode]);
 
 
 
@@ -681,6 +696,26 @@ export default function App() {
     }
   };
 
+
+  const signInRestaurant = async () => {
+    try {
+      setActionLoading(true);
+      setRegisterMessage('');
+      const { error } = await supabase.auth.signInWithPassword({
+        email: registerForm.email,
+        password: registerForm.password
+      });
+      if (error) throw error;
+      setRegisterMessage('✅ Acceso exitoso. Ya puedes gestionar tu restaurante.');
+      setActiveTab('restaurante');
+    } catch (error) {
+      console.error(error);
+      setRegisterMessage('❌ No se pudo iniciar sesión. Verifica correo y contraseña.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
     if (!isAdmin) {
       setErrorMessage('Solo usuarios admin pueden aprobar o rechazar restaurantes.');
@@ -747,33 +782,42 @@ export default function App() {
   return (
     <div>
       <nav className="ae-nav">
-        <div className="logo">Aranda<span>Eats</span></div>
+        <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Aranda<span>Eats</span></div>
         <ul className="nav-links">
-          <li><a href="#">Inicio</a></li>
+          <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
           <li><a href="#">¿Cómo funciona?</a></li>
-          <li><a href="#">Para restaurantes</a></li>
+          <li style={{ position: 'relative' }}>
+            <a href="#" onClick={(e) => { e.preventDefault(); setRestaurantsMenuOpen((prev) => !prev); }}>Para restaurantes</a>
+            {restaurantsMenuOpen && (
+              <div style={{ position: 'absolute', top: '2rem', right: 0, background: '#fff', border: '1px solid #ecd8c7', borderRadius: '10px', boxShadow: 'var(--shadow)', minWidth: '180px', zIndex: 1200 }}>
+                <button className="btn ghost" style={{ width: '100%', border: 0, borderBottom: '1px solid #f0e4d8', borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=register'); setRestaurantsMenuOpen(false); }}>Registrarse</button>
+                <button className="btn ghost" style={{ width: '100%', border: 0, borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=login'); setRestaurantsMenuOpen(false); }}>Ingresar</button>
+              </div>
+            )}
+          </li>
         </ul>
-        <button className="nav-cta" onClick={() => setActiveTab('registro')}>Registrar Restaurante</button>
+        {!isAdminRoute && (
+          <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrar Restaurante</button>
+        )}
       </nav>
 
-      <div className="tabs">
-        {[
-          { key: 'cliente', label: '👤 Cliente' },
-          { key: 'seguimiento', label: '📦 Seguimiento' },
-          { key: 'restaurante', label: '🍽️ Restaurante' },
-          { key: 'registro', label: '📝 Registro' },
-          { key: 'admin', label: '⚙️ Admin' }
-        ].map((tab) => (
-          <button key={tab.key} className={`tab ${activeTab === tab.key ? 'active' : ''}`} onClick={() => setActiveTab(tab.key as TabKey)}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {!isAdminRoute && !isRestaurantsRoute && (
+        <div className="tabs">
+          {[
+            { key: 'cliente', label: '👤 Cliente' },
+            { key: 'seguimiento', label: '📦 Seguimiento' }
+          ].map((tab) => (
+            <button key={tab.key} className={`tab ${activeTab === tab.key ? 'active' : ''}`} onClick={() => setActiveTab(tab.key as TabKey)}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {errorMessage && <div className="global-error">{errorMessage}</div>}
       {loading && <div className="global-loading">Cargando datos de la plataforma…</div>}
 
-      {activeTab === 'cliente' && (
+      {!isAdminRoute && !isRestaurantsRoute && activeTab === 'cliente' && (
         <div className="page active">
           <div className="hero">
             <div className="hero-inner">
@@ -800,7 +844,7 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'seguimiento' && (
+      {!isAdminRoute && !isRestaurantsRoute && activeTab === 'seguimiento' && (
         <div className="page active">
           <div className="track-wrap">
             <div className="track-lookup">
@@ -832,7 +876,7 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'restaurante' && (
+      {isRestaurantsRoute && restaurantsMode === 'login' && activeTab === 'restaurante' && (
         <div className="page active restaurant-page">
           <aside className="restaurant-sidebar">
             <h3>🍽️ Mi Restaurante</h3>
@@ -888,7 +932,7 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'registro' && (
+      {isRestaurantsRoute && restaurantsMode === 'register' && (
         <div className="page active">
           <div className="regpage">
             <div className="regcard">
@@ -918,10 +962,32 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'admin' && (
+
+
+      {isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante' && (
         <div className="page active">
-          <div className="admin-layout">
-            <aside className="admin-sidebar">
+          <div className="regpage">
+            <div className="regcard" style={{ maxWidth: '560px' }}>
+              <div className="reghead">
+                <h2>Ingreso de restaurante</h2>
+                <p>Accede a tu panel con correo y contraseña</p>
+              </div>
+              <div className="regbody">
+                <div className="fg"><label>Email</label><input className="fi" type="email" placeholder="tu@correo.com" value={registerForm.email} onChange={(e) => setRegisterForm((p) => ({ ...p, email: e.target.value }))} /></div>
+                <div className="fg"><label>Contraseña del panel</label><input className="fi" type="password" placeholder="********" value={registerForm.password} onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))} /></div>
+                <button className="btnreg" onClick={signInRestaurant} disabled={actionLoading}>Ingresar al panel →</button>
+                <div className="regterms">¿No tienes cuenta? <a href="#" onClick={(e) => { e.preventDefault(); navigate('/restaurantes?mode=register'); }}>Regístrate aquí</a>.</div>
+                {registerMessage && <div className="regterms">{registerMessage}</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAdminRoute && (
+        <div className="page active">
+          <div className="admin-layout" style={!isAdmin ? { gridTemplateColumns: '1fr' } : undefined}>
+            {isAdmin && (<aside className="admin-sidebar">
               <h3>⚙️ Admin</h3>
               <ul>
                 {[
@@ -942,7 +1008,7 @@ export default function App() {
                   </li>
                 ))}
               </ul>
-            </aside>
+            </aside>)}
 
             <section className="admin-main">
               <div className="admin-top">
