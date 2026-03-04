@@ -131,6 +131,13 @@ export default function App() {
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [testRestaurants, setTestRestaurants] = useState<Array<Pick<Restaurant, 'id' | 'name' | 'status' | 'email' | 'phone' | 'owner_id' | 'created_at'>>>([]);
+  const [testViewerInfo, setTestViewerInfo] = useState({
+    userId: null as string | null,
+    isAdmin: false,
+    pendingVisibleCount: 0,
+    functionPendingCount: 0,
+    functionAvailable: false
+  });
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const isAdminRoute = location.pathname === '/administrador';
@@ -995,13 +1002,54 @@ export default function App() {
       setLoading(true);
       setErrorMessage('');
 
+      const { data: sessionData } = await supabase.auth.getSession();
+      const viewerId = sessionData.session?.user?.id ?? null;
+
+      let viewerIsAdmin = false;
+      if (viewerId) {
+        const { data: adminProfile } = await supabase
+          .from('admin_profiles')
+          .select('id')
+          .eq('id', viewerId)
+          .maybeSingle();
+        viewerIsAdmin = Boolean(adminProfile);
+      }
+
       const { data, error } = await supabase
         .from('restaurants')
         .select('id,name,status,email,phone,owner_id,created_at')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setTestRestaurants((data ?? []) as Array<Pick<Restaurant, 'id' | 'name' | 'status' | 'email' | 'phone' | 'owner_id' | 'created_at'>>);
+
+      const visibleRows = (data ?? []) as Array<Pick<Restaurant, 'id' | 'name' | 'status' | 'email' | 'phone' | 'owner_id' | 'created_at'>>;
+
+      const { count: pendingVisibleCount } = await supabase
+        .from('restaurants')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'PENDING');
+
+      let functionPendingCount = 0;
+      let functionAvailable = false;
+      if (viewerIsAdmin) {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-restaurants', {
+          body: { action: 'list_pending' }
+        });
+
+        if (!fnError) {
+          functionAvailable = true;
+          functionPendingCount = Array.isArray(fnData?.items) ? fnData.items.length : 0;
+        }
+      }
+
+      setTestRestaurants(visibleRows);
+      setTestViewerInfo({
+        userId: viewerId,
+        isAdmin: viewerIsAdmin,
+        pendingVisibleCount: pendingVisibleCount ?? 0,
+        functionPendingCount,
+        functionAvailable
+      });
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar /pruebas. Revisa URL/keys de Supabase y RLS.');
@@ -1128,6 +1176,27 @@ export default function App() {
                 <p style={{ color: 'var(--muted)' }}>Consulta directa a <code>restaurants</code> para validar estatus (ACTIVE/PENDING/SUSPENDED).</p>
               </div>
               <button className="btn" onClick={() => void loadTestRestaurants()} disabled={loading}>Recargar tabla</button>
+            </div>
+
+            <div className="admin-card" style={{ marginBottom: '1rem' }}>
+              <p style={{ fontSize: '.85rem', marginBottom: '.35rem' }}>
+                <strong>Sesión actual:</strong> {testViewerInfo.userId ? `autenticado (${testViewerInfo.userId})` : 'anónimo (sin login)'}
+              </p>
+              <p style={{ fontSize: '.85rem', marginBottom: '.35rem' }}>
+                <strong>Es admin:</strong> {testViewerInfo.isAdmin ? 'sí' : 'no'}
+              </p>
+              <p style={{ fontSize: '.85rem', marginBottom: '.35rem' }}>
+                <strong>PENDING visibles por query directa:</strong> {testViewerInfo.pendingVisibleCount}
+              </p>
+              {testViewerInfo.isAdmin && (
+                <p style={{ fontSize: '.85rem', marginBottom: '.35rem' }}>
+                  <strong>PENDING por Edge Function admin-restaurants:</strong> {testViewerInfo.functionAvailable ? testViewerInfo.functionPendingCount : 'función no disponible / no desplegada'}
+                </p>
+              )}
+              <p style={{ fontSize: '.82rem', color: 'var(--muted)' }}>
+                Si aquí solo ves ACTIVE, casi siempre es por RLS: la policy pública de <code>restaurants</code> permite leer únicamente <code>status = ACTIVE</code>.
+                La confirmación de correo de Supabase Auth no cambia el filtro de estatus; lo que define visibilidad es la sesión + policies/migraciones.
+              </p>
             </div>
 
             <div className="admin-card" style={{ overflow: 'auto' }}>
