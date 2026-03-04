@@ -96,6 +96,12 @@ export default function App() {
 
   const [registerForm, setRegisterForm] = useState(baseForm);
   const [registerMessage, setRegisterMessage] = useState('');
+  const [menuDraft, setMenuDraft] = useState({
+    name: '',
+    description: '',
+    price: '',
+    category: 'Especialidades'
+  });
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
@@ -141,6 +147,7 @@ export default function App() {
       return acc;
     }, {});
   }, [menuItems]);
+  const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
   useEffect(() => {
     void loadInitialData();
@@ -741,17 +748,101 @@ export default function App() {
   };
 
 
+  const loadOwnedRestaurant = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('restaurants')
+      .select('*')
+      .eq('owner_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      setActiveTab('registro');
+      setRegisterMessage('❌ No encontramos un restaurante vinculado a este usuario. Regístralo primero.');
+      return null;
+    }
+
+    const owned = data as Restaurant;
+    setSelectedRestaurant(owned);
+
+    if (owned.status !== 'ACTIVE') {
+      setActiveTab('registro');
+      setRegisterMessage(`⏳ Tu restaurante está en estatus ${owned.status}. El super admin debe aprobarlo para entrar al panel.`);
+      return null;
+    }
+
+    await loadRestaurantData(owned.id);
+    setActiveTab('restaurante');
+    setRegisterMessage(`✅ Bienvenido a tu panel, ${owned.name}.`);
+    return owned;
+  };
+
+  const createMenuItem = async () => {
+    if (!selectedRestaurant) {
+      setErrorMessage('No hay restaurante activo para crear platillos.');
+      return;
+    }
+
+    if (!menuDraft.name.trim() || !menuDraft.price.trim()) {
+      setErrorMessage('Completa nombre y precio del platillo.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const payload = {
+        restaurant_id: selectedRestaurant.id,
+        name: menuDraft.name.trim(),
+        description: menuDraft.description.trim() || null,
+        price: Number(menuDraft.price),
+        category: menuDraft.category.trim() || 'Especialidades',
+        available: true
+      };
+
+      const { error } = await supabase.from('menu_items').insert(payload);
+      if (error) throw error;
+
+      setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category });
+      await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo crear el platillo. Revisa permisos del restaurante.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const toggleMenuItemAvailability = async (item: MenuItem) => {
+    try {
+      setActionLoading(true);
+      const { error } = await supabase.from('menu_items').update({ available: !item.available }).eq('id', item.id);
+      if (error) throw error;
+      if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos actualizar la disponibilidad del platillo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const signInRestaurant = async () => {
     try {
       setActionLoading(true);
       setRegisterMessage('');
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: registerForm.email,
         password: registerForm.password
       });
       if (error) throw error;
-      setRegisterMessage('✅ Acceso exitoso. Ya puedes gestionar tu restaurante.');
-      setActiveTab('restaurante');
+      if (!data.user) throw new Error('Sin usuario autenticado');
+      setAdminUser(data.user);
+      await loadOwnedRestaurant(data.user.id);
     } catch (error) {
       console.error(error);
       setRegisterMessage('❌ No se pudo iniciar sesión. Verifica correo y contraseña.');
@@ -768,12 +859,27 @@ export default function App() {
 
     try {
       setActionLoading(true);
-      const { error } = await supabase.rpc('admin_update_restaurant_status', {
-        p_restaurant_id: restaurantId,
-        p_status: status
-      });
+      let rpcError: unknown = null;
+      if (adminRpcEnabled) {
+        const { error } = await supabase.rpc('admin_update_restaurant_status', {
+          p_restaurant_id: restaurantId,
+          p_status: status
+        });
+        rpcError = error;
+      }
 
-      if (error) throw error;
+      if (!adminRpcEnabled || (rpcError && isRpcMissingError(rpcError))) {
+        const { error: fallbackError } = await supabase
+          .from('restaurants')
+          .update({ status })
+          .eq('id', restaurantId)
+          .eq('status', 'PENDING');
+        if (fallbackError) throw fallbackError;
+        setAdminRpcEnabled(false);
+      } else if (rpcError) {
+        throw rpcError;
+      }
+
       await Promise.all([loadInitialData(), loadPendingRestaurants(), loadAdminDashboardData()]);
     } catch (error) {
       console.error(error);
@@ -966,10 +1072,22 @@ export default function App() {
             {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
               <div className="menu-editor">
                 <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
+                <div className="menu-create-grid">
+                  <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
+                  <div className="fg"><label>Precio MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
+                  <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
+                  <div className="fg menu-create-full"><label>Descripción</label><textarea className="fta" placeholder="Describe ingredientes o promoción" value={menuDraft.description} onChange={(e) => setMenuDraft((prev) => ({ ...prev, description: e.target.value }))} /></div>
+                </div>
+                <button className="btn" onClick={createMenuItem} disabled={actionLoading || !selectedRestaurant}>+ Agregar platillo</button>
                 <div className="menu-cards">
                   {menuItems.map((item) => (
-                    <article className="menu-card" key={item.id}><div className="menu-emoji">🍽️</div><div className="menu-info"><h4>{item.name}</h4><p>{formatPrice(item.price)}</p><small>{item.available ? 'Disponible' : 'No disponible'}</small></div></article>
+                    <article className="menu-card" key={item.id}>
+                      <div className="menu-emoji">🍽️</div>
+                      <div className="menu-info"><h4>{item.name}</h4><p>{formatPrice(item.price)}</p><small>{item.available ? 'Disponible' : 'No disponible'}</small></div>
+                      <button className="btn ghost" onClick={() => toggleMenuItemAvailability(item)}>{item.available ? 'Pausar' : 'Activar'}</button>
+                    </article>
                   ))}
+                  {menuItems.length === 0 && <div className="menu-empty">Aún no tienes platillos. Usa el formulario para agregar el primero.</div>}
                 </div>
               </div>
             )}
@@ -1021,6 +1139,7 @@ export default function App() {
                 <div className="fg"><label>Email</label><input className="fi" type="email" placeholder="tu@correo.com" value={registerForm.email} onChange={(e) => setRegisterForm((p) => ({ ...p, email: e.target.value }))} /></div>
                 <div className="fg"><label>Contraseña del panel</label><input className="fi" type="password" placeholder="********" value={registerForm.password} onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))} /></div>
                 <button className="btnreg" onClick={signInRestaurant} disabled={actionLoading}>Ingresar al panel →</button>
+                {pendingOwnedRestaurant && <div className="pending-badge">⏳ {pendingOwnedRestaurant.name} está pendiente por aprobación del super admin.</div>}
                 <div className="regterms">¿No tienes cuenta? <a href="#" onClick={(e) => { e.preventDefault(); navigate('/restaurantes?mode=register'); }}>Regístrate aquí</a>.</div>
                 {registerMessage && <div className="regterms">{registerMessage}</div>}
               </div>
