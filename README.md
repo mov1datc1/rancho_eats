@@ -24,3 +24,5 @@ Frontend + Supabase para flujo completo de registro de restaurantes, aprobación
 - Si no aparece `Pizzeria JK` en pendientes, usa el botón **Actualizar** en Admin y valida que `VITE_SUPABASE_URL` apunte al mismo proyecto donde ves ese registro.
 
 - Si recibes `404` en endpoints `/rpc/admin_*`, el frontend ahora usa fallback automático con consultas directas para que el panel no quede vacío mientras aplicas migraciones.
+
+- Si tu proyecto aún no tiene RPCs y tampoco permite leer `PENDING` por RLS, despliega la Edge Function `admin-restaurants` (`supabase/functions/admin-restaurants`) para listar/aprobar pendientes vía service role como respaldo.

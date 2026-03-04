@@ -124,7 +124,7 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState('');
   const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminRpcEnabled, setAdminRpcEnabled] = useState(true);
+  const [adminRpcEnabled, setAdminRpcEnabled] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -177,21 +177,38 @@ export default function App() {
   }, [selectedRestaurant?.id]);
 
   useEffect(() => {
-    if (!isAdmin) {
-      setPendingRestaurants([]);
-      setAdminRpcEnabled(true);
-      return;
-    }
+    const bootAdmin = async () => {
+      if (!isAdmin) {
+        setPendingRestaurants([]);
+        setAdminRpcEnabled(false);
+        return;
+      }
 
-    void loadAdminRpcAvailability();
-    void Promise.all([loadPendingRestaurants(), loadAdminDashboardData(), loadAdminOrders(), loadAdminMapPoints()]);
+      const rpcAvailable = await loadAdminRpcAvailability();
+      await Promise.all([
+        loadPendingRestaurants(rpcAvailable),
+        loadAdminDashboardData(rpcAvailable),
+        loadAdminOrders(rpcAvailable),
+        loadAdminMapPoints(rpcAvailable)
+      ]);
+    };
+
+    void bootAdmin();
   }, [isAdmin]);
 
   useEffect(() => {
-    if (activeTab === 'admin' && isAdmin) {
-      void Promise.all([loadPendingRestaurants(), loadAdminDashboardData(), loadAdminOrders(), loadAdminMapPoints()]);
-    }
-  }, [activeTab, isAdmin]);
+    const refreshAdmin = async () => {
+      if (activeTab !== 'admin' || !isAdmin) return;
+      await Promise.all([
+        loadPendingRestaurants(adminRpcEnabled),
+        loadAdminDashboardData(adminRpcEnabled),
+        loadAdminOrders(adminRpcEnabled),
+        loadAdminMapPoints(adminRpcEnabled)
+      ]);
+    };
+
+    void refreshAdmin();
+  }, [activeTab, isAdmin, adminRpcEnabled]);
 
   useEffect(() => {
     if (activeTab !== 'admin' || !isAdmin) return;
@@ -211,10 +228,11 @@ export default function App() {
     const { error } = await supabase.rpc('admin_dashboard_summary');
     if (error && isRpcMissingError(error)) {
       setAdminRpcEnabled(false);
-      return;
+      return false;
     }
 
     setAdminRpcEnabled(true);
+    return true;
   };
 
   const loadCurrentSession = async () => {
@@ -273,9 +291,24 @@ export default function App() {
     }
   };
 
-  const loadPendingRestaurants = async () => {
+
+  const fetchPendingRestaurantsFromFunction = async () => {
+    const { data, error } = await supabase.functions.invoke('admin-restaurants', {
+      body: { action: 'list_pending' }
+    });
+
+    if (error) {
+      const msg = `${error.message ?? ''}`.toLowerCase();
+      if (msg.includes('404') || msg.includes('not found')) return null;
+      throw error;
+    }
+
+    return (data?.items ?? []) as Restaurant[];
+  };
+
+  const loadPendingRestaurants = async (rpcEnabled = adminRpcEnabled) => {
     try {
-      if (adminRpcEnabled) {
+      if (rpcEnabled) {
         const { data: pendingData, error: pendingError } = await supabase
           .rpc('admin_list_restaurant_requests');
 
@@ -294,16 +327,27 @@ export default function App() {
         .order('created_at', { ascending: false });
 
       if (fallbackError) throw fallbackError;
-      setPendingRestaurants((fallbackData ?? []) as Restaurant[]);
+      if ((fallbackData ?? []).length > 0) {
+        setPendingRestaurants((fallbackData ?? []) as Restaurant[]);
+        return;
+      }
+
+      const fnData = await fetchPendingRestaurantsFromFunction();
+      if (fnData) {
+        setPendingRestaurants(fnData);
+        return;
+      }
+
+      setPendingRestaurants([]);
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003 y proyecto Supabase configurado.');
     }
   };
 
-  const loadAdminDashboardData = async () => {
+  const loadAdminDashboardData = async (rpcEnabled = adminRpcEnabled) => {
     try {
-      if (adminRpcEnabled) {
+      if (rpcEnabled) {
         const [summaryRes, restaurantsRes, activityRes, antiSpamRes, chartRes] = await Promise.all([
           supabase.rpc('admin_dashboard_summary'),
           supabase.rpc('admin_restaurants_overview'),
@@ -447,9 +491,9 @@ export default function App() {
     }
   };
 
-  const loadAdminOrders = async () => {
+  const loadAdminOrders = async (rpcEnabled = adminRpcEnabled) => {
     try {
-      if (adminRpcEnabled) {
+      if (rpcEnabled) {
         const { data, error } = await supabase.rpc('admin_orders_feed', { p_limit: 60 });
         if (!error) {
           setAdminOrders((data ?? []) as AdminOrderFeedItem[]);
@@ -481,9 +525,9 @@ export default function App() {
     }
   };
 
-  const loadAdminMapPoints = async () => {
+  const loadAdminMapPoints = async (rpcEnabled = adminRpcEnabled) => {
     try {
-      if (adminRpcEnabled) {
+      if (rpcEnabled) {
         const { data, error } = await supabase.rpc('admin_live_map_points', { p_limit: 120 });
         if (!error) {
           setAdminMapPoints((data ?? []) as AdminMapPoint[]);
@@ -874,7 +918,14 @@ export default function App() {
           .update({ status })
           .eq('id', restaurantId)
           .eq('status', 'PENDING');
-        if (fallbackError) throw fallbackError;
+
+        if (fallbackError) {
+          const { error: fnError } = await supabase.functions.invoke('admin-restaurants', {
+            body: { action: 'update_status', restaurant_id: restaurantId, status }
+          });
+          if (fnError) throw fnError;
+        }
+
         setAdminRpcEnabled(false);
       } else if (rpcError) {
         throw rpcError;
@@ -1194,7 +1245,7 @@ export default function App() {
                 <>
                   <div className="admin-session">
                     <p>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
-                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(), loadAdminDashboardData(), loadAdminOrders(), loadAdminMapPoints()])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
+                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled)])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
                   </div>
 
                   <div className="admin-panel-tabs">
