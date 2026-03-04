@@ -131,6 +131,15 @@ export default function App() {
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
   const cartTotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const groupedMenuItems = useMemo(() => {
+    const source = menuItems.filter((item) => item.available);
+    return source.reduce<Record<string, MenuItem[]>>((acc, item) => {
+      const section = item.category?.trim() || 'Especialidades';
+      if (!acc[section]) acc[section] = [];
+      acc[section].push(item);
+      return acc;
+    }, {});
+  }, [menuItems]);
 
   useEffect(() => {
     void loadInitialData();
@@ -1215,11 +1224,28 @@ export default function App() {
 
       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🍽️<button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button></div>
+          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🥩<button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button></div>
           <div className="modal-body">
-            <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div><div className="mmeta">Completa tus datos y confirma tu pedido para enviarlo al restaurante.</div>
-            {menuItems.filter((item) => item.available).map((item) => (
-              <div className="mitem" key={item.id}><div className="mimg">🍽️</div><div className="minfo"><div className="mname">{item.name}</div><div className="mdesc">{item.description ?? 'Sin descripción'}</div></div><div><div className="mprice">{formatPrice(item.price)}</div><button className="madd" onClick={() => addItem(item)}>+</button></div></div>
+            <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div>
+            <div className="mmeta">⭐ 4.8 · 📍 Hasta {Math.round(selectedRestaurant?.delivery_radius_km ?? 20)} km · ⏱️ ~45 min · 💵 Solo efectivo</div>
+
+            {Object.entries(groupedMenuItems).map(([sectionName, sectionItems]) => (
+              <div key={sectionName} className="menu-section">
+                <h4>{sectionName.toUpperCase()}</h4>
+                {sectionItems.map((item) => (
+                  <div className="mitem" key={item.id}>
+                    <div className="mimg">🍽️</div>
+                    <div className="minfo">
+                      <div className="mname">{item.name}</div>
+                      <div className="mdesc">{item.description ?? 'Sin descripción'}</div>
+                    </div>
+                    <div>
+                      <div className="mprice">{formatPrice(item.price)}</div>
+                      <button className="madd" onClick={() => addItem(item)}>+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             ))}
 
             <div className="client-form">
@@ -1228,16 +1254,18 @@ export default function App() {
                 <div><label className="cfl">Tu nombre</label><input className="cfi" placeholder="ej. Juan Pérez" value={clientName} onChange={(e) => setClientName(e.target.value)} /></div>
                 <div><label className="cfl">WhatsApp</label><input className="cfi" placeholder="344 123 4567" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></div>
               </div>
-              <div><label className="cfl">Referencia de tu ubicación</label><textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} /></div>
-              <div className="cf-hint">💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir.</div>
+              <div><label className="cfl">Referencia de tu ubicación (ayuda mucho al repartidor)</label><textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} /></div>
+              <div className="cf-hint">💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir. Mientras más detallada la referencia, más fácil llega.</div>
             </div>
 
             <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} onChange={setClientPoint} />
 
+            <div className="cash-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
+
             {cartCount > 0 && (
               <div className="cart-bar" style={{ display: 'flex' }}>
-                <div className="cart-info">🛒 {cartCount} items · Total: <strong>{formatPrice(cartTotal)}</strong></div>
-                <button className="btn btn-order" onClick={submitOrder} disabled={actionLoading}>HACER PEDIDO →</button>
+                <div className="cart-info">🛒 {cartCount} productos · Total: <strong>{formatPrice(cartTotal)}</strong></div>
+                <button className="btn btn-order" onClick={submitOrder} disabled={actionLoading}>HACER PEDIDO</button>
               </div>
             )}
           </div>

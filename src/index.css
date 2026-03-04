@@ -194,3 +194,12 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .btn-order{font-size:1rem;padding:.82rem 1.25rem;letter-spacing:.2px}
 .cart-bar{border-top:2px solid #d95b1f;background:#fff7f2}
 .modal-x{font-size:1.15rem;font-weight:700}
+
+.menu-section{margin:1.15rem 0}
+.menu-section h4{color:var(--brand);font-size:1.1rem;font-weight:800;letter-spacing:1px;margin:0 0 .45rem;border-bottom:2px solid #f0dfcf;padding-bottom:.35rem}
+.cash-note{font-size:1.02rem;color:#7a6252;text-align:center;margin:1rem 0 .45rem;font-weight:600}
+.loc-sub{font-size:1rem;color:#2e7a57;font-weight:700;margin-bottom:.6rem}
+.req{color:#c40000}
+.map-touch{position:relative;cursor:crosshair}
+.map-touch.dragging{cursor:grabbing}
+.map-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:2rem;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3));pointer-events:none}
