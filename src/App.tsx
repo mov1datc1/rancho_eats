@@ -112,6 +112,7 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState('');
   const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminRpcEnabled, setAdminRpcEnabled] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -152,9 +153,11 @@ export default function App() {
   useEffect(() => {
     if (!isAdmin) {
       setPendingRestaurants([]);
+      setAdminRpcEnabled(true);
       return;
     }
 
+    void loadAdminRpcAvailability();
     void Promise.all([loadPendingRestaurants(), loadAdminDashboardData(), loadAdminOrders(), loadAdminMapPoints()]);
   }, [isAdmin]);
 
@@ -169,6 +172,18 @@ export default function App() {
     if (adminPanel === 'pedidos') void loadAdminOrders();
     if (adminPanel === 'mapa') void loadAdminMapPoints();
   }, [activeTab, isAdmin, adminPanel]);
+
+
+
+  const loadAdminRpcAvailability = async () => {
+    const { error } = await supabase.rpc('admin_dashboard_summary');
+    if (error && isRpcMissingError(error)) {
+      setAdminRpcEnabled(false);
+      return;
+    }
+
+    setAdminRpcEnabled(true);
+  };
 
   const loadCurrentSession = async () => {
     const { data, error } = await supabase.auth.getSession();
@@ -228,12 +243,16 @@ export default function App() {
 
   const loadPendingRestaurants = async () => {
     try {
-      const { data: pendingData, error: pendingError } = await supabase
-        .rpc('admin_list_restaurant_requests');
+      if (adminRpcEnabled) {
+        const { data: pendingData, error: pendingError } = await supabase
+          .rpc('admin_list_restaurant_requests');
 
-      if (!pendingError) {
-        setPendingRestaurants((pendingData ?? []) as Restaurant[]);
-        return;
+        if (!pendingError) {
+          setPendingRestaurants((pendingData ?? []) as Restaurant[]);
+          return;
+        }
+
+        if (isRpcMissingError(pendingError)) setAdminRpcEnabled(false);
       }
 
       const { data: fallbackData, error: fallbackError } = await supabase
@@ -242,7 +261,7 @@ export default function App() {
         .eq('status', 'PENDING')
         .order('created_at', { ascending: false });
 
-      if (fallbackError) throw pendingError;
+      if (fallbackError) throw fallbackError;
       setPendingRestaurants((fallbackData ?? []) as Restaurant[]);
     } catch (error) {
       console.error(error);
@@ -252,18 +271,38 @@ export default function App() {
 
   const loadAdminDashboardData = async () => {
     try {
-      const [summaryRes, restaurantsRes, activityRes, antiSpamRes, chartRes] = await Promise.all([
-        supabase.rpc('admin_dashboard_summary'),
-        supabase.rpc('admin_restaurants_overview'),
-        supabase.rpc('admin_recent_activity'),
-        supabase.rpc('admin_antispam_overview'),
-        supabase.rpc('admin_orders_by_restaurant_30d')
-      ]);
+      if (adminRpcEnabled) {
+        const [summaryRes, restaurantsRes, activityRes, antiSpamRes, chartRes] = await Promise.all([
+          supabase.rpc('admin_dashboard_summary'),
+          supabase.rpc('admin_restaurants_overview'),
+          supabase.rpc('admin_recent_activity'),
+          supabase.rpc('admin_antispam_overview'),
+          supabase.rpc('admin_orders_by_restaurant_30d')
+        ]);
 
-      const hasRpcMissing = [summaryRes.error, restaurantsRes.error, activityRes.error, antiSpamRes.error, chartRes.error]
-        .some((error) => isRpcMissingError(error));
+        const hasRpcMissing = [summaryRes.error, restaurantsRes.error, activityRes.error, antiSpamRes.error, chartRes.error]
+          .some((error) => isRpcMissingError(error));
 
-      if (hasRpcMissing) {
+        if (!hasRpcMissing) {
+          if (summaryRes.error) throw summaryRes.error;
+          if (restaurantsRes.error) throw restaurantsRes.error;
+          if (activityRes.error) throw activityRes.error;
+          if (antiSpamRes.error) throw antiSpamRes.error;
+          if (chartRes.error) throw chartRes.error;
+
+          const summary = (summaryRes.data?.[0] ?? summaryRes.data ?? null) as AdminSummary | null;
+          if (summary) setAdminSummary(summary);
+          setAdminRestaurants((restaurantsRes.data ?? []) as AdminRestaurantOverview[]);
+          setAdminActivity((activityRes.data ?? []) as AdminActivityItem[]);
+          setAdminAntiSpam((antiSpamRes.data ?? []) as AdminAntiSpamItem[]);
+          setAdminOrdersChart((chartRes.data ?? []) as AdminOrdersByRestaurant[]);
+          return;
+        }
+
+        setAdminRpcEnabled(false);
+      }
+
+      {
         const [restaurantsDataRes, ordersDataRes, blockedDataRes] = await Promise.all([
           supabase.from('restaurants').select('id,name,status,created_at'),
           supabase.from('orders').select('id,restaurant_id,status,total,created_at,order_number,client_name,client_location_note,client_ip,cancelled_at,updated_at').gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
@@ -370,18 +409,6 @@ export default function App() {
         return;
       }
 
-      if (summaryRes.error) throw summaryRes.error;
-      if (restaurantsRes.error) throw restaurantsRes.error;
-      if (activityRes.error) throw activityRes.error;
-      if (antiSpamRes.error) throw antiSpamRes.error;
-      if (chartRes.error) throw chartRes.error;
-
-      const summary = (summaryRes.data?.[0] ?? summaryRes.data ?? null) as AdminSummary | null;
-      if (summary) setAdminSummary(summary);
-      setAdminRestaurants((restaurantsRes.data ?? []) as AdminRestaurantOverview[]);
-      setAdminActivity((activityRes.data ?? []) as AdminActivityItem[]);
-      setAdminAntiSpam((antiSpamRes.data ?? []) as AdminAntiSpamItem[]);
-      setAdminOrdersChart((chartRes.data ?? []) as AdminOrdersByRestaurant[]);
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar el dashboard del super admin.');
@@ -390,13 +417,16 @@ export default function App() {
 
   const loadAdminOrders = async () => {
     try {
-      const { data, error } = await supabase.rpc('admin_orders_feed', { p_limit: 60 });
-      if (!error) {
-        setAdminOrders((data ?? []) as AdminOrderFeedItem[]);
-        return;
-      }
+      if (adminRpcEnabled) {
+        const { data, error } = await supabase.rpc('admin_orders_feed', { p_limit: 60 });
+        if (!error) {
+          setAdminOrders((data ?? []) as AdminOrderFeedItem[]);
+          return;
+        }
 
-      if (!isRpcMissingError(error)) throw error;
+        if (!isRpcMissingError(error)) throw error;
+        setAdminRpcEnabled(false);
+      }
 
       const { data: fallbackOrders, error: fallbackError } = await supabase
         .from('orders')
@@ -421,13 +451,16 @@ export default function App() {
 
   const loadAdminMapPoints = async () => {
     try {
-      const { data, error } = await supabase.rpc('admin_live_map_points', { p_limit: 120 });
-      if (!error) {
-        setAdminMapPoints((data ?? []) as AdminMapPoint[]);
-        return;
-      }
+      if (adminRpcEnabled) {
+        const { data, error } = await supabase.rpc('admin_live_map_points', { p_limit: 120 });
+        if (!error) {
+          setAdminMapPoints((data ?? []) as AdminMapPoint[]);
+          return;
+        }
 
-      if (!isRpcMissingError(error)) throw error;
+        if (!isRpcMissingError(error)) throw error;
+        setAdminRpcEnabled(false);
+      }
 
       const { data: fallbackMap, error: fallbackError } = await supabase
         .from('restaurants')
@@ -448,14 +481,19 @@ export default function App() {
   const blockEntity = async (value: string) => {
     try {
       setActionLoading(true);
-      const { error } = await supabase.rpc('admin_block_entity', {
-        p_value: value,
-        p_reason: 'Bloqueo manual desde panel super admin'
-      });
+      let error = null as { code?: string; message?: string; details?: string } | null;
+      if (adminRpcEnabled) {
+        const rpcRes = await supabase.rpc('admin_block_entity', {
+          p_value: value,
+          p_reason: 'Bloqueo manual desde panel super admin'
+        });
+        error = rpcRes.error as typeof error;
+        if (error && isRpcMissingError(error)) setAdminRpcEnabled(false);
+      }
 
       if (error && !isRpcMissingError(error)) throw error;
 
-      if (error && isRpcMissingError(error)) {
+      if (!adminRpcEnabled || (error && isRpcMissingError(error))) {
         const { error: fallbackError } = await supabase
           .from('blocked_entities')
           .insert({ type: 'IP', value, reason: 'Bloqueo manual desde panel super admin', blocked_by: adminUser?.id ?? null });
