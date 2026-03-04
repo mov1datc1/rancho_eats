@@ -130,10 +130,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [testRestaurants, setTestRestaurants] = useState<Array<Pick<Restaurant, 'id' | 'name' | 'status' | 'email' | 'phone' | 'owner_id' | 'created_at'>>>([]);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const isAdminRoute = location.pathname === '/administrador';
   const isRestaurantsRoute = location.pathname === '/restaurantes';
+  const isTestRoute = location.pathname === '/pruebas';
   const restaurantsMode = new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register';
 
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
@@ -224,6 +226,10 @@ export default function App() {
     else if (isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante') setActiveTab('registro');
   }, [isAdminRoute, isRestaurantsRoute, restaurantsMode]);
 
+  useEffect(() => {
+    if (!isTestRoute) return;
+    void loadTestRestaurants();
+  }, [isTestRoute]);
 
 
   const loadAdminRpcAvailability = async () => {
@@ -984,6 +990,26 @@ export default function App() {
     setSelectedZones((prev) => (prev.includes(zone) ? prev.filter((item) => item !== zone) : [...prev, zone]));
   };
 
+  const loadTestRestaurants = async () => {
+    try {
+      setLoading(true);
+      setErrorMessage('');
+
+      const { data, error } = await supabase
+        .from('restaurants')
+        .select('id,name,status,email,phone,owner_id,created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setTestRestaurants((data ?? []) as Array<Pick<Restaurant, 'id' | 'name' | 'status' | 'email' | 'phone' | 'owner_id' | 'created_at'>>);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo cargar /pruebas. Revisa URL/keys de Supabase y RLS.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const restaurantPanels: Array<{ key: RestaurantPanelKey; label: string }> = [
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
@@ -1001,6 +1027,7 @@ export default function App() {
         <ul className="nav-links">
           <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
           <li><a href="#">¿Cómo funciona?</a></li>
+          <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/pruebas'); }}>Pruebas</a></li>
           <li style={{ position: 'relative' }}>
             <a href="#" onClick={(e) => { e.preventDefault(); setRestaurantsMenuOpen((prev) => !prev); }}>Para restaurantes</a>
             {restaurantsMenuOpen && (
@@ -1016,7 +1043,7 @@ export default function App() {
         )}
       </nav>
 
-      {!isAdminRoute && !isRestaurantsRoute && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && (
         <div className="tabs">
           {[
             { key: 'cliente', label: '👤 Cliente' },
@@ -1032,7 +1059,7 @@ export default function App() {
       {errorMessage && <div className="global-error">{errorMessage}</div>}
       {loading && <div className="global-loading">Cargando datos de la plataforma…</div>}
 
-      {!isAdminRoute && !isRestaurantsRoute && activeTab === 'cliente' && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && activeTab === 'cliente' && (
         <div className="page active">
           <div className="hero">
             <div className="hero-inner">
@@ -1059,7 +1086,7 @@ export default function App() {
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && activeTab === 'seguimiento' && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && activeTab === 'seguimiento' && (
         <div className="page active">
           <div className="track-wrap">
             <div className="track-lookup">
@@ -1088,6 +1115,50 @@ export default function App() {
             ) : (
               <div className="track-lookup">No hay pedido seleccionado aún. Busca por número para ver el detalle.</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {isTestRoute && (
+        <div className="page active">
+          <div className="section">
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.6rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <div>
+                <div className="s-title">🔬 Pruebas de conexión front-back</div>
+                <p style={{ color: 'var(--muted)' }}>Consulta directa a <code>restaurants</code> para validar estatus (ACTIVE/PENDING/SUSPENDED).</p>
+              </div>
+              <button className="btn" onClick={() => void loadTestRestaurants()} disabled={loading}>Recargar tabla</button>
+            </div>
+
+            <div className="admin-card" style={{ overflow: 'auto' }}>
+              <table className="spam-table">
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Estatus</th>
+                    <th>Email</th>
+                    <th>Teléfono</th>
+                    <th>Owner ID</th>
+                    <th>Creado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {testRestaurants.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.name}</td>
+                      <td><span className={`status-pill ${statusClassByRestaurant[row.status]}`}>{row.status}</span></td>
+                      <td>{row.email}</td>
+                      <td>{row.phone}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: '.78rem' }}>{row.owner_id ?? '—'}</td>
+                      <td>{new Date(row.created_at).toLocaleString('es-MX')}</td>
+                    </tr>
+                  ))}
+                  {testRestaurants.length === 0 && !loading && (
+                    <tr><td colSpan={6}>Sin datos disponibles.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

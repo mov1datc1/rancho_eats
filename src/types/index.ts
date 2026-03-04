@@ -14,6 +14,8 @@ export interface Restaurant {
   status: RestaurantStatus;
   owner_id: string | null;
   zones: string[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface MenuItem {
