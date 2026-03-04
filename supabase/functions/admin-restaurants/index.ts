@@ -1,12 +1,29 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json'
+    }
+  });
+
 serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-    }
+    if (!authHeader) return json({ error: 'Unauthorized' }, 401);
 
     const projectUrl = Deno.env.get('PROJECT_URL') ?? Deno.env.get('SUPABASE_URL')!;
     const anonKey = Deno.env.get('ANON_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -17,9 +34,7 @@ serve(async (req) => {
     });
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized user' }), { status: 401 });
-    }
+    if (userError || !userData.user) return json({ error: 'Unauthorized user' }, 401);
 
     const { data: adminProfile } = await userClient
       .from('admin_profiles')
@@ -27,9 +42,7 @@ serve(async (req) => {
       .eq('id', userData.user.id)
       .maybeSingle();
 
-    if (!adminProfile) {
-      return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
-    }
+    if (!adminProfile) return json({ error: 'Forbidden' }, 403);
 
     const body = await req.json().catch(() => ({}));
     const serviceClient = createClient(projectUrl, serviceKey);
@@ -42,14 +55,12 @@ serve(async (req) => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return new Response(JSON.stringify({ items: data ?? [] }), { status: 200 });
+      return json({ items: data ?? [] });
     }
 
     if (body.action === 'update_status') {
       const status = body.status === 'ACTIVE' ? 'ACTIVE' : body.status === 'SUSPENDED' ? 'SUSPENDED' : null;
-      if (!status || !body.restaurant_id) {
-        return new Response(JSON.stringify({ error: 'restaurant_id/status required' }), { status: 400 });
-      }
+      if (!status || !body.restaurant_id) return json({ error: 'restaurant_id/status required' }, 400);
 
       const { error } = await serviceClient
         .from('restaurants')
@@ -57,12 +68,12 @@ serve(async (req) => {
         .eq('id', body.restaurant_id);
 
       if (error) throw error;
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return json({ ok: true });
     }
 
-    return new Response(JSON.stringify({ error: 'Unsupported action' }), { status: 400 });
+    return json({ error: 'Unsupported action' }, 400);
   } catch (error) {
     console.error(error);
-    return new Response(JSON.stringify({ error: 'Internal error' }), { status: 500 });
+    return json({ error: 'Internal error' }, 500);
   }
 });

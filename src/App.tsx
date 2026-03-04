@@ -125,6 +125,7 @@ export default function App() {
   const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminRpcEnabled, setAdminRpcEnabled] = useState(false);
+  const [adminFunctionEnabled, setAdminFunctionEnabled] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -181,6 +182,7 @@ export default function App() {
       if (!isAdmin) {
         setPendingRestaurants([]);
         setAdminRpcEnabled(false);
+        setAdminFunctionEnabled(true);
         return;
       }
 
@@ -293,13 +295,18 @@ export default function App() {
 
 
   const fetchPendingRestaurantsFromFunction = async () => {
+    if (!adminFunctionEnabled) return null;
+
     const { data, error } = await supabase.functions.invoke('admin-restaurants', {
       body: { action: 'list_pending' }
     });
 
     if (error) {
       const msg = `${error.message ?? ''}`.toLowerCase();
-      if (msg.includes('404') || msg.includes('not found')) return null;
+      if (msg.includes('404') || msg.includes('not found') || msg.includes('cors') || msg.includes('failed to send a request')) {
+        setAdminFunctionEnabled(false);
+        return null;
+      }
       throw error;
     }
 
@@ -341,7 +348,7 @@ export default function App() {
       setPendingRestaurants([]);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003 y proyecto Supabase configurado.');
+      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003, CORS de Edge Functions y proyecto Supabase configurado.');
     }
   };
 
@@ -920,10 +927,17 @@ export default function App() {
           .eq('status', 'PENDING');
 
         if (fallbackError) {
+          if (!adminFunctionEnabled) throw fallbackError;
           const { error: fnError } = await supabase.functions.invoke('admin-restaurants', {
             body: { action: 'update_status', restaurant_id: restaurantId, status }
           });
-          if (fnError) throw fnError;
+          if (fnError) {
+            const msg = `${fnError.message ?? ''}`.toLowerCase();
+            if (msg.includes('cors') || msg.includes('failed to send a request') || msg.includes('404') || msg.includes('not found')) {
+              setAdminFunctionEnabled(false);
+            }
+            throw fnError;
+          }
         }
 
         setAdminRpcEnabled(false);
@@ -1408,6 +1422,7 @@ export default function App() {
                         <div className="fg"><label>Estatus de rol</label><input className="fi" value={isAdmin ? 'SUPER ADMIN ACTIVO' : 'Sin permisos'} readOnly /></div>
                       </div>
                       <p style={{ color: 'var(--muted)' }}>Proyecto conectado: <code>{import.meta.env.VITE_SUPABASE_URL}</code></p><p style={{ color: 'var(--muted)' }}>Si en SQL Editor ves restaurantes PENDING y aquí no, casi siempre es por URL/KEY de otro proyecto o migraciones 002/003 faltantes.</p>
+                      <p style={{ color: 'var(--muted)' }}>Fallback Edge Function admin-restaurants: <strong>{adminFunctionEnabled ? 'habilitado' : 'deshabilitado (error CORS/404 detectado)'}</strong>.</p>
                     </article>
                   )}
                 </>
