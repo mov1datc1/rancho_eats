@@ -22,3 +22,5 @@ Frontend + Supabase para flujo completo de registro de restaurantes, aprobación
 - Las secciones Admin de Pedidos, Mapa en vivo y bloqueo manual usan RPCs de `005_admin_sections_rpc.sql`.
 
 - Si no aparece `Pizzeria JK` en pendientes, usa el botón **Actualizar** en Admin y valida que `VITE_SUPABASE_URL` apunte al mismo proyecto donde ves ese registro.
+
+- Si recibes `404` en endpoints `/rpc/admin_*`, el frontend ahora usa fallback automático con consultas directas para que el panel no quede vacío mientras aplicas migraciones.

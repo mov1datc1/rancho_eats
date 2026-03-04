@@ -48,6 +48,15 @@ const formatRelative = (value: string) => {
   return `hace ${diffDay} día${diffDay > 1 ? 's' : ''}`;
 };
 
+const isRpcMissingError = (error: unknown) => {
+  const err = error as { code?: string; message?: string; details?: string } | null;
+  if (!err) return false;
+  return err.code === 'PGRST202'
+    || (err.message ?? '').includes('404')
+    || (err.details ?? '').toLowerCase().includes('function')
+    || (err.message ?? '').toLowerCase().includes('could not find');
+};
+
 const baseForm = {
   restaurantName: '',
   email: '',
@@ -251,6 +260,116 @@ export default function App() {
         supabase.rpc('admin_orders_by_restaurant_30d')
       ]);
 
+      const hasRpcMissing = [summaryRes.error, restaurantsRes.error, activityRes.error, antiSpamRes.error, chartRes.error]
+        .some((error) => isRpcMissingError(error));
+
+      if (hasRpcMissing) {
+        const [restaurantsDataRes, ordersDataRes, blockedDataRes] = await Promise.all([
+          supabase.from('restaurants').select('id,name,status,created_at'),
+          supabase.from('orders').select('id,restaurant_id,status,total,created_at,order_number,client_name,client_location_note,client_ip,cancelled_at,updated_at').gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
+          supabase.from('blocked_entities').select('id,value,reason,created_at')
+        ]);
+
+        if (restaurantsDataRes.error) throw restaurantsDataRes.error;
+        if (ordersDataRes.error) throw ordersDataRes.error;
+        if (blockedDataRes.error) throw blockedDataRes.error;
+
+        const restaurantsData = (restaurantsDataRes.data ?? []) as Array<{ id: string; name: string; status: 'ACTIVE' | 'PENDING' | 'SUSPENDED'; created_at?: string }>;
+        const ordersData = (ordersDataRes.data ?? []) as Array<{ id: string; restaurant_id: string; status: string; total: number; created_at: string; order_number: number; client_name: string | null; client_location_note: string | null; client_ip: string | null; cancelled_at: string | null; updated_at: string }>;
+        const blockedData = (blockedDataRes.data ?? []) as Array<{ id: string; value: string; reason: string | null; created_at: string }>;
+
+        const today = new Date().toISOString().slice(0, 10);
+        const statusWeight = { ACTIVE: 0, PENDING: 1, SUSPENDED: 2 } as const;
+
+        setAdminSummary({
+          active_restaurants: restaurantsData.filter((r) => r.status === 'ACTIVE').length,
+          pending_restaurants: restaurantsData.filter((r) => r.status === 'PENDING').length,
+          orders_month: ordersData.length,
+          moved_month: ordersData
+            .filter((o) => ['DELIVERED', 'ACCEPTED', 'ON_THE_WAY'].includes(o.status))
+            .reduce((acc, item) => acc + Number(item.total), 0),
+          blocked_entities: blockedData.length
+        });
+
+        setAdminRestaurants(
+          restaurantsData
+            .sort((a, b) => (statusWeight[a.status] - statusWeight[b.status]) || ((b.created_at ?? '').localeCompare(a.created_at ?? '')))
+            .slice(0, 8)
+            .map((restaurant) => ({
+              id: restaurant.id,
+              name: restaurant.name,
+              status: restaurant.status,
+              orders_today: ordersData.filter((order) => order.restaurant_id === restaurant.id && order.created_at.slice(0, 10) === today).length
+            }))
+        );
+
+        const activityFromOrders: AdminActivityItem[] = ordersData
+          .slice()
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+          .slice(0, 6)
+          .map((order) => ({
+            kind: order.status === 'CANCELLED' ? 'ORDER_CANCELLED' : order.status === 'DELIVERED' ? 'ORDER_DELIVERED' : 'ORDER_CREATED',
+            title: `Pedido #${order.order_number}`,
+            detail: order.client_location_note ?? order.client_name ?? 'Actividad de pedido',
+            happened_at: order.created_at
+          }));
+
+        const activityFromPending: AdminActivityItem[] = restaurantsData
+          .filter((r) => r.status === 'PENDING')
+          .slice(0, 2)
+          .map((r) => ({
+            kind: 'REGISTRATION_PENDING',
+            title: `Registro nuevo: ${r.name}`,
+            detail: 'Solicitud pendiente de aprobación',
+            happened_at: r.created_at ?? new Date().toISOString()
+          }));
+
+        const activityFromBlocked: AdminActivityItem[] = blockedData
+          .slice(0, 2)
+          .map((b) => ({
+            kind: 'SPAM_BLOCK',
+            title: `Entidad bloqueada: ${b.value}`,
+            detail: b.reason ?? 'Posible spam',
+            happened_at: b.created_at
+          }));
+
+        setAdminActivity(
+          [...activityFromOrders, ...activityFromPending, ...activityFromBlocked]
+            .sort((a, b) => b.happened_at.localeCompare(a.happened_at))
+            .slice(0, 8)
+        );
+
+        const antiSpamMap = new Map<string, { orders_today: number; cancelled: number; rejected: number; last_order_at: string }>();
+        ordersData.forEach((order) => {
+          const key = order.client_ip && order.client_ip.trim() ? order.client_ip : 'Sin IP';
+          const current = antiSpamMap.get(key) ?? { orders_today: 0, cancelled: 0, rejected: 0, last_order_at: order.created_at };
+          if (order.created_at.slice(0, 10) === today) current.orders_today += 1;
+          if (order.status === 'CANCELLED') current.cancelled += 1;
+          if (order.status === 'REJECTED') current.rejected += 1;
+          if (order.created_at > current.last_order_at) current.last_order_at = order.created_at;
+          antiSpamMap.set(key, current);
+        });
+
+        setAdminAntiSpam(
+          Array.from(antiSpamMap.entries())
+            .map(([entity, stats]) => ({ entity, ...stats }))
+            .sort((a, b) => (b.orders_today - a.orders_today) || b.last_order_at.localeCompare(a.last_order_at))
+            .slice(0, 10)
+        );
+
+        setAdminOrdersChart(
+          restaurantsData
+            .map((restaurant) => ({
+              restaurant_name: restaurant.name,
+              orders_count: ordersData.filter((order) => order.restaurant_id === restaurant.id).length
+            }))
+            .sort((a, b) => b.orders_count - a.orders_count)
+            .slice(0, 8)
+        );
+
+        return;
+      }
+
       if (summaryRes.error) throw summaryRes.error;
       if (restaurantsRes.error) throw restaurantsRes.error;
       if (activityRes.error) throw activityRes.error;
@@ -272,8 +391,28 @@ export default function App() {
   const loadAdminOrders = async () => {
     try {
       const { data, error } = await supabase.rpc('admin_orders_feed', { p_limit: 60 });
-      if (error) throw error;
-      setAdminOrders((data ?? []) as AdminOrderFeedItem[]);
+      if (!error) {
+        setAdminOrders((data ?? []) as AdminOrderFeedItem[]);
+        return;
+      }
+
+      if (!isRpcMissingError(error)) throw error;
+
+      const { data: fallbackOrders, error: fallbackError } = await supabase
+        .from('orders')
+        .select('id,order_number,status,total,client_name,client_phone,client_location_note,created_at,restaurant_id')
+        .order('created_at', { ascending: false })
+        .limit(60);
+      if (fallbackError) throw fallbackError;
+
+      const restaurantIds = Array.from(new Set((fallbackOrders ?? []).map((order) => order.restaurant_id).filter(Boolean)));
+      const { data: fallbackRestaurants } = await supabase.from('restaurants').select('id,name').in('id', restaurantIds.length > 0 ? restaurantIds : ['00000000-0000-0000-0000-000000000000']);
+      const byId = new Map((fallbackRestaurants ?? []).map((r) => [r.id, r.name]));
+
+      setAdminOrders(((fallbackOrders ?? []) as Array<{ id: string; order_number: number; status: string; total: number; client_name: string | null; client_phone: string | null; client_location_note: string | null; created_at: string; restaurant_id: string }>).map((order) => ({
+        ...order,
+        restaurant_name: byId.get(order.restaurant_id) ?? 'Restaurante'
+      })) as AdminOrderFeedItem[]);
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la sección de pedidos de admin.');
@@ -283,8 +422,23 @@ export default function App() {
   const loadAdminMapPoints = async () => {
     try {
       const { data, error } = await supabase.rpc('admin_live_map_points', { p_limit: 120 });
-      if (error) throw error;
-      setAdminMapPoints((data ?? []) as AdminMapPoint[]);
+      if (!error) {
+        setAdminMapPoints((data ?? []) as AdminMapPoint[]);
+        return;
+      }
+
+      if (!isRpcMissingError(error)) throw error;
+
+      const { data: fallbackMap, error: fallbackError } = await supabase
+        .from('restaurants')
+        .select('id,name,lat,lng,status,is_open')
+        .not('lat', 'is', null)
+        .not('lng', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(120);
+
+      if (fallbackError) throw fallbackError;
+      setAdminMapPoints((fallbackMap ?? []) as AdminMapPoint[]);
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar el mapa en vivo de admin.');
@@ -298,7 +452,16 @@ export default function App() {
         p_value: value,
         p_reason: 'Bloqueo manual desde panel super admin'
       });
-      if (error) throw error;
+
+      if (error && !isRpcMissingError(error)) throw error;
+
+      if (error && isRpcMissingError(error)) {
+        const { error: fallbackError } = await supabase
+          .from('blocked_entities')
+          .insert({ type: 'IP', value, reason: 'Bloqueo manual desde panel super admin', blocked_by: adminUser?.id ?? null });
+        if (fallbackError) throw fallbackError;
+      }
+
       await Promise.all([loadAdminDashboardData(), loadAdminOrders()]);
     } catch (error) {
       console.error(error);
