@@ -109,6 +109,7 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState('');
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
+  const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
   const cartTotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
 
@@ -221,11 +222,22 @@ export default function App() {
       const { data: pendingData, error: pendingError } = await supabase
         .rpc('admin_list_restaurant_requests');
 
-      if (pendingError) throw pendingError;
-      setPendingRestaurants((pendingData ?? []) as Restaurant[]);
+      if (!pendingError) {
+        setPendingRestaurants((pendingData ?? []) as Restaurant[]);
+        return;
+      }
+
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('restaurants')
+        .select('*')
+        .eq('status', 'PENDING')
+        .order('created_at', { ascending: false });
+
+      if (fallbackError) throw pendingError;
+      setPendingRestaurants((fallbackData ?? []) as Restaurant[]);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin.');
+      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003 y proyecto Supabase configurado.');
     }
   };
 
@@ -751,7 +763,7 @@ export default function App() {
                 <>
                   <div className="admin-session">
                     <p>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
-                    <button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button>
+                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(), loadAdminDashboardData(), loadAdminOrders(), loadAdminMapPoints()])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
                   </div>
 
                   <div className="admin-panel-tabs">
@@ -788,10 +800,10 @@ export default function App() {
                     <article className="admin-card">
                       <h4>📝 Solicitudes pendientes para aprobación</h4>
                       <div className="admin-requests">
-                        {pendingRestaurants.map((request) => (
+                        {(pendingRestaurants.length > 0 ? pendingRestaurants : derivedPendingFromOverview).map((request) => (
                           <article className="admin-request-card" key={request.id}>
                             <h4>{request.name}</h4>
-                            <p>Correo: {request.email} · WhatsApp: {request.phone}</p>
+                            <p>Correo: {'email' in request ? request.email : 'No disponible'} · WhatsApp: {'phone' in request ? request.phone : 'No disponible'}</p>
                             <div className="admin-status-row">
                               <span className="status-pill pendiente">PENDIENTE</span>
                               <div className="order-actions">
@@ -801,7 +813,7 @@ export default function App() {
                             </div>
                           </article>
                         ))}
-                        {pendingRestaurants.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
+                        {pendingRestaurants.length === 0 && derivedPendingFromOverview.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
                       </div>
                     </article>
                   )}
@@ -913,7 +925,7 @@ export default function App() {
                         <div className="fg"><label>Cuenta actual</label><input className="fi" value={adminUser?.email ?? ''} readOnly /></div>
                         <div className="fg"><label>Estatus de rol</label><input className="fi" value={isAdmin ? 'SUPER ADMIN ACTIVO' : 'Sin permisos'} readOnly /></div>
                       </div>
-                      <p style={{ color: 'var(--muted)' }}>Aquí puedes conectar más ajustes operativos (comisiones, horarios globales, reglas anti-spam y notificaciones).</p>
+                      <p style={{ color: 'var(--muted)' }}>Proyecto conectado: <code>{import.meta.env.VITE_SUPABASE_URL}</code></p><p style={{ color: 'var(--muted)' }}>Si en SQL Editor ves restaurantes PENDING y aquí no, casi siempre es por URL/KEY de otro proyecto o migraciones 002/003 faltantes.</p>
                     </article>
                   )}
                 </>
