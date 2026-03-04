@@ -180,3 +180,17 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .admin-map-dot.ok{border:2px solid var(--green)}
 .admin-map-dot.warn{border:2px solid var(--amber)}
 .admin-map-point small{background:#fff;padding:.15rem .4rem;border-radius:6px;font-size:.72rem;font-weight:700;white-space:nowrap}
+
+
+.confirm-pill{background:#ecfff4;border:1.5px solid #b7e7cb;color:#1f6b46;padding:.6rem .75rem;border-radius:10px;margin-bottom:.7rem;font-weight:700}
+.mmeta{font-size:.95rem;color:var(--muted);margin-bottom:.9rem}
+.modal{max-width:860px}
+.client-form{background:#fff8ef;border:1.5px solid #ebd5c2}
+.client-form-title{font-size:1.95rem;line-height:1.1}
+.client-form-title span{font-size:1.05rem}
+.cfl{font-size:.82rem;letter-spacing:.4px}
+.cfi,.cfta{background:#fff;border-color:#e8cdb7}
+.cfta{min-height:88px}
+.btn-order{font-size:1rem;padding:.82rem 1.25rem;letter-spacing:.2px}
+.cart-bar{border-top:2px solid #d95b1f;background:#fff7f2}
+.modal-x{font-size:1.15rem;font-weight:700}

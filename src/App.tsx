@@ -616,6 +616,16 @@ export default function App() {
 
       if (orderInsertError) throw orderInsertError;
 
+      await supabase.functions.invoke('notify-restaurant', {
+        body: {
+          restaurant_id: selectedRestaurant.id,
+          order_number: orderData.order_number,
+          client_name: clientName || 'Sin nombre',
+          client_phone: clientPhone || null,
+          total: cartTotal
+        }
+      });
+
       setSearchedOrder(orderData as Order);
       setTrackNumber(`#${orderData.order_number}`);
       setMenuOpen(false);
@@ -858,15 +868,16 @@ export default function App() {
             {searchedOrder ? (
               <div className="track-result">
                 <div className="tr-header">
-                  <div className="tr-num">Pedido #{searchedOrder.order_number}</div>
+                  <div className="tr-num">Pedido confirmado</div>
                   <div className="tr-rest">{restaurants.find((item) => item.id === searchedOrder.restaurant_id)?.name ?? 'Restaurante'}</div>
-                  <div className="tr-time">Total: {formatPrice(Number(searchedOrder.total))} · Estado: {statusLabel(searchedOrder.status)}</div>
+                  <div className="tr-time">{new Date(searchedOrder.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · Total: {formatPrice(Number(searchedOrder.total))}</div>
                 </div>
                 <div className="order-summary">
+                  <div className="confirm-pill">✅ Tu número de pedido es <strong>#{searchedOrder.order_number}</strong></div>
                   {(searchedOrder.items ?? []).map((item) => (
                     <div key={`${item.menu_item_id}-${item.qty}`}>• {item.qty}x {item.name} · {formatPrice(item.subtotal)}</div>
                   ))}
-                  <div className="summary-foot"><strong>Total: {formatPrice(Number(searchedOrder.total))}</strong><br />👤 {searchedOrder.client_name ?? 'Sin nombre'} · 📱 {searchedOrder.client_phone ?? 'Sin teléfono'}<br />📍 {searchedOrder.client_location_note ?? 'Sin referencia'}</div>
+                  <div className="summary-foot"><strong>Total: {formatPrice(Number(searchedOrder.total))}</strong> · Pago en efectivo<br />📍 {searchedOrder.client_location_note ?? 'Sin referencia'}<br />👤 {searchedOrder.client_name ?? 'Sin nombre'} · 📱 {searchedOrder.client_phone ?? 'Sin teléfono'}<br /><span style={{ color: 'var(--muted)' }}>Comparte este número en la pestaña Seguimiento para revisar el estatus.</span></div>
                 </div>
               </div>
             ) : (
@@ -1206,7 +1217,7 @@ export default function App() {
         <div className="modal" onClick={(e) => e.stopPropagation()}>
           <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🍽️<button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button></div>
           <div className="modal-body">
-            <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div>
+            <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div><div className="mmeta">Completa tus datos y confirma tu pedido para enviarlo al restaurante.</div>
             {menuItems.filter((item) => item.available).map((item) => (
               <div className="mitem" key={item.id}><div className="mimg">🍽️</div><div className="minfo"><div className="mname">{item.name}</div><div className="mdesc">{item.description ?? 'Sin descripción'}</div></div><div><div className="mprice">{formatPrice(item.price)}</div><button className="madd" onClick={() => addItem(item)}>+</button></div></div>
             ))}
@@ -1226,7 +1237,7 @@ export default function App() {
             {cartCount > 0 && (
               <div className="cart-bar" style={{ display: 'flex' }}>
                 <div className="cart-info">🛒 {cartCount} items · Total: <strong>{formatPrice(cartTotal)}</strong></div>
-                <button className="btn" onClick={submitOrder} disabled={actionLoading}>Enviar pedido →</button>
+                <button className="btn btn-order" onClick={submitOrder} disabled={actionLoading}>HACER PEDIDO →</button>
               </div>
             )}
           </div>
