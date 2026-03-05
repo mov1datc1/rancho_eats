@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
+import MapViewer from './components/map/MapViewer';
 import { supabase } from './lib/supabase';
-import { formatPrice, statusLabel } from './lib/utils';
+import { formatPrice, haversineKm, statusLabel } from './lib/utils';
 import type {
   AdminActivityItem,
   AdminAntiSpamItem,
@@ -237,6 +238,47 @@ export default function App() {
     if (!isTestRoute) return;
     void loadTestRestaurants();
   }, [isTestRoute]);
+
+
+  useEffect(() => {
+    if (!selectedRestaurant?.id || activeTab !== 'restaurante') return;
+
+    const channel = supabase
+      .channel(`restaurant-orders-${selectedRestaurant.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `restaurant_id=eq.${selectedRestaurant.id}`
+      }, () => {
+        void loadRestaurantData(selectedRestaurant.id);
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [selectedRestaurant?.id, activeTab]);
+
+  useEffect(() => {
+    if (!searchedOrder?.id) return;
+
+    const channel = supabase
+      .channel(`order-status-${searchedOrder.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'orders',
+        filter: `id=eq.${searchedOrder.id}`
+      }, (payload) => {
+        setSearchedOrder(payload.new as Order);
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [searchedOrder?.id]);
 
 
   const loadAdminRpcAvailability = async () => {
@@ -686,6 +728,43 @@ export default function App() {
         [item.id]: { ...existing, qty, subtotal: qty * existing.unit_price }
       };
     });
+  };
+
+
+  const updateRestaurantOrderStatus = async (
+    order: Order,
+    nextStatus: 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED',
+    reason?: string
+  ) => {
+    if (!selectedRestaurant) return;
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const payload: Record<string, unknown> = {
+        status: nextStatus,
+        rejection_reason: nextStatus === 'REJECTED' ? (reason ?? 'No podemos cubrir esta distancia por ahora.') : null
+      };
+
+      const { error } = await supabase
+        .from('orders')
+        .update(payload)
+        .eq('id', order.id)
+        .eq('restaurant_id', selectedRestaurant.id);
+
+      if (error) throw error;
+      await loadRestaurantData(selectedRestaurant.id);
+
+      if (searchedOrder?.id === order.id) {
+        const { data } = await supabase.from('orders').select('*').eq('id', order.id).maybeSingle();
+        if (data) setSearchedOrder(data as Order);
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos actualizar el estatus del pedido.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const submitOrder = async () => {
@@ -1157,7 +1236,7 @@ export default function App() {
                   {(searchedOrder.items ?? []).map((item) => (
                     <div key={`${item.menu_item_id}-${item.qty}`}>• {item.qty}x {item.name} · {formatPrice(item.subtotal)}</div>
                   ))}
-                  <div className="summary-foot"><strong>Total: {formatPrice(Number(searchedOrder.total))}</strong> · Pago en efectivo<br />📍 {searchedOrder.client_location_note ?? 'Sin referencia'}<br />👤 {searchedOrder.client_name ?? 'Sin nombre'} · 📱 {searchedOrder.client_phone ?? 'Sin teléfono'}<br /><span style={{ color: 'var(--muted)' }}>Comparte este número en la pestaña Seguimiento para revisar el estatus.</span></div>
+                  <div className="summary-foot"><strong>Total: {formatPrice(Number(searchedOrder.total))}</strong> · Pago en efectivo<br />📌 Estatus actual: <strong>{statusLabel(searchedOrder.status)}</strong>{searchedOrder.status === 'REJECTED' && searchedOrder.rejection_reason ? ` · Motivo: ${searchedOrder.rejection_reason}` : ''}<br />📍 {searchedOrder.client_location_note ?? 'Sin referencia'}<br />👤 {searchedOrder.client_name ?? 'Sin nombre'} · 📱 {searchedOrder.client_phone ?? 'Sin teléfono'}<br /><span style={{ color: 'var(--muted)' }}>Esta vista se actualiza automáticamente cuando el restaurante cambia el estatus.</span></div>
                 </div>
               </div>
             ) : (
@@ -1279,14 +1358,58 @@ export default function App() {
               <>
                 <div className="orders-grid-title">📦 Pedidos entrantes</div>
                 <div className="orders-grid">
-                  {restaurantOrders.slice(0, 2).map((order) => (
-                    <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
-                      <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
-                      <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
-                      <div className="client-box">👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}<br />📝 {order.client_location_note ?? 'Sin referencia de ubicación'}</div>
-                      <div className="order-actions"><button className="btn green">✓ Aceptar</button><button className="btn ghost">✗ No puedo ir</button></div>
-                    </article>
-                  ))}
+                  {restaurantOrders.length === 0 && <div className="menu-empty">Aún no hay pedidos entrantes para este restaurante.</div>}
+                  {restaurantOrders.map((order) => {
+                    const distanceKm =
+                      selectedRestaurant?.lat != null
+                      && selectedRestaurant?.lng != null
+                      && order.client_lat != null
+                      && order.client_lng != null
+                        ? haversineKm(selectedRestaurant.lat, selectedRestaurant.lng, order.client_lat, order.client_lng)
+                        : null;
+
+                    return (
+                      <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
+                        <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
+                        <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                        <div className="client-box">👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}<br />📝 {order.client_location_note ?? 'Sin referencia de ubicación'}</div>
+                        <div className="distance-box">📍 Distancia estimada: <strong>{distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'Sin coordenadas suficientes'}</strong></div>
+                        {order.client_lat != null && order.client_lng != null && (
+                          <div className="mini-map-box">
+                            <MapViewer lat={order.client_lat} lng={order.client_lng} title={`Pedido #${order.order_number} · Ubicación cliente`} />
+                            <a className="map-link" href={`https://maps.google.com/?q=${order.client_lat},${order.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                          </div>
+                        )}
+
+                        {order.status === 'PENDING' && (
+                          <div className="order-actions">
+                            <button className="btn green" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED')}>✓ Aceptar pedido</button>
+                            <button
+                              className="btn amber"
+                              disabled={actionLoading}
+                              onClick={() => {
+                                const reason = window.prompt('Motivo de rechazo por distancia:', 'No alcanzamos a cubrir esa zona por ahora.');
+                                if (reason !== null) void updateRestaurantOrderStatus(order, 'REJECTED', reason);
+                              }}
+                            >✗ Rechazar por distancia</button>
+                            <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
+                          </div>
+                        )}
+
+                        {order.status === 'ACCEPTED' && (
+                          <div className="order-actions">
+                            <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ON_THE_WAY')}>🛵 Marcar en camino</button>
+                          </div>
+                        )}
+
+                        {order.status === 'ON_THE_WAY' && (
+                          <div className="order-actions">
+                            <button className="btn green" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'DELIVERED')}>✅ Marcar entregado</button>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
                 </div>
               </>
             )}
