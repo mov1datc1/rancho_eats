@@ -48,6 +48,7 @@ export interface Order {
   items: CartItem[];
   total: number;
   status: string;
+  rejection_reason?: string | null;
   created_at: string;
 }
 

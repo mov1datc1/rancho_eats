@@ -78,6 +78,8 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .order-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:.7rem}.order-head h4{font-size:2rem}.order-head span{font-weight:700;color:var(--brand)}
 .incoming-order p{font-size:1.1rem;color:var(--muted);line-height:1.5;margin-bottom:.7rem}
 .client-box{background:var(--cream);border-radius:10px;padding:.7rem;font-size:1.1rem}.client-box.danger{background:#fff3f3;color:#8b2020}
+.wa-link{display:inline-flex;align-items:center;gap:.25rem;background:#25D366;color:#fff;text-decoration:none;font-weight:700;font-size:.85rem;padding:.15rem .5rem;border-radius:999px;margin-left:.35rem}
+.wa-link::before{content:"🟢";font-size:.7rem}
 .alert-box{background:#fff3f3;border-radius:10px;padding:.6rem;margin-bottom:.6rem;color:#8b2020;font-weight:700}
 .location-link{color:var(--green);font-weight:700;margin:.7rem 0;font-size:1.1rem}.order-actions{display:flex;gap:.5rem;flex-wrap:wrap}
 

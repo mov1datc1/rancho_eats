@@ -677,6 +677,12 @@ export default function App() {
   };
 
   const openMenu = (restaurant: Restaurant) => {
+    if (!restaurant.is_open) {
+      setErrorMessage('Este restaurante está cerrado por ahora, disculpa las molestias ocasionadas.');
+      return;
+    }
+
+    setErrorMessage('');
     setSelectedRestaurant(restaurant);
     setMenuOpen(true);
     setCart({});
@@ -921,6 +927,42 @@ export default function App() {
     setActiveTab('restaurante');
     setRegisterMessage(`✅ Bienvenido a tu panel, ${owned.name}.`);
     return owned;
+  };
+
+
+  const toggleRestaurantOpenStatus = async () => {
+    if (!selectedRestaurant) return;
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const nextOpenState = !selectedRestaurant.is_open;
+
+      const { data, error } = await supabase
+        .from('restaurants')
+        .update({ is_open: nextOpenState })
+        .eq('id', selectedRestaurant.id)
+        .eq('owner_id', adminUser?.id ?? '')
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      setSelectedRestaurant(data as Restaurant);
+      await Promise.all([loadInitialData(), loadRestaurantData(selectedRestaurant.id)]);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo actualizar el estado de abierto/cerrado del restaurante.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const buildWhatsAppUrl = (phone: string | null | undefined) => {
+    const clean = (phone ?? '').replace(/\D/g, '');
+    if (!clean) return null;
+    const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
+    return `https://wa.me/${withCountry}`;
   };
 
   const createMenuItem = async () => {
@@ -1345,6 +1387,13 @@ export default function App() {
                 <h2>{selectedRestaurant?.name ?? 'Sin restaurante activo'}</h2>
                 <p>{selectedRestaurant?.is_open ? '● Abierto' : '● Cerrado'} · {selectedRestaurant?.type ?? 'Sin tipo'}</p>
               </div>
+              <button
+                className={`btn ${selectedRestaurant?.is_open ? 'ghost' : 'green'}`}
+                onClick={() => void toggleRestaurantOpenStatus()}
+                disabled={actionLoading || !selectedRestaurant}
+              >
+                {selectedRestaurant?.is_open ? 'Cerrar restaurante' : 'Abrir restaurante'}
+              </button>
             </div>
 
             <div className="stats-row">
@@ -1372,7 +1421,18 @@ export default function App() {
                       <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
                         <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
                         <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
-                        <div className="client-box">👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}<br />📝 {order.client_location_note ?? 'Sin referencia de ubicación'}</div>
+                        <div className="client-box">
+                          👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
+                          {buildWhatsAppUrl(order.client_phone) && (
+                            <>
+                              {' '}
+                              <a className="wa-link" href={buildWhatsAppUrl(order.client_phone) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp">
+                                WhatsApp
+                              </a>
+                            </>
+                          )}
+                          <br />📝 {order.client_location_note ?? 'Sin referencia de ubicación'}
+                        </div>
                         <div className="distance-box">📍 Distancia estimada: <strong>{distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'Sin coordenadas suficientes'}</strong></div>
                         {order.client_lat != null && order.client_lng != null && (
                           <div className="mini-map-box">
