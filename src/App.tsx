@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
@@ -140,6 +140,11 @@ export default function App() {
     functionAvailable: false
   });
 
+  const [showPwaBanner, setShowPwaBanner] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => (typeof Notification !== 'undefined' ? Notification.permission : 'default'));
+  const searchedOrderStatusRef = useRef<string | null>(null);
+
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const isAdminRoute = location.pathname === '/administrador';
   const isRestaurantsRoute = location.pathname === '/restaurantes';
@@ -159,6 +164,45 @@ export default function App() {
     }, {});
   }, [menuItems]);
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
+
+
+  const playNewOrderSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+      oscillator.connect(gain);
+      gain.connect(audioCtx.destination);
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 0.42);
+    } catch {
+      // no-op
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if (typeof Notification === 'undefined') return 'denied' as NotificationPermission;
+    if (Notification.permission === 'granted') {
+      setNotificationPermission('granted');
+      return 'granted';
+    }
+    const result = await Notification.requestPermission();
+    setNotificationPermission(result);
+    return result;
+  };
+
+  const notifyUser = async (title: string, body: string) => {
+    if (typeof Notification === 'undefined') return;
+    const permission = Notification.permission === 'granted' ? 'granted' : await requestNotificationPermission();
+    if (permission === 'granted') {
+      new Notification(title, { body, icon: '/icon-192.svg' });
+    }
+  };
 
   useEffect(() => {
     void loadInitialData();
@@ -241,6 +285,18 @@ export default function App() {
 
 
   useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredPrompt(event as any);
+      setShowPwaBanner(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+
+  useEffect(() => {
     if (!selectedRestaurant?.id || activeTab !== 'restaurante') return;
 
     const channel = supabase
@@ -250,8 +306,14 @@ export default function App() {
         schema: 'public',
         table: 'orders',
         filter: `restaurant_id=eq.${selectedRestaurant.id}`
-      }, () => {
+      }, (payload) => {
         void loadRestaurantData(selectedRestaurant.id);
+
+        const next = payload.new as Order;
+        if (payload.eventType === 'INSERT' && next?.status === 'PENDING') {
+          void notifyUser('Nuevo pedido entrante', `Pedido #${next.order_number} listo para revisar en tu panel.`);
+          playNewOrderSound();
+        }
       })
       .subscribe();
 
@@ -271,7 +333,17 @@ export default function App() {
         table: 'orders',
         filter: `id=eq.${searchedOrder.id}`
       }, (payload) => {
-        setSearchedOrder(payload.new as Order);
+        const nextOrder = payload.new as Order;
+        setSearchedOrder(nextOrder);
+
+        if (searchedOrderStatusRef.current && searchedOrderStatusRef.current !== nextOrder.status) {
+          void notifyUser(
+            `Pedido #${nextOrder.order_number} actualizado`,
+            `Nuevo estatus: ${statusLabel(nextOrder.status)}`
+          );
+        }
+
+        searchedOrderStatusRef.current = nextOrder.status;
       })
       .subscribe();
 
@@ -280,6 +352,20 @@ export default function App() {
     };
   }, [searchedOrder?.id]);
 
+
+  useEffect(() => {
+    searchedOrderStatusRef.current = searchedOrder?.status ?? null;
+  }, [searchedOrder?.id]);
+
+
+
+  const installPwa = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    setDeferredPrompt(null);
+    setShowPwaBanner(false);
+  };
 
   const loadAdminRpcAvailability = async () => {
     const { error } = await supabase.rpc('admin_dashboard_summary');
@@ -1216,6 +1302,13 @@ export default function App() {
           <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrar Restaurante</button>
         )}
       </nav>
+
+      {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && (
+        <div className="pwa-banner">
+          <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
+          <button className="pwa-install" onClick={() => void installPwa()}>Instalar app</button>
+        </div>
+      )}
 
       {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && (
         <div className="tabs">

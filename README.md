@@ -36,3 +36,33 @@ Frontend + Supabase para flujo completo de registro de restaurantes, aprobación
 - Si tu proyecto aún no tiene RPCs y tampoco permite leer `PENDING` por RLS, despliega la Edge Function `admin-restaurants` (`supabase/functions/admin-restaurants`) para listar/aprobar pendientes vía service role como respaldo.
 
 - Si usas `admin-restaurants`, verifica que esté desplegada la versión con respuesta `OPTIONS` y headers CORS (`Access-Control-Allow-Origin`, etc.) para evitar bloqueos del navegador.
+
+
+## Deploy en Vercel y prueba PWA
+
+1. Sube la rama a GitHub.
+2. En Vercel: **Add New Project** → importa el repo.
+3. En **Environment Variables** agrega:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `VITE_MAPBOX_TOKEN`
+4. Deploy de producción.
+5. En Supabase Auth configura **Site URL** y **Redirect URLs** con tu dominio Vercel (`https://tu-app.vercel.app`).
+6. Verifica que `public/manifest.json` y `public/sw.js` estén siendo servidos en producción.
+
+### Probar PWA en celular
+
+1. Abre la app en Chrome/Android.
+2. Debe mostrarse el banner de instalación en la app.
+3. Instala la app (Add to Home Screen).
+4. Abre la PWA instalada y valida:
+   - Home con restaurantes
+   - Flujo de pedido
+   - Mapa con zoom y GPS
+   - Seguimiento de pedido por número
+
+### Notificaciones
+
+- Cliente: cuando cambia el estatus del pedido en seguimiento se dispara notificación web (si el navegador concede permiso).
+- Restaurante: cuando llega un pedido `PENDING`, se dispara notificación y alerta de sonido en panel.
+- Para experiencia completa en iOS/Android, asegúrate de permitir notificaciones del navegador/PWA en el sistema operativo.
