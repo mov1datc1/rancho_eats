@@ -958,11 +958,16 @@ export default function App() {
     }
   };
 
-  const buildWhatsAppUrl = (phone: string | null | undefined) => {
+  const buildWhatsAppUrl = (phone: string | null | undefined, order?: Order) => {
     const clean = (phone ?? '').replace(/\D/g, '');
     if (!clean) return null;
     const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
-    return `https://wa.me/${withCountry}`;
+
+    const message = order
+      ? `Hola ${order.client_name ?? ''}, te escribimos de ${selectedRestaurant?.name ?? 'tu restaurante'}. Ya revisamos tu pedido #${order.order_number} por ${formatPrice(Number(order.total))}. Estatus actual: ${statusLabel(order.status)}. Puedes darle seguimiento en ArandaEats con tu número de pedido #${order.order_number}.`
+      : 'Hola, te escribimos de ArandaEats para dar seguimiento a tu pedido.';
+
+    return `https://wa.me/${withCountry}?text=${encodeURIComponent(message.trim())}`;
   };
 
   const createMenuItem = async () => {
@@ -1423,10 +1428,10 @@ export default function App() {
                         <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                         <div className="client-box">
                           👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
-                          {buildWhatsAppUrl(order.client_phone) && (
+                          {buildWhatsAppUrl(order.client_phone, order) && (
                             <>
                               {' '}
-                              <a className="wa-link" href={buildWhatsAppUrl(order.client_phone) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp">
+                              <a className="wa-link" href={buildWhatsAppUrl(order.client_phone, order) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
                                 WhatsApp
                               </a>
                             </>
