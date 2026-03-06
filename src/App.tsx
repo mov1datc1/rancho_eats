@@ -142,6 +142,7 @@ export default function App() {
 
   const [showPwaBanner, setShowPwaBanner] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [pwaHelpText, setPwaHelpText] = useState('');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => (typeof Notification !== 'undefined' ? Notification.permission : 'default'));
   const searchedOrderStatusRef = useRef<string | null>(null);
 
@@ -150,6 +151,7 @@ export default function App() {
   const isRestaurantsRoute = location.pathname === '/restaurantes';
   const isTestRoute = location.pathname === '/pruebas';
   const restaurantsMode = new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register';
+  const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true);
 
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
@@ -289,11 +291,25 @@ export default function App() {
       event.preventDefault();
       setDeferredPrompt(event as any);
       setShowPwaBanner(true);
+      setPwaHelpText('');
     };
+
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isMobile = /android|iphone|ipad|ipod/.test(userAgent);
+    const isiOS = /iphone|ipad|ipod/.test(userAgent);
+
+    if (!isStandalone && isMobile) {
+      setShowPwaBanner(true);
+      if (isiOS) {
+        setPwaHelpText('En iPhone/iPad: toca Compartir y luego “Agregar a pantalla de inicio”.');
+      } else {
+        setPwaHelpText('Si no aparece el popup automático, abre el menú del navegador y toca “Instalar app”.');
+      }
+    }
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
+  }, [isStandalone]);
 
 
   useEffect(() => {
@@ -360,11 +376,21 @@ export default function App() {
 
 
   const installPwa = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    setDeferredPrompt(null);
-    setShowPwaBanner(false);
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      setDeferredPrompt(null);
+      setShowPwaBanner(false);
+      return;
+    }
+
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isiOS = /iphone|ipad|ipod/.test(userAgent);
+    if (isiOS) {
+      alert('Para instalar en iPhone/iPad: Safari → Compartir → Agregar a pantalla de inicio.');
+    } else {
+      alert('Para instalar: abre el menú del navegador (⋮) y elige “Instalar app” o “Agregar a pantalla de inicio”.');
+    }
   };
 
   const loadAdminRpcAvailability = async () => {
@@ -1303,10 +1329,13 @@ export default function App() {
         )}
       </nav>
 
-      {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && (
+      {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && !isStandalone && (
         <div className="pwa-banner">
-          <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
-          <button className="pwa-install" onClick={() => void installPwa()}>Instalar app</button>
+          <div>
+            <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
+            {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
+          </div>
+          <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
         </div>
       )}
 

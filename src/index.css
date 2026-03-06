@@ -23,6 +23,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 
 .pwa-banner{background:linear-gradient(90deg,var(--green),#1e5c3a);padding:.65rem 2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
 .pwa-banner p{color:#fff;font-size:.82rem;font-weight:500}
+.pwa-help{display:block;color:rgba(255,255,255,.85);font-size:.74rem;margin-top:.2rem}
 .pwa-install{background:#fff;color:var(--green);border:none;padding:.32rem .85rem;border-radius:100px;font-size:.77rem;font-weight:700;cursor:pointer}
 .hero{background:linear-gradient(135deg,var(--dark),var(--mid) 55%,var(--brand-dark));padding:4.5rem 2rem 3rem}
 .hero-inner{max-width:860px;margin:0 auto;text-align:center}
