@@ -59,6 +59,21 @@ const isRpcMissingError = (error: unknown) => {
     || (err.message ?? '').toLowerCase().includes('could not find');
 };
 
+
+const getMobileInstallContext = () => {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') {
+    return { isMobile: false, isiOS: false, isStandalone: false };
+  }
+
+  const ua = navigator.userAgent.toLowerCase();
+  const isiOS = /iphone|ipad|ipod/.test(ua) || (ua.includes('macintosh') && 'ontouchend' in document);
+  const isAndroid = /android/.test(ua);
+  const isMobile = isiOS || isAndroid;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+
+  return { isMobile, isiOS, isStandalone };
+};
+
 const baseForm = {
   restaurantName: '',
   email: '',
@@ -140,9 +155,10 @@ export default function App() {
     functionAvailable: false
   });
 
-  const [showPwaBanner, setShowPwaBanner] = useState(false);
+  const mobileInstallContext = getMobileInstallContext();
+  const [showPwaBanner, setShowPwaBanner] = useState(() => mobileInstallContext.isMobile && !mobileInstallContext.isStandalone);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [pwaHelpText, setPwaHelpText] = useState('');
+  const [pwaHelpText, setPwaHelpText] = useState(() => mobileInstallContext.isiOS ? 'En iPhone/iPad: toca Compartir y luego “Agregar a pantalla de inicio”.' : mobileInstallContext.isMobile ? 'Si no aparece el popup automático, abre el menú del navegador y toca “Instalar app”.' : '');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => (typeof Notification !== 'undefined' ? Notification.permission : 'default'));
   const searchedOrderStatusRef = useRef<string | null>(null);
 
@@ -151,7 +167,7 @@ export default function App() {
   const isRestaurantsRoute = location.pathname === '/restaurantes';
   const isTestRoute = location.pathname === '/pruebas';
   const restaurantsMode = new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register';
-  const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true);
+  const isStandalone = mobileInstallContext.isStandalone;
 
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
@@ -294,9 +310,7 @@ export default function App() {
       setPwaHelpText('');
     };
 
-    const userAgent = navigator.userAgent.toLowerCase();
-    const isMobile = /android|iphone|ipad|ipod/.test(userAgent);
-    const isiOS = /iphone|ipad|ipod/.test(userAgent);
+    const { isMobile, isiOS } = getMobileInstallContext();
 
     if (!isStandalone && isMobile) {
       setShowPwaBanner(true);
@@ -384,8 +398,7 @@ export default function App() {
       return;
     }
 
-    const userAgent = navigator.userAgent.toLowerCase();
-    const isiOS = /iphone|ipad|ipod/.test(userAgent);
+    const { isiOS } = getMobileInstallContext();
     if (isiOS) {
       alert('Para instalar en iPhone/iPad: Safari → Compartir → Agregar a pantalla de inicio.');
     } else {
@@ -1329,16 +1342,6 @@ export default function App() {
         )}
       </nav>
 
-      {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && !isStandalone && (
-        <div className="pwa-banner">
-          <div>
-            <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
-            {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
-          </div>
-          <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
-        </div>
-      )}
-
       {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && (
         <div className="tabs">
           {[
@@ -1352,6 +1355,15 @@ export default function App() {
         </div>
       )}
 
+      {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && !isStandalone && (
+        <div className="pwa-banner">
+          <div>
+            <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
+            {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
+          </div>
+          <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
+        </div>
+      )}
       {errorMessage && <div className="global-error">{errorMessage}</div>}
       {loading && <div className="global-loading">Cargando datos de la plataforma…</div>}
 
