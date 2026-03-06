@@ -1356,7 +1356,7 @@ export default function App() {
       )}
 
       {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && !isStandalone && (
-        <div className="pwa-banner">
+        <div className="pwa-banner pwa-banner-top">
           <div>
             <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
             {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
@@ -1391,6 +1391,16 @@ export default function App() {
               ))}
             </div>
           </div>
+
+          {showPwaBanner && !isStandalone && (
+            <div className="pwa-banner pwa-banner-footer">
+              <div>
+                <p>📲 ¿Te vas? También puedes instalar ArandaEats desde aquí.</p>
+                {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
+              </div>
+              <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
+            </div>
+          )}
         </div>
       )}
 

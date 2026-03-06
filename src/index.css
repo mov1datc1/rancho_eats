@@ -21,7 +21,9 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .btn.red{background:#D00000}
 .btn.dark{background:var(--mid)}
 
-.pwa-banner{background:linear-gradient(90deg,var(--green),#1e5c3a);padding:.65rem 2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:108px}
+.pwa-banner{background:linear-gradient(90deg,var(--green),#1e5c3a);padding:.65rem 2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.pwa-banner-top{position:sticky;top:108px;z-index:997}
+.pwa-banner-footer{margin:1rem; border-radius:14px; box-shadow:var(--shadow)}
 .pwa-banner p{color:#fff;font-size:.82rem;font-weight:500}
 .pwa-help{display:block;color:rgba(255,255,255,.85);font-size:.74rem;margin-top:.2rem}
 .pwa-install{background:#fff;color:var(--green);border:none;padding:.32rem .85rem;border-radius:100px;font-size:.77rem;font-weight:700;cursor:pointer}
@@ -142,6 +144,9 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
   .section{padding:1.2rem 1rem}.map-wrap{height:290px}.track-input{font-size:1.2rem}.tr-rest{font-size:1.5rem}
   .cf-grid{grid-template-columns:1fr}.menu-cards{grid-template-columns:1fr}
   .frow{grid-template-columns:1fr}
+  .pwa-banner{padding:.6rem .8rem;gap:.6rem}
+  .pwa-banner-top{top:108px}
+  .pwa-install{padding:.38rem .65rem;font-size:.74rem}
 }
 
 /* Super Admin dashboard */
