@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import MapPicker from './components/map/MapPicker';
 import MapViewer from './components/map/MapViewer';
 import { supabase } from './lib/supabase';
@@ -1981,6 +1982,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      <SpeedInsights />
     </div>
   );
 }
