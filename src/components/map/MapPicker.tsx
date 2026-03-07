@@ -19,6 +19,7 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
 
   const staticMapUrl = useMemo(() => buildStaticMapUrl(lat, lng, zoom), [lat, lng, zoom]);
+  const canUseMapbox = hasMapboxToken();
   const openStreetMapEmbedUrl = useMemo(() => {
     const delta = Math.max(0.02, 0.18 / Math.max(1, zoom - 8));
     const left = lng - delta;
@@ -71,17 +72,6 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
     );
   };
 
-  if (!hasMapboxToken()) {
-    return (
-      <div className="loc-box">
-        <h4>🗺️ Mapa no disponible</h4>
-        <p style={{ fontSize: '.8rem', color: 'var(--muted)' }}>
-          Falta VITE_MAPBOX_TOKEN en tu entorno local.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="loc-box">
       <h4>📍 ¿A dónde te llevamos? <span className="req">*Requerido</span></h4>
@@ -108,7 +98,6 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
         onMouseUp={() => setDragging(false)}
         onMouseLeave={() => setDragging(false)}
         onWheel={(event) => {
-          event.preventDefault();
           if (event.deltaY < 0) zoomIn();
           else zoomOut();
         }}
@@ -126,7 +115,7 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
         onTouchEnd={() => setDragging(false)}
         onClick={(event) => updateFromPointer(event.clientX, event.clientY)}
       >
-        {!mapLoadFailed ? (
+        {canUseMapbox && !mapLoadFailed ? (
           <img
             src={staticMapUrl}
             alt="Vista previa del mapa"
@@ -141,7 +130,7 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
               className="loc-preview loc-preview-fallback"
               loading="lazy"
             />
-            <small className="map-fallback-note">Mostrando mapa de respaldo para mejorar compatibilidad en Safari iPhone.</small>
+            <small className="map-fallback-note">{canUseMapbox ? 'Mostrando mapa de respaldo para mejorar compatibilidad en Safari iPhone.' : 'Token de Mapbox inválido o bloqueado. Mostrando mapa de respaldo.'}</small>
           </>
         )}
         <div className="map-pin" title="Arrastra el pin">📍</div>

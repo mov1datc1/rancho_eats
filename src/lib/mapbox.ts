@@ -7,7 +7,11 @@ export const ARANDA_CENTER = {
 };
 
 export function hasMapboxToken(): boolean {
-  return Boolean(mapboxToken && mapboxToken.startsWith('pk.'));
+  const token = mapboxToken?.trim();
+  if (!token) return false;
+  if (!token.startsWith('pk.')) return false;
+
+  return /^[A-Za-z0-9._-]+$/.test(token);
 }
 
 export function buildStaticMapUrl(lat: number, lng: number, zoom = 12): string {
