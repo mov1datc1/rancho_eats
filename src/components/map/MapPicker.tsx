@@ -16,8 +16,18 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [zoom, setZoom] = useState(14);
+  const [mapLoadFailed, setMapLoadFailed] = useState(false);
 
   const staticMapUrl = useMemo(() => buildStaticMapUrl(lat, lng, zoom), [lat, lng, zoom]);
+  const openStreetMapEmbedUrl = useMemo(() => {
+    const delta = Math.max(0.02, 0.18 / Math.max(1, zoom - 8));
+    const left = lng - delta;
+    const right = lng + delta;
+    const top = lat + delta;
+    const bottom = lat - delta;
+
+    return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${lat}%2C${lng}`;
+  }, [lat, lng, zoom]);
 
   const updateFromPointer = (clientX: number, clientY: number) => {
     if (!mapRef.current) return;
@@ -78,10 +88,10 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
       <p className="loc-sub">Toca o arrastra el pin para marcar tu ubicación exacta en el mapa.</p>
 
       <div className="map-controls">
-        <button className="btn ghost" type="button" onClick={zoomOut}>− Zoom</button>
+        <button className="btn ghost map-control-btn" type="button" onClick={zoomOut}>− Zoom</button>
         <span className="map-zoom-label">Nivel: {zoom}</span>
-        <button className="btn ghost" type="button" onClick={zoomIn}>+ Zoom</button>
-        <button className="btn green" type="button" onClick={useGpsLocation}>Usar mi GPS</button>
+        <button className="btn ghost map-control-btn" type="button" onClick={zoomIn}>+ Zoom</button>
+        <button className="btn green map-gps-btn" type="button" onClick={useGpsLocation}>Usar mi GPS</button>
       </div>
 
       <div
@@ -116,7 +126,24 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
         onTouchEnd={() => setDragging(false)}
         onClick={(event) => updateFromPointer(event.clientX, event.clientY)}
       >
-        <img src={staticMapUrl} alt="Vista previa del mapa" className="loc-preview" />
+        {!mapLoadFailed ? (
+          <img
+            src={staticMapUrl}
+            alt="Vista previa del mapa"
+            className="loc-preview"
+            onError={() => setMapLoadFailed(true)}
+          />
+        ) : (
+          <>
+            <iframe
+              title="Mapa de respaldo"
+              src={openStreetMapEmbedUrl}
+              className="loc-preview loc-preview-fallback"
+              loading="lazy"
+            />
+            <small className="map-fallback-note">Mostrando mapa de respaldo para mejorar compatibilidad en Safari iPhone.</small>
+          </>
+        )}
         <div className="map-pin" title="Arrastra el pin">📍</div>
       </div>
 
@@ -124,7 +151,7 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
         <label>
           <span>Latitud</span>
           <input
-            className="track-input"
+            className="coord-input"
             value={lat}
             type="number"
             step="0.0001"
@@ -134,7 +161,7 @@ export default function MapPicker({ lat, lng, onChange }: MapPickerProps) {
         <label>
           <span>Longitud</span>
           <input
-            className="track-input"
+            className="coord-input"
             value={lng}
             type="number"
             step="0.0001"
