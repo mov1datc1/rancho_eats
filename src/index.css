@@ -124,6 +124,13 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .modal{background:#fff;border-radius:22px;width:100%;max-width:980px;max-height:92vh;overflow-y:auto;box-shadow:var(--shadow-lg)}
 .modal-top{height:145px;display:flex;align-items:center;justify-content:center;font-size:4.2rem;border-radius:22px 22px 0 0;position:relative}.modal-x{position:absolute;top:11px;right:11px;background:rgba(255,255,255,.9);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer}
 .modal-body{padding:1.4rem}.mtitle{font-family:'Playfair Display',serif;font-size:1.8rem;font-weight:700;margin-bottom:.7rem}
+
+.wizard-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.45rem;margin:.6rem 0 1rem}
+.wizard-step{border:1.5px solid #e6d2c3;background:#fff;color:var(--muted);border-radius:12px;padding:.58rem .45rem;font-size:.78rem;font-weight:700;cursor:pointer}
+.wizard-step.active{background:var(--brand);border-color:var(--brand);color:#fff}
+.wizard-step.done{border-color:#b7e7cb;background:#ecfff4;color:#1f6b46}
+.wizard-section-title{font-size:1rem;font-weight:800;color:var(--mid);margin:.4rem 0 .6rem}
+.wizard-actions{display:flex;align-items:center;gap:.45rem}
 .mitem{display:flex;gap:.88rem;align-items:center;padding:.72rem 0;border-bottom:1px solid #F5EDE4}.mimg{width:64px;height:64px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.85rem;background:var(--cream)}
 .minfo{flex:1}.mname{font-weight:700;font-size:1.2rem}.mdesc{font-size:.95rem;color:var(--muted)}.mprice{font-size:2rem;font-weight:700;color:var(--brand)}.madd{background:var(--brand);color:#fff;border:none;width:45px;height:45px;border-radius:50%;font-size:1.6rem;cursor:pointer}
 .client-form{background:#FDF6EC;border:1.5px solid #E8D5C5;border-radius:13px;padding:1rem 1.1rem;margin:1rem 0}.client-form-title{font-size:1.4rem;font-weight:700;color:var(--brand);margin-bottom:.75rem;text-transform:uppercase}.client-form-title span{font-size:1rem;color:var(--muted);text-transform:none}
@@ -159,6 +166,10 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
   .loc-preview{height:240px}
   .coord-grid{grid-template-columns:1fr}
   .coord-input{font-size:1.05rem;padding:.6rem .68rem}
+  .wizard-steps{grid-template-columns:1fr}
+  .wizard-step{text-align:left}
+  .cart-bar{flex-direction:column;align-items:stretch;gap:.6rem}
+  .wizard-actions{justify-content:flex-end}
 }
 
 /* Super Admin dashboard */

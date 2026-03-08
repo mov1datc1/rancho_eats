@@ -109,6 +109,7 @@ export default function App() {
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
+  const [orderWizardStep, setOrderWizardStep] = useState<1 | 2 | 3>(1);
 
   const [registerForm, setRegisterForm] = useState(baseForm);
   const [registerMessage, setRegisterMessage] = useState('');
@@ -814,6 +815,7 @@ export default function App() {
     setClientName('');
     setClientPhone('');
     setClientRef('');
+    setOrderWizardStep(1);
     void loadRestaurantData(restaurant.id);
   };
 
@@ -898,10 +900,31 @@ export default function App() {
     }
   };
 
+
+  const goToWizardStep = (step: 1 | 2 | 3) => {
+    if (step === 2 && cartCount === 0) {
+      setErrorMessage('Primero agrega al menos un platillo para continuar.');
+      return;
+    }
+
+    if (step === 3 && cartCount === 0) {
+      setErrorMessage('Primero agrega al menos un platillo para continuar.');
+      return;
+    }
+
+    setErrorMessage('');
+    setOrderWizardStep(step);
+  };
+
   const submitOrder = async () => {
     if (!selectedRestaurant) return;
     if (cartCount === 0) {
       setErrorMessage('Agrega al menos un platillo antes de enviar el pedido.');
+      return;
+    }
+
+    if (orderWizardStep !== 3) {
+      setErrorMessage('Completa los 3 pasos antes de enviar el pedido.');
       return;
     }
 
@@ -1928,55 +1951,87 @@ export default function App() {
             <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div>
             <div className="mmeta">⭐ 4.8 · 📍 Hasta {Math.round(selectedRestaurant?.delivery_radius_km ?? 20)} km · ⏱️ ~45 min · 💵 Solo efectivo</div>
 
-            {Object.entries(groupedMenuItems).map(([sectionName, sectionItems]) => (
-              <div key={sectionName} className="menu-section">
-                <h4>{sectionName.toUpperCase()}</h4>
-                {sectionItems.map((item) => (
-                  <div className="mitem" key={item.id}>
-                    <div className="mimg">🍽️</div>
-                    <div className="minfo">
-                      <div className="mname">{item.name}</div>
-                      <div className="mdesc">{item.description ?? 'Sin descripción'}</div>
-                    </div>
-                    <div className="mcontrols">
-                      <div className="mprice">{formatPrice(item.price)}</div>
-                      <div className="qty-row">
-                        <button className="madd msub" onClick={() => removeItem(item)}>-</button>
-                        <span className="mqty">{getItemQty(item.id)}</span>
-                        <button className="madd" onClick={() => addItem(item)}>+</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-
-            {menuLoading && <div className="menu-empty">Cargando platillos del restaurante…</div>}
-            {!menuLoading && Object.keys(groupedMenuItems).length === 0 && (
-              <div className="menu-empty">
-                Este restaurante aún no tiene platillos publicados.
-                <br />
-                Pídele al restaurante que agregue su menú en el panel de restaurantes.
-              </div>
-            )}
-
-            <div className="client-form">
-              <div className="client-form-title">Tus datos de contacto <span>(opcionales pero muy útiles)</span></div>
-              <div className="cf-grid">
-                <div><label className="cfl">Tu nombre</label><input className="cfi" placeholder="ej. Juan Pérez" value={clientName} onChange={(e) => setClientName(e.target.value)} /></div>
-                <div><label className="cfl">WhatsApp</label><input className="cfi" placeholder="344 123 4567" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></div>
-              </div>
-              <div><label className="cfl">Referencia de tu ubicación (ayuda mucho al repartidor)</label><textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} /></div>
-              <div className="cf-hint">💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir. Mientras más detallada la referencia, más fácil llega.</div>
+            <div className="wizard-steps" role="tablist" aria-label="Pasos para pedir">
+              <button className={`wizard-step ${orderWizardStep === 1 ? 'active' : orderWizardStep > 1 ? 'done' : ''}`} onClick={() => goToWizardStep(1)}>1. Productos</button>
+              <button className={`wizard-step ${orderWizardStep === 2 ? 'active' : orderWizardStep > 2 ? 'done' : ''}`} onClick={() => goToWizardStep(2)}>2. Datos y referencia</button>
+              <button className={`wizard-step ${orderWizardStep === 3 ? 'active' : ''}`} onClick={() => goToWizardStep(3)}>3. Ubicación en mapa</button>
             </div>
 
-            <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} onChange={setClientPoint} />
+            {orderWizardStep === 1 && (
+              <>
+                <div className="wizard-section-title">Paso 1 · Elige tus productos</div>
+                {Object.entries(groupedMenuItems).map(([sectionName, sectionItems]) => (
+                  <div key={sectionName} className="menu-section">
+                    <h4>{sectionName.toUpperCase()}</h4>
+                    {sectionItems.map((item) => (
+                      <div className="mitem" key={item.id}>
+                        <div className="mimg">🍽️</div>
+                        <div className="minfo">
+                          <div className="mname">{item.name}</div>
+                          <div className="mdesc">{item.description ?? 'Sin descripción'}</div>
+                        </div>
+                        <div className="mcontrols">
+                          <div className="mprice">{formatPrice(item.price)}</div>
+                          <div className="qty-row">
+                            <button className="madd msub" onClick={() => removeItem(item)}>-</button>
+                            <span className="mqty">{getItemQty(item.id)}</span>
+                            <button className="madd" onClick={() => addItem(item)}>+</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                {menuLoading && <div className="menu-empty">Cargando platillos del restaurante…</div>}
+                {!menuLoading && Object.keys(groupedMenuItems).length === 0 && (
+                  <div className="menu-empty">
+                    Este restaurante aún no tiene platillos publicados.
+                    <br />
+                    Pídele al restaurante que agregue su menú en el panel de restaurantes.
+                  </div>
+                )}
+              </>
+            )}
+
+            {orderWizardStep === 2 && (
+              <>
+                <div className="wizard-section-title">Paso 2 · Tus datos y referencia</div>
+                <div className="client-form">
+                  <div className="client-form-title">Tus datos de contacto <span>(opcionales pero muy útiles)</span></div>
+                  <div className="cf-grid">
+                    <div><label className="cfl">Tu nombre</label><input className="cfi" placeholder="ej. Juan Pérez" value={clientName} onChange={(e) => setClientName(e.target.value)} /></div>
+                    <div><label className="cfl">WhatsApp</label><input className="cfi" placeholder="344 123 4567" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></div>
+                  </div>
+                  <div><label className="cfl">Referencia de tu ubicación (ayuda mucho al repartidor)</label><textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} /></div>
+                  <div className="cf-hint">💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir. Mientras más detallada la referencia, más fácil llega.</div>
+                </div>
+              </>
+            )}
+
+            {orderWizardStep === 3 && (
+              <>
+                <div className="wizard-section-title">Paso 3 · Marca tu ubicación en el mapa</div>
+                <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} onChange={setClientPoint} />
+              </>
+            )}
 
             <div className="cash-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
 
             <div className="cart-bar" style={{ display: 'flex' }}>
               <div className="cart-info">🛒 {cartCount} productos · Total: <strong>{formatPrice(cartTotal)}</strong></div>
-              <button className="btn btn-order" onClick={submitOrder} disabled={actionLoading || cartCount === 0}>HACER PEDIDO</button>
+              <div className="wizard-actions">
+                {orderWizardStep > 1 && (
+                  <button className="btn ghost" onClick={() => setOrderWizardStep((prev) => (prev === 3 ? 2 : 1))} disabled={actionLoading}>Atrás</button>
+                )}
+                {orderWizardStep < 3 ? (
+                  <button className="btn btn-order" onClick={() => goToWizardStep((orderWizardStep + 1) as 2 | 3)} disabled={actionLoading || cartCount === 0}>
+                    Continuar
+                  </button>
+                ) : (
+                  <button className="btn btn-order" onClick={submitOrder} disabled={actionLoading || cartCount === 0}>HACER PEDIDO</button>
+                )}
+              </div>
             </div>
           </div>
         </div>
