@@ -1960,26 +1960,34 @@ export default function App() {
             {orderWizardStep === 1 && (
               <>
                 <div className="wizard-section-title">Paso 1 · Elige tus productos</div>
+                <div className="menu-categories-scroll">
+                  {Object.keys(groupedMenuItems).map((sectionName) => (
+                    <span key={sectionName} className="menu-chip">{sectionName}</span>
+                  ))}
+                </div>
+
                 {Object.entries(groupedMenuItems).map(([sectionName, sectionItems]) => (
                   <div key={sectionName} className="menu-section">
                     <h4>{sectionName.toUpperCase()}</h4>
-                    {sectionItems.map((item) => (
-                      <div className="mitem" key={item.id}>
-                        <div className="mimg">🍽️</div>
-                        <div className="minfo">
-                          <div className="mname">{item.name}</div>
-                          <div className="mdesc">{item.description ?? 'Sin descripción'}</div>
-                        </div>
-                        <div className="mcontrols">
-                          <div className="mprice">{formatPrice(item.price)}</div>
-                          <div className="qty-row">
-                            <button className="madd msub" onClick={() => removeItem(item)}>-</button>
-                            <span className="mqty">{getItemQty(item.id)}</span>
-                            <button className="madd" onClick={() => addItem(item)}>+</button>
+                    <div className="product-grid">
+                      {sectionItems.map((item) => (
+                        <article className="product-card" key={item.id}>
+                          <div className="product-cover">🍽️</div>
+                          <div className="product-body">
+                            <div className="product-title">{item.name}</div>
+                            <div className="product-desc">{item.description ?? 'Sin descripción'}</div>
+                            <div className="product-footer">
+                              <div className="product-price">{formatPrice(item.price)}</div>
+                              <div className="qty-row">
+                                <button className="madd msub" onClick={() => removeItem(item)}>-</button>
+                                <span className="mqty">{getItemQty(item.id)}</span>
+                                <button className="madd" onClick={() => addItem(item)}>+</button>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    ))}
+                        </article>
+                      ))}
+                    </div>
                   </div>
                 ))}
 
