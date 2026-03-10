@@ -2020,7 +2020,7 @@ export default function App() {
             {orderWizardStep === 3 && (
               <>
                 <div className="wizard-section-title">Paso 3 · Marca tu ubicación en el mapa</div>
-                <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} onChange={setClientPoint} />
+                <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} addressText={clientRef} onAddressTextChange={setClientRef} onChange={setClientPoint} />
               </>
             )}
 
