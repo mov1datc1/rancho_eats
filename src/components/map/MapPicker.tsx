@@ -14,10 +14,99 @@ type AddressSuggestion = {
   lat: string;
   lon: string;
   place_id: number;
+  address?: {
+    house_number?: string;
+    road?: string;
+    neighbourhood?: string;
+    suburb?: string;
+    city?: string;
+    town?: string;
+    village?: string;
+    municipality?: string;
+    county?: string;
+    state?: string;
+    postcode?: string;
+    country?: string;
+  };
 };
 
 const BASE_LAT_RANGE = 0.08;
 const BASE_LNG_RANGE = 0.08;
+
+const normalizeText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getDistanceKm = (originLat: number, originLng: number, targetLat: number, targetLng: number) => {
+  const latDistance = originLat - targetLat;
+  const lngDistance = originLng - targetLng;
+  const kmPerLatDegree = 111;
+  const kmPerLngDegree = 111 * Math.cos((originLat * Math.PI) / 180);
+
+  return Math.sqrt(Math.pow(latDistance * kmPerLatDegree, 2) + Math.pow(lngDistance * kmPerLngDegree, 2));
+};
+
+const getSuggestionTitle = (suggestion: AddressSuggestion) => {
+  const houseNumber = suggestion.address?.house_number?.trim();
+  const road = suggestion.address?.road?.trim();
+
+  if (road && houseNumber) return `${road} ${houseNumber}`;
+  if (road) return road;
+
+  return suggestion.display_name.split(',')[0]?.trim() ?? suggestion.display_name;
+};
+
+const getSuggestionSubtitle = (suggestion: AddressSuggestion) => {
+  const address = suggestion.address;
+  if (!address) return suggestion.display_name;
+
+  const locality = address.neighbourhood || address.suburb;
+  const city = address.city || address.town || address.village || address.municipality || address.county;
+
+  return [locality, city, address.state].filter(Boolean).join(', ') || suggestion.display_name;
+};
+
+const rankSuggestions = (query: string, currentLat: number, currentLng: number, suggestions: AddressSuggestion[]) => {
+  const queryNormalized = normalizeText(query);
+  const queryTokens = queryNormalized.split(' ').filter(Boolean);
+  const houseNumber = queryTokens.find((token) => /^\d+[a-z]?$/.test(token));
+  const streetTokens = queryTokens.filter((token) => token.length > 2 && token !== houseNumber);
+
+  return [...suggestions].sort((a, b) => {
+    const aTitle = normalizeText(getSuggestionTitle(a));
+    const bTitle = normalizeText(getSuggestionTitle(b));
+    const aSubtitle = normalizeText(getSuggestionSubtitle(a));
+    const bSubtitle = normalizeText(getSuggestionSubtitle(b));
+
+    const getTokenHits = (text: string) => streetTokens.reduce((sum, token) => sum + (text.includes(token) ? 1 : 0), 0);
+    const aStreetHits = getTokenHits(aTitle);
+    const bStreetHits = getTokenHits(bTitle);
+
+    if (aStreetHits !== bStreetHits) return bStreetHits - aStreetHits;
+
+    if (houseNumber) {
+      const aHasNumber = aTitle.includes(houseNumber);
+      const bHasNumber = bTitle.includes(houseNumber);
+      if (aHasNumber !== bHasNumber) return aHasNumber ? -1 : 1;
+    }
+
+    const localWords = ['arandas', 'jalisco'];
+    const aLocalHits = localWords.reduce((sum, token) => sum + (aSubtitle.includes(token) ? 1 : 0), 0);
+    const bLocalHits = localWords.reduce((sum, token) => sum + (bSubtitle.includes(token) ? 1 : 0), 0);
+
+    if (aLocalHits !== bLocalHits) return bLocalHits - aLocalHits;
+
+    const aDistance = getDistanceKm(currentLat, currentLng, Number(a.lat), Number(a.lon));
+    const bDistance = getDistanceKm(currentLat, currentLng, Number(b.lat), Number(b.lon));
+
+    return aDistance - bDistance;
+  });
+};
 
 export default function MapPicker({ lat, lng, addressText, onAddressTextChange, onChange }: MapPickerProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -50,8 +139,11 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
 
     const timeout = window.setTimeout(async () => {
       try {
+        const biasDelta = 0.4;
+        const viewBox = `${lng - biasDelta},${lat + biasDelta},${lng + biasDelta},${lat - biasDelta}`;
+
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=mx&limit=5&q=${encodeURIComponent(addressText)}`,
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&accept-language=es&countrycodes=mx&dedupe=1&limit=8&viewbox=${encodeURIComponent(viewBox)}&q=${encodeURIComponent(addressText)}`,
           {
             signal: controller.signal,
             headers: {
@@ -66,7 +158,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
         }
 
         const data = (await response.json()) as AddressSuggestion[];
-        setAddressOptions(data);
+        setAddressOptions(rankSuggestions(addressText, lat, lng, data));
       } catch {
         setAddressOptions([]);
       } finally {
@@ -78,7 +170,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [addressText]);
+  }, [addressText, lat, lng]);
 
   const updateFromPointer = (clientX: number, clientY: number) => {
     if (!mapRef.current) return;
@@ -143,12 +235,13 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
               type="button"
               onClick={() => {
                 onChange({ lat: Number(option.lat), lng: Number(option.lon) });
-                onAddressTextChange(option.display_name);
+                onAddressTextChange(getSuggestionTitle(option));
                 setAddressOptions([]);
                 setZoom(16);
               }}
             >
-              {option.display_name}
+              <span className="address-option-title">{getSuggestionTitle(option)}</span>
+              <span className="address-option-subtitle">{getSuggestionSubtitle(option)}</span>
             </button>
           ))}
         </div>
