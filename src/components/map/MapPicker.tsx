@@ -51,6 +51,11 @@ const getDistanceKm = (originLat: number, originLng: number, targetLat: number, 
   return Math.sqrt(Math.pow(latDistance * kmPerLatDegree, 2) + Math.pow(lngDistance * kmPerLngDegree, 2));
 };
 
+const getQueryHouseNumber = (query: string) => {
+  const queryTokens = normalizeText(query).split(' ').filter(Boolean);
+  return queryTokens.find((token) => /^\d+[a-z]?$/.test(token));
+};
+
 const getSuggestionTitle = (suggestion: AddressSuggestion) => {
   const houseNumber = suggestion.address?.house_number?.trim();
   const road = suggestion.address?.road?.trim();
@@ -59,6 +64,27 @@ const getSuggestionTitle = (suggestion: AddressSuggestion) => {
   if (road) return road;
 
   return suggestion.display_name.split(',')[0]?.trim() ?? suggestion.display_name;
+};
+
+
+const getSuggestionTitleWithQuery = (suggestion: AddressSuggestion, query: string) => {
+  const title = getSuggestionTitle(suggestion);
+  const queryHouseNumber = getQueryHouseNumber(query);
+  if (!queryHouseNumber) return title;
+
+  const titleNormalized = normalizeText(title);
+  if (titleNormalized.includes(queryHouseNumber)) return title;
+
+  const firstDisplaySegment = suggestion.display_name.split(',')[0]?.trim() ?? '';
+  const firstDisplaySegmentNormalized = normalizeText(firstDisplaySegment);
+  const hasNumberInDisplay = firstDisplaySegmentNormalized.includes(queryHouseNumber);
+
+  if (hasNumberInDisplay) return firstDisplaySegment;
+
+  const road = suggestion.address?.road?.trim();
+  if (road) return `${road} ${queryHouseNumber}`;
+
+  return title;
 };
 
 const getSuggestionSubtitle = (suggestion: AddressSuggestion) => {
@@ -78,8 +104,8 @@ const rankSuggestions = (query: string, currentLat: number, currentLng: number, 
   const streetTokens = queryTokens.filter((token) => token.length > 2 && token !== houseNumber);
 
   return [...suggestions].sort((a, b) => {
-    const aTitle = normalizeText(getSuggestionTitle(a));
-    const bTitle = normalizeText(getSuggestionTitle(b));
+    const aTitle = normalizeText(getSuggestionTitleWithQuery(a, query));
+    const bTitle = normalizeText(getSuggestionTitleWithQuery(b, query));
     const aSubtitle = normalizeText(getSuggestionSubtitle(a));
     const bSubtitle = normalizeText(getSuggestionSubtitle(b));
 
@@ -90,8 +116,8 @@ const rankSuggestions = (query: string, currentLat: number, currentLng: number, 
     if (aStreetHits !== bStreetHits) return bStreetHits - aStreetHits;
 
     if (houseNumber) {
-      const aHasNumber = aTitle.includes(houseNumber);
-      const bHasNumber = bTitle.includes(houseNumber);
+      const aHasNumber = aTitle.includes(houseNumber) || normalizeText(a.display_name).includes(houseNumber);
+      const bHasNumber = bTitle.includes(houseNumber) || normalizeText(b.display_name).includes(houseNumber);
       if (aHasNumber !== bHasNumber) return aHasNumber ? -1 : 1;
     }
 
@@ -143,7 +169,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
         const viewBox = `${lng - biasDelta},${lat + biasDelta},${lng + biasDelta},${lat - biasDelta}`;
 
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&accept-language=es&countrycodes=mx&dedupe=1&limit=8&viewbox=${encodeURIComponent(viewBox)}&q=${encodeURIComponent(addressText)}`,
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&accept-language=es&countrycodes=mx&dedupe=1&limit=8&bounded=1&viewbox=${encodeURIComponent(viewBox)}&q=${encodeURIComponent(addressText)}`,
           {
             signal: controller.signal,
             headers: {
@@ -235,12 +261,12 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
               type="button"
               onClick={() => {
                 onChange({ lat: Number(option.lat), lng: Number(option.lon) });
-                onAddressTextChange(getSuggestionTitle(option));
+                onAddressTextChange(getSuggestionTitleWithQuery(option, addressText));
                 setAddressOptions([]);
-                setZoom(16);
+                setZoom(15);
               }}
             >
-              <span className="address-option-title">{getSuggestionTitle(option)}</span>
+              <span className="address-option-title">{getSuggestionTitleWithQuery(option, addressText)}</span>
               <span className="address-option-subtitle">{getSuggestionSubtitle(option)}</span>
             </button>
           ))}
