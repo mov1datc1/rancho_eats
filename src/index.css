@@ -152,6 +152,8 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .map-gps-btn{min-height:44px;padding:.65rem 1rem}
 .address-options{margin:.4rem 0 .35rem;border:1.5px solid #dfc9b8;background:#fff;border-radius:10px;overflow:hidden;max-height:210px;overflow-y:auto}
 .address-option{display:block;width:100%;text-align:left;padding:.62rem .7rem;border:0;border-bottom:1px solid #f1e5da;background:#fff;color:var(--text);font-size:.88rem;cursor:pointer}
+.address-option-title{display:block;font-size:1rem;font-weight:700;color:var(--mid);line-height:1.25}
+.address-option-subtitle{display:block;font-size:.87rem;color:var(--muted);line-height:1.25;margin-top:.15rem}
 .address-option:last-child{border-bottom:0}
 .address-option.muted{color:var(--muted);cursor:default}
 .loc-preview{width:100%;height:300px;object-fit:cover;border-radius:10px;border:1.5px solid #C3E6D8;margin:.5rem 0 .35rem;display:block;background:#eef3ef}
