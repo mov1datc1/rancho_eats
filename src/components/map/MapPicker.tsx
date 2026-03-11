@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildStaticMapUrl, hasMapboxToken } from '../../lib/mapbox';
+import {
+  clampZoom,
+  getSuggestionSubtitle,
+  getSuggestionTitleWithQuery,
+  projectToMercator,
+  rankSuggestions,
+  unprojectFromMercator
+} from '../../lib/mapPickerHelpers';
+import type { AddressSuggestion } from '../../lib/mapPickerHelpers';
 
 type MapPickerProps = {
   lat: number;
@@ -8,16 +17,6 @@ type MapPickerProps = {
   onAddressTextChange: (value: string) => void;
   onChange: (next: { lat: number; lng: number }) => void;
 };
-
-type AddressSuggestion = {
-  display_name: string;
-  lat: string;
-  lon: string;
-  place_id: number;
-};
-
-const BASE_LAT_RANGE = 0.08;
-const BASE_LNG_RANGE = 0.08;
 
 export default function MapPicker({ lat, lng, addressText, onAddressTextChange, onChange }: MapPickerProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -50,8 +49,11 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
 
     const timeout = window.setTimeout(async () => {
       try {
+        const biasDelta = 0.4;
+        const viewBox = `${lng - biasDelta},${lat + biasDelta},${lng + biasDelta},${lat - biasDelta}`;
+
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=mx&limit=5&q=${encodeURIComponent(addressText)}`,
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&accept-language=es&countrycodes=mx&dedupe=1&limit=8&bounded=1&viewbox=${encodeURIComponent(viewBox)}&q=${encodeURIComponent(addressText)}`,
           {
             signal: controller.signal,
             headers: {
@@ -66,7 +68,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
         }
 
         const data = (await response.json()) as AddressSuggestion[];
-        setAddressOptions(data);
+        setAddressOptions(rankSuggestions(addressText, lat, lng, data));
       } catch {
         setAddressOptions([]);
       } finally {
@@ -78,27 +80,24 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [addressText]);
+  }, [addressText, lat, lng]);
 
   const updateFromPointer = (clientX: number, clientY: number) => {
     if (!mapRef.current) return;
+
     const rect = mapRef.current.getBoundingClientRect();
     const x = Math.min(Math.max(clientX - rect.left, 0), rect.width);
     const y = Math.min(Math.max(clientY - rect.top, 0), rect.height);
 
-    const lngRatio = x / rect.width;
-    const latRatio = y / rect.height;
+    const centerPoint = projectToMercator(lat, lng, zoom);
+    const pointX = centerPoint.x + (x - rect.width / 2);
+    const pointY = centerPoint.y + (y - rect.height / 2);
 
-    const zoomFactor = Math.pow(2, 12 - zoom);
-    const latRange = BASE_LAT_RANGE * zoomFactor;
-    const lngRange = BASE_LNG_RANGE * zoomFactor;
-
-    const nextLng = lng + (lngRatio - 0.5) * lngRange;
-    const nextLat = lat - (latRatio - 0.5) * latRange;
+    const { latitude, longitude } = unprojectFromMercator(pointX, pointY, zoom);
 
     onChange({
-      lat: Number(nextLat.toFixed(6)),
-      lng: Number(nextLng.toFixed(6))
+      lat: Number(latitude.toFixed(6)),
+      lng: Number(longitude.toFixed(6))
     });
   };
 
@@ -143,12 +142,13 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
               type="button"
               onClick={() => {
                 onChange({ lat: Number(option.lat), lng: Number(option.lon) });
-                onAddressTextChange(option.display_name);
+                onAddressTextChange(getSuggestionTitleWithQuery(option, addressText));
                 setAddressOptions([]);
-                setZoom(16);
+                setZoom(15);
               }}
             >
-              {option.display_name}
+              <span className="address-option-title">{getSuggestionTitleWithQuery(option, addressText)}</span>
+              <span className="address-option-subtitle">{getSuggestionSubtitle(option)}</span>
             </button>
           ))}
         </div>
@@ -185,6 +185,30 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
         onTouchEnd={() => setDragging(false)}
         onClick={(event) => updateFromPointer(event.clientX, event.clientY)}
       >
+        <div className="map-zoom-controls" aria-label="Controles de zoom">
+          <button
+            type="button"
+            className="map-zoom-btn"
+            onClick={(event) => {
+              event.stopPropagation();
+              setZoom((previousZoom) => clampZoom(previousZoom + 1));
+            }}
+            aria-label="Acercar mapa"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="map-zoom-btn"
+            onClick={(event) => {
+              event.stopPropagation();
+              setZoom((previousZoom) => clampZoom(previousZoom - 1));
+            }}
+            aria-label="Alejar mapa"
+          >
+            −
+          </button>
+        </div>
         {canUseMapbox && !mapLoadFailed ? (
           <img
             src={staticMapUrl}
@@ -200,7 +224,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
               className="loc-preview loc-preview-fallback"
               loading="lazy"
             />
-            <small className="map-fallback-note">{canUseMapbox ? 'Mostrando mapa de respaldo para mejorar compatibilidad en Safari iPhone.' : 'Token de Mapbox inválido o bloqueado. Mostrando mapa de respaldo.'}</small>
+            <small className="map-fallback-note">Usando mapa de respaldo de OpenStreetMap para asegurar compatibilidad en todos los dispositivos.</small>
           </>
         )}
         <div className="map-pin" title="Arrastra el pin">📍</div>
