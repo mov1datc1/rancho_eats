@@ -260,6 +260,9 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .map-touch.dragging{cursor:grabbing}
 .map-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:2rem;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3));pointer-events:none}
 
+.map-zoom-controls{position:absolute;left:10px;top:10px;z-index:3;display:flex;flex-direction:column;gap:.35rem}
+.map-zoom-btn{width:40px;height:40px;border:1.5px solid #d6c1b2;border-radius:8px;background:#fff;color:var(--mid);font-size:1.5rem;line-height:1;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.map-zoom-btn:active{transform:translateY(1px)}
 
 .mcontrols{display:flex;flex-direction:column;align-items:flex-end;gap:.4rem;min-width:128px}
 .qty-row{display:flex;align-items:center;gap:.35rem}
