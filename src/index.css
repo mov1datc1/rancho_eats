@@ -292,3 +292,5 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .detail-items ul{padding-left:1rem;display:grid;gap:.2rem}
 
 @media (max-width:900px){.orders-filters{grid-template-columns:1fr}.orders-table{min-width:760px}.table-actions{flex-direction:column;align-items:stretch}}
+
+.orders-mode-note{margin:-.55rem 0 .9rem;color:var(--muted);font-size:.92rem;font-weight:600}

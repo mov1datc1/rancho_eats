@@ -1617,6 +1617,96 @@ export default function App() {
 
             {restaurantPanel === 'resumen' && (
               <>
+                <div className="orders-grid-title">📦 Pedidos entrantes</div>
+                <p className="orders-mode-note">Vista resumen: tarjetas en tiempo real.</p>
+                <div className="orders-grid">
+                  {restaurantOrders.length === 0 && <div className="menu-empty">Aún no hay pedidos entrantes para este restaurante.</div>}
+                  {restaurantOrders.map((order) => {
+                    const distanceKm =
+                      selectedRestaurant?.lat != null
+                      && selectedRestaurant?.lng != null
+                      && order.client_lat != null
+                      && order.client_lng != null
+                        ? haversineKm(selectedRestaurant.lat, selectedRestaurant.lng, order.client_lat, order.client_lng)
+                        : null;
+
+                    return (
+                      <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
+                        <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
+                        <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                        <div className="client-box">
+                          👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
+                          {buildWhatsAppUrl(order.client_phone, order) && (
+                            <>
+                              {' '}
+                              <a className="wa-link" href={buildWhatsAppUrl(order.client_phone, order) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
+                                WhatsApp
+                              </a>
+                            </>
+                          )}
+                          <br />📝 {order.client_location_note ?? 'Sin referencia de ubicación'}
+                        </div>
+                        <div className="distance-box">📍 Distancia estimada: <strong>{distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'Sin coordenadas suficientes'}</strong></div>
+                        {order.client_lat != null && order.client_lng != null && (
+                          <div className="mini-map-box">
+                            <MapViewer lat={order.client_lat} lng={order.client_lng} title={`Pedido #${order.order_number} · Ubicación cliente`} />
+                            <a className="map-link" href={`https://maps.google.com/?q=${order.client_lat},${order.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                          </div>
+                        )}
+
+                        {order.status === 'PENDING' && (
+                          <div className="order-actions">
+                            <button className="btn green" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED')}>✓ Aceptar pedido</button>
+                            <button
+                              className="btn amber"
+                              disabled={actionLoading}
+                              onClick={() => {
+                                const reason = window.prompt('Motivo de rechazo por distancia:', 'No alcanzamos a cubrir esa zona por ahora.');
+                                if (reason !== null) void updateRestaurantOrderStatus(order, 'REJECTED', reason);
+                              }}
+                            >✗ Rechazar por distancia</button>
+                            <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
+                          </div>
+                        )}
+
+                {selectedOrder && (
+                  <article className="incoming-order selected-order-card">
+                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
+                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
+                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <div className="client-box">
+                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
+                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
+                        <>
+                          {' '}
+                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
+                            WhatsApp
+                          </a>
+                        </>
+                      )}
+                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
+                    </div>
+                    <div className="detail-items">
+                      <h5>Detalle de productos</h5>
+                      <ul>
+                        {selectedOrder.items?.map((item) => (
+                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
+                      <div className="mini-map-box">
+                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
+                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                      </div>
+                    )}
+                  </article>
+                )}
+              </>
+            )}
+
+            {restaurantPanel === 'pedidos' && (
+              <>
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <div className="orders-filters">
                   <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
@@ -1715,6 +1805,7 @@ export default function App() {
             {restaurantPanel === 'pedidos' && (
               <>
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
+                <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
                 <div className="orders-filters">
                   <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
                   <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
