@@ -277,3 +277,20 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .menu-create-full{grid-column:1/-1}
 .pending-badge{margin:.6rem 0;padding:.55rem .75rem;border-radius:8px;background:#fff4e5;color:#b26a00;font-weight:700;border:1px solid #f2d5aa}
 @media (max-width:900px){.menu-create-grid{grid-template-columns:1fr}}
+
+.orders-filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:.65rem;margin:0 0 1rem}
+.orders-table-wrap{overflow:auto;background:#fff;border-radius:14px;box-shadow:var(--shadow)}
+.orders-table{width:100%;border-collapse:collapse;min-width:980px}
+.orders-table th,.orders-table td{padding:.7rem .6rem;text-align:left;border-bottom:1px solid #efe2d6;font-size:.92rem;vertical-align:top}
+.orders-table th{font-size:.79rem;color:var(--muted);text-transform:uppercase;letter-spacing:.45px}
+.status-chip{display:inline-flex;padding:.2rem .55rem;border-radius:999px;background:#f7e6da;color:#8B2D07;font-weight:700;font-size:.8rem}
+.table-actions{display:flex;gap:.45rem;align-items:center}
+.table-actions .fi{min-width:170px}
+.selected-order-card{margin-top:1rem}
+.detail-items{margin-top:.8rem;background:#fff8ef;border:1px solid #ecd8c8;border-radius:10px;padding:.65rem .8rem}
+.detail-items h5{margin-bottom:.4rem}
+.detail-items ul{padding-left:1rem;display:grid;gap:.2rem}
+
+@media (max-width:900px){.orders-filters{grid-template-columns:1fr}.orders-table{min-width:760px}.table-actions{flex-direction:column;align-items:stretch}}
+
+.orders-mode-note{margin:-.55rem 0 .9rem;color:var(--muted);font-size:.92rem;font-weight:600}
