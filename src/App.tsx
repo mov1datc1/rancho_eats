@@ -1900,6 +1900,103 @@ export default function App() {
               </>
             )}
 
+            {restaurantPanel === 'pedidos' && (
+              <>
+                <div className="orders-grid-title">📦 Todos los pedidos</div>
+                <div className="orders-filters">
+                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
+                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
+                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
+                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
+                </div>
+                <div className="orders-table-wrap">
+                  <table className="orders-table">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th># Pedido</th>
+                        <th>Cliente</th>
+                        <th>Total</th>
+                        <th>Ubicación</th>
+                        <th>Estatus</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRestaurantOrders.map((order) => (
+                        <tr key={order.id}>
+                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
+                          <td>#{order.order_number}</td>
+                          <td>{order.client_name ?? 'Sin nombre'}</td>
+                          <td>{formatPrice(Number(order.total))}</td>
+                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
+                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
+                          <td>
+                            <div className="table-actions">
+                              <select
+                                className="fi"
+                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
+                                value=""
+                                onChange={(e) => {
+                                  void handleQuickOrderStatusChange(order, e.target.value);
+                                  e.target.value = '';
+                                }}
+                              >
+                                <option value="">Cambiar estatus</option>
+                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
+                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
+                                ))}
+                              </select>
+                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredRestaurantOrders.length === 0 && (
+                        <tr>
+                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {selectedOrder && (
+                  <article className="incoming-order selected-order-card">
+                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
+                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
+                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <div className="client-box">
+                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
+                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
+                        <>
+                          {' '}
+                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
+                            WhatsApp
+                          </a>
+                        </>
+                      )}
+                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
+                    </div>
+                    <div className="detail-items">
+                      <h5>Detalle de productos</h5>
+                      <ul>
+                        {selectedOrder.items?.map((item) => (
+                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
+                      <div className="mini-map-box">
+                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
+                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                      </div>
+                    )}
+                  </article>
+                )}
+              </>
+            )}
+
             {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
               <div className="menu-editor">
                 <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
