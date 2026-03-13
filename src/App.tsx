@@ -39,6 +39,12 @@ const activityDotClass: Record<string, string> = {
   REGISTRATION_PENDING: 'dot-amber'
 };
 
+const nextStatusByOrderState: Record<string, Array<'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED'>> = {
+  PENDING: ['ACCEPTED', 'REJECTED'],
+  ACCEPTED: ['ON_THE_WAY', 'DELIVERED'],
+  ON_THE_WAY: ['DELIVERED']
+};
+
 const formatRelative = (value: string) => {
   const now = Date.now();
   const ts = new Date(value).getTime();
@@ -98,6 +104,10 @@ export default function App() {
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [restaurantOrders, setRestaurantOrders] = useState<Order[]>([]);
+  const [orderSearchTerm, setOrderSearchTerm] = useState('');
+  const [orderDateFrom, setOrderDateFrom] = useState('');
+  const [orderDateTo, setOrderDateTo] = useState('');
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuLoading, setMenuLoading] = useState(false);
@@ -182,6 +192,23 @@ export default function App() {
       return acc;
     }, {});
   }, [menuItems]);
+  const filteredRestaurantOrders = useMemo(() => {
+    const normalizedTerm = orderSearchTerm.trim();
+    const fromDate = orderDateFrom ? new Date(`${orderDateFrom}T00:00:00`) : null;
+    const toDate = orderDateTo ? new Date(`${orderDateTo}T23:59:59`) : null;
+
+    return restaurantOrders.filter((order) => {
+      const orderDate = new Date(order.created_at);
+      const matchesOrderNumber = !normalizedTerm || String(order.order_number).includes(normalizedTerm);
+      const matchesFrom = !fromDate || orderDate >= fromDate;
+      const matchesTo = !toDate || orderDate <= toDate;
+      return matchesOrderNumber && matchesFrom && matchesTo;
+    });
+  }, [restaurantOrders, orderDateFrom, orderDateTo, orderSearchTerm]);
+  const selectedOrder = useMemo(
+    () => restaurantOrders.find((order) => order.id === selectedOrderId) ?? null,
+    [restaurantOrders, selectedOrderId]
+  );
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
 
@@ -789,8 +816,7 @@ export default function App() {
         .from('orders')
         .select('*')
         .eq('restaurant_id', restaurantId)
-        .order('created_at', { ascending: false })
-        .limit(20);
+        .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
       setRestaurantOrders((ordersData ?? []) as Order[]);
@@ -898,6 +924,20 @@ export default function App() {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleQuickOrderStatusChange = async (order: Order, rawStatus: string) => {
+    if (!rawStatus) return;
+    const status = rawStatus as 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED';
+
+    if (status === 'REJECTED') {
+      const reason = window.prompt('Motivo de rechazo:', 'No alcanzamos a cubrir esa zona por ahora.');
+      if (reason === null) return;
+      await updateRestaurantOrderStatus(order, status, reason);
+      return;
+    }
+
+    await updateRestaurantOrderStatus(order, status);
   };
 
 
@@ -1575,7 +1615,7 @@ export default function App() {
               <article className="stat-card"><p>MENÚ</p><strong>{menuItems.length}</strong><small>Platillos cargados</small></article>
             </div>
 
-            {(restaurantPanel === 'resumen' || restaurantPanel === 'pedidos') && (
+            {restaurantPanel === 'resumen' && (
               <>
                 <div className="orders-grid-title">📦 Pedidos entrantes</div>
                 <div className="orders-grid">
@@ -1643,6 +1683,103 @@ export default function App() {
                     );
                   })}
                 </div>
+              </>
+            )}
+
+            {restaurantPanel === 'pedidos' && (
+              <>
+                <div className="orders-grid-title">📦 Todos los pedidos</div>
+                <div className="orders-filters">
+                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
+                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
+                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
+                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
+                </div>
+                <div className="orders-table-wrap">
+                  <table className="orders-table">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th># Pedido</th>
+                        <th>Cliente</th>
+                        <th>Total</th>
+                        <th>Ubicación</th>
+                        <th>Estatus</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRestaurantOrders.map((order) => (
+                        <tr key={order.id}>
+                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
+                          <td>#{order.order_number}</td>
+                          <td>{order.client_name ?? 'Sin nombre'}</td>
+                          <td>{formatPrice(Number(order.total))}</td>
+                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
+                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
+                          <td>
+                            <div className="table-actions">
+                              <select
+                                className="fi"
+                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
+                                value=""
+                                onChange={(e) => {
+                                  void handleQuickOrderStatusChange(order, e.target.value);
+                                  e.target.value = '';
+                                }}
+                              >
+                                <option value="">Cambiar estatus</option>
+                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
+                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
+                                ))}
+                              </select>
+                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredRestaurantOrders.length === 0 && (
+                        <tr>
+                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {selectedOrder && (
+                  <article className="incoming-order selected-order-card">
+                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
+                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
+                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <div className="client-box">
+                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
+                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
+                        <>
+                          {' '}
+                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
+                            WhatsApp
+                          </a>
+                        </>
+                      )}
+                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
+                    </div>
+                    <div className="detail-items">
+                      <h5>Detalle de productos</h5>
+                      <ul>
+                        {selectedOrder.items?.map((item) => (
+                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
+                      <div className="mini-map-box">
+                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
+                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                      </div>
+                    )}
+                  </article>
+                )}
               </>
             )}
 
