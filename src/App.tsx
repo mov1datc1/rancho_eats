@@ -231,6 +231,57 @@ export default function App() {
     () => restaurantOrders.find((order) => order.id === selectedOrderId) ?? null,
     [restaurantOrders, selectedOrderId]
   );
+
+  const selectedOrderDisplayItems = useMemo(() => {
+    if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
+
+    const normalizeMoney = (value: number) => Math.round(value * 100);
+    const denormalizeMoney = (value: number) => value / 100;
+
+    const rawItems = selectedOrder.items.filter((item) => Number.isFinite(Number(item.subtotal)) && Number(item.subtotal) > 0);
+    const rawSubtotal = rawItems.reduce((acc, item) => acc + normalizeMoney(Number(item.subtotal)), 0);
+    const orderTotal = normalizeMoney(Number(selectedOrder.total));
+
+    let itemsToDisplay = rawItems;
+
+    if (rawItems.length > 0 && orderTotal > 0 && rawSubtotal !== orderTotal) {
+      const dp = new Map<number, number[]>();
+      dp.set(0, []);
+
+      rawItems.forEach((item, index) => {
+        const itemValue = normalizeMoney(Number(item.subtotal));
+        if (itemValue <= 0) return;
+
+        const snapshot = Array.from(dp.entries());
+        snapshot.forEach(([sum, indices]) => {
+          const nextSum = sum + itemValue;
+          if (nextSum > orderTotal || dp.has(nextSum)) return;
+          dp.set(nextSum, [...indices, index]);
+        });
+      });
+
+      const matched = dp.get(orderTotal);
+      if (matched && matched.length > 0) {
+        itemsToDisplay = matched.map((index) => rawItems[index]);
+      }
+    }
+
+    const grouped = new Map<string, CartItem>();
+    itemsToDisplay.forEach((item) => {
+      const key = `${item.menu_item_id}::${item.option_id ?? item.option_label ?? ''}::${item.name}::${item.unit_price}`;
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, { ...item });
+        return;
+      }
+
+      const qty = existing.qty + item.qty;
+      const subtotal = denormalizeMoney(normalizeMoney(Number(existing.subtotal)) + normalizeMoney(Number(item.subtotal)));
+      grouped.set(key, { ...existing, qty, subtotal });
+    });
+
+    return Array.from(grouped.values());
+  }, [selectedOrder]);
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
 
@@ -1876,107 +1927,46 @@ export default function App() {
               </>
             )}
 
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
 
             {restaurantPanel === 'pedidos' && (
               <>
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
+
+                {selectedOrder && (
+                  <article className="incoming-order selected-order-card">
+                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
+                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
+                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <div className="client-box">
+                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
+                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
+                        <>
+                          {' '}
+                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
+                            WhatsApp
+                          </a>
+                        </>
+                      )}
+                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
+                    </div>
+                    <div className="detail-items">
+                      <h5>Detalle de productos</h5>
+                      <ul>
+                        {selectedOrderDisplayItems.map((item) => (
+                          <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? item.name}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
+                      <div className="mini-map-box">
+                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
+                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                      </div>
+                    )}
+                  </article>
+                )}
+
                 <div className="orders-filters">
                   <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
                   <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
@@ -2034,525 +2024,6 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
               </>
             )}
 
