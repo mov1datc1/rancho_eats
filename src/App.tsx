@@ -15,6 +15,7 @@ import type {
   AdminSummary,
   CartItem,
   MenuItem,
+  MenuItemOption,
   Order,
   Restaurant
 } from './types';
@@ -63,6 +64,24 @@ const isRpcMissingError = (error: unknown) => {
     || (err.message ?? '').includes('404')
     || (err.details ?? '').toLowerCase().includes('function')
     || (err.message ?? '').toLowerCase().includes('could not find');
+};
+
+const isMenuOptionsMissingTableError = (error: unknown) => {
+  const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  if (!err) return false;
+  const fullText = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase();
+  return err.code === 'PGRST205' || fullText.includes('menu_item_options') || fullText.includes('schema cache');
+};
+
+const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
 };
 
 
@@ -129,6 +148,9 @@ export default function App() {
     price: '',
     category: 'Especialidades'
   });
+  const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string }>>([{ label: '', price: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
@@ -803,14 +825,41 @@ export default function App() {
   const loadRestaurantData = async (restaurantId: string) => {
     try {
       setMenuLoading(true);
-      const { data: menuData, error: menuError } = await supabase
-        .from('menu_items')
-        .select('*')
-        .eq('restaurant_id', restaurantId)
-        .order('sort_order', { ascending: true });
+      let normalizedMenu: MenuItem[] = [];
 
-      if (menuError) throw menuError;
-      setMenuItems((menuData ?? []) as MenuItem[]);
+      if (menuOptionsEnabled) {
+        const { data: menuWithOptions, error: menuWithOptionsError } = await supabase
+          .from('menu_items')
+          .select('*, menu_item_options(*)')
+          .eq('restaurant_id', restaurantId)
+          .order('sort_order', { ascending: true });
+
+        if (menuWithOptionsError && isMenuOptionsMissingTableError(menuWithOptionsError)) {
+          setMenuOptionsEnabled(false);
+          setMenuOptionsNotice('Opciones de menú desactivadas temporalmente: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
+        } else if (menuWithOptionsError) {
+          throw menuWithOptionsError;
+        } else {
+          normalizedMenu = ((menuWithOptions ?? []) as Array<MenuItem & { menu_item_options?: MenuItemOption[] }>).map((item) => ({
+            ...item,
+            menu_item_options: [...(item.menu_item_options ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+          }));
+          setMenuOptionsNotice('');
+        }
+      }
+
+      if (!menuOptionsEnabled || normalizedMenu.length === 0) {
+        const { data: plainMenuData, error: plainMenuError } = await supabase
+          .from('menu_items')
+          .select('*')
+          .eq('restaurant_id', restaurantId)
+          .order('sort_order', { ascending: true });
+
+        if (plainMenuError) throw plainMenuError;
+        normalizedMenu = (plainMenuData ?? []) as MenuItem[];
+      }
+
+      setMenuItems(normalizedMenu);
 
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
@@ -847,44 +896,59 @@ export default function App() {
 
   const getItemQty = (menuItemId: string) => cart[menuItemId]?.qty ?? 0;
 
-  const addItem = (item: MenuItem) => {
+  const buildCartKey = (menuItemId: string, option?: Pick<MenuItemOption, 'id' | 'label'> | null) => {
+    if (!option) return menuItemId;
+    return `${menuItemId}::${option.id ?? option.label}`;
+  };
+
+  const getItemOptionQty = (menuItemId: string, option?: Pick<MenuItemOption, 'id' | 'label'> | null) => {
+    const cartKey = buildCartKey(menuItemId, option);
+    return cart[cartKey]?.qty ?? 0;
+  };
+
+  const addItem = (item: MenuItem, option?: MenuItemOption) => {
     setCart((prev) => {
-      const existing = prev[item.id];
+      const cartKey = buildCartKey(item.id, option ?? null);
+      const existing = prev[cartKey];
+      const unitPrice = option?.price ?? item.price;
       if (existing) {
         const qty = existing.qty + 1;
         return {
           ...prev,
-          [item.id]: { ...existing, qty, subtotal: qty * existing.unit_price }
+          [cartKey]: { ...existing, qty, subtotal: qty * existing.unit_price }
         };
       }
 
       return {
         ...prev,
-        [item.id]: {
+        [cartKey]: {
           menu_item_id: item.id,
-          name: item.name,
+          option_id: option?.id ?? null,
+          option_label: option?.label ?? null,
+          name: option?.label ? `${item.name} · ${option.label}` : item.name,
           qty: 1,
-          unit_price: item.price,
-          subtotal: item.price
+          unit_price: unitPrice,
+          subtotal: unitPrice
         }
       };
     });
   };
 
-  const removeItem = (item: MenuItem) => {
+  const removeItem = (item: MenuItem, option?: MenuItemOption) => {
     setCart((prev) => {
-      const existing = prev[item.id];
+      const cartKey = buildCartKey(item.id, option ?? null);
+      const existing = prev[cartKey];
       if (!existing) return prev;
       if (existing.qty <= 1) {
         const next = { ...prev };
-        delete next[item.id];
+        delete next[cartKey];
         return next;
       }
 
       const qty = existing.qty - 1;
       return {
         ...prev,
-        [item.id]: { ...existing, qty, subtotal: qty * existing.unit_price }
+        [cartKey]: { ...existing, qty, subtotal: qty * existing.unit_price }
       };
     });
   };
@@ -1164,8 +1228,25 @@ export default function App() {
       return;
     }
 
-    if (!menuDraft.name.trim() || !menuDraft.price.trim()) {
-      setErrorMessage('Completa nombre y precio del platillo.');
+    const parsedOptions = menuDraftOptions
+      .map((option, index) => ({
+        label: option.label.trim(),
+        price: option.price.trim(),
+        sort_order: index
+      }))
+      .filter((option) => option.label && option.price)
+      .map((option) => ({
+        label: option.label,
+        price: Number(option.price),
+        sort_order: option.sort_order,
+        available: true
+      }))
+      .filter((option) => Number.isFinite(option.price) && option.price > 0);
+
+    const hasOptions = parsedOptions.length > 0;
+
+    if (!menuDraft.name.trim() || (!hasOptions && !menuDraft.price.trim())) {
+      setErrorMessage('Completa nombre y precio del platillo (o agrega opciones con precio).');
       return;
     }
 
@@ -1173,19 +1254,42 @@ export default function App() {
       setActionLoading(true);
       setErrorMessage('');
 
+      const fallbackPrice = hasOptions ? Math.min(...parsedOptions.map((option) => option.price)) : Number(menuDraft.price);
       const payload = {
         restaurant_id: selectedRestaurant.id,
         name: menuDraft.name.trim(),
         description: menuDraft.description.trim() || null,
-        price: Number(menuDraft.price),
+        price: fallbackPrice,
         category: menuDraft.category.trim() || 'Especialidades',
         available: true
       };
 
-      const { error } = await supabase.from('menu_items').insert(payload);
+      const { data: createdItem, error } = await supabase.from('menu_items').insert(payload).select('id').single();
       if (error) throw error;
 
+      if (hasOptions && createdItem?.id) {
+        if (menuOptionsEnabled) {
+          const optionRows = parsedOptions.map((option) => ({
+            menu_item_id: createdItem.id,
+            label: option.label,
+            price: option.price,
+            sort_order: option.sort_order,
+            available: true
+          }));
+          const { error: optionError } = await supabase.from('menu_item_options').insert(optionRows);
+          if (optionError && isMenuOptionsMissingTableError(optionError)) {
+            setMenuOptionsEnabled(false);
+            setMenuOptionsNotice('El platillo se guardó, pero las opciones no: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
+          } else if (optionError) {
+            throw optionError;
+          }
+        } else {
+          setMenuOptionsNotice('El platillo se guardó sin opciones porque aún falta la migración 007_menu_item_options.sql en Supabase.');
+        }
+      }
+
       setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category });
+      setMenuDraftOptions([{ label: '', price: '' }]);
       await loadRestaurantData(selectedRestaurant.id);
     } catch (error) {
       console.error(error);
@@ -1204,6 +1308,65 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setErrorMessage('No pudimos actualizar la disponibilidad del platillo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const editMenuItem = async (item: MenuItem) => {
+    const nextName = window.prompt('Nombre del platillo:', item.name);
+    if (nextName === null) return;
+
+    const nextPriceRaw = window.prompt('Precio base MXN:', String(item.price));
+    if (nextPriceRaw === null) return;
+
+    const nextCategory = window.prompt('Categoría:', item.category ?? 'Especialidades');
+    if (nextCategory === null) return;
+
+    const nextDescription = window.prompt('Descripción:', item.description ?? '');
+    if (nextDescription === null) return;
+
+    const parsedPrice = Number(nextPriceRaw);
+    if (!nextName.trim() || !Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      setErrorMessage('Para editar: captura nombre válido y precio mayor a 0.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase
+        .from('menu_items')
+        .update({
+          name: nextName.trim(),
+          price: parsedPrice,
+          category: nextCategory.trim() || 'Especialidades',
+          description: nextDescription.trim() || null
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+      if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo editar el platillo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const deleteMenuItem = async (item: MenuItem) => {
+    const accepted = window.confirm(`¿Seguro que deseas eliminar "${item.name}"? Esta acción no se puede deshacer.`);
+    if (!accepted) return;
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase.from('menu_items').delete().eq('id', item.id);
+      if (error) throw error;
+      if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo eliminar el platillo.');
     } finally {
       setActionLoading(false);
     }
@@ -1671,6 +1834,11 @@ export default function App() {
                             <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
                           </div>
                         )}
+
+                      </article>
+                    );
+                  })}
+                </div>
 
                 {selectedOrder && (
                   <article className="incoming-order selected-order-card">
@@ -2393,17 +2561,54 @@ export default function App() {
                 <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
                 <div className="menu-create-grid">
                   <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
-                  <div className="fg"><label>Precio MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
+                  <div className="fg"><label>Precio base MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
                   <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
                   <div className="fg menu-create-full"><label>Descripción</label><textarea className="fta" placeholder="Describe ingredientes o promoción" value={menuDraft.description} onChange={(e) => setMenuDraft((prev) => ({ ...prev, description: e.target.value }))} /></div>
+                  <div className="fg menu-create-full">
+                    <label>Opciones del platillo (opcional)</label>
+                    <p className="field-hint">Ejemplo: pizza Pequeña, Mediana y Grande, cada una con su precio.</p>
+                    {!menuOptionsEnabled ? (
+                      <div className="menu-empty">Esta función estará disponible cuando se ejecute la migración <code>007_menu_item_options.sql</code>.</div>
+                    ) : (
+                      <div className="menu-options-editor">
+                        {menuDraftOptions.map((option, index) => (
+                          <div key={`draft-option-${index}`} className="menu-option-row">
+                            <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
+                            <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                            {menuDraftOptions.length > 1 && (
+                              <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}>Quitar</button>
+                            )}
+                          </div>
+                        ))}
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '' }])}>+ Agregar opción</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <button className="btn" onClick={createMenuItem} disabled={actionLoading || !selectedRestaurant}>+ Agregar platillo</button>
+                {menuOptionsNotice && <div className="pending-badge">⚠️ {menuOptionsNotice}</div>}
                 <div className="menu-cards">
                   {menuItems.map((item) => (
                     <article className="menu-card" key={item.id}>
                       <div className="menu-emoji">🍽️</div>
-                      <div className="menu-info"><h4>{item.name}</h4><p>{formatPrice(item.price)}</p><small>{item.available ? 'Disponible' : 'No disponible'}</small></div>
-                      <button className="btn ghost" onClick={() => toggleMenuItemAvailability(item)}>{item.available ? 'Pausar' : 'Activar'}</button>
+                      <div className="menu-info">
+                        <h4>{item.name}</h4>
+                        {item.menu_item_options && item.menu_item_options.length > 0 ? (
+                          <div className="menu-card-options">
+                            {item.menu_item_options.filter((option) => option.available).map((option) => (
+                              <div key={option.id} className="menu-card-option"><span>{option.label}</span><strong>{formatPrice(option.price)}</strong></div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p>{formatPrice(item.price)}</p>
+                        )}
+                        <small>{item.available ? 'Disponible' : 'No disponible'}</small>
+                      </div>
+                      <div className="menu-card-actions">
+                        <button className="btn ghost" onClick={() => toggleMenuItemAvailability(item)}>{item.available ? 'Pausar' : 'Activar'}</button>
+                        <button className="btn ghost" onClick={() => editMenuItem(item)}>Editar</button>
+                        <button className="btn ghost danger" onClick={() => deleteMenuItem(item)}>Eliminar</button>
+                      </div>
                     </article>
                   ))}
                   {menuItems.length === 0 && <div className="menu-empty">Aún no tienes platillos. Usa el formulario para agregar el primero.</div>}
@@ -2718,13 +2923,30 @@ export default function App() {
                           <div className="product-body">
                             <div className="product-title">{item.name}</div>
                             <div className="product-desc">{item.description ?? 'Sin descripción'}</div>
-                            <div className="product-footer">
-                              <div className="product-price">{formatPrice(item.price)}</div>
-                              <div className="qty-row">
-                                <button className="madd msub" onClick={() => removeItem(item)}>-</button>
-                                <span className="mqty">{getItemQty(item.id)}</span>
-                                <button className="madd" onClick={() => addItem(item)}>+</button>
-                              </div>
+                            <div className="product-footer product-footer-stack">
+                              {item.menu_item_options && item.menu_item_options.filter((option) => option.available).length > 0 ? (
+                                <div className="product-options-list">
+                                  {item.menu_item_options.filter((option) => option.available).map((option) => (
+                                    <div key={`${item.id}-${option.id}`} className="product-option-row">
+                                      <div className="product-price">{option.label} · {formatPrice(option.price)}</div>
+                                      <div className="qty-row">
+                                        <button className="madd msub" onClick={() => removeItem(item, option)}>-</button>
+                                        <span className="mqty">{getItemOptionQty(item.id, option)}</span>
+                                        <button className="madd" onClick={() => addItem(item, option)}>+</button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="product-price">{formatPrice(item.price)}</div>
+                                  <div className="qty-row">
+                                    <button className="madd msub" onClick={() => removeItem(item)}>-</button>
+                                    <span className="mqty">{getItemQty(item.id)}</span>
+                                    <button className="madd" onClick={() => addItem(item)}>+</button>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
                         </article>
