@@ -15,6 +15,7 @@ import type {
   AdminSummary,
   CartItem,
   MenuItem,
+  MenuItemOption,
   Order,
   Restaurant
 } from './types';
@@ -22,6 +23,7 @@ import type {
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'resumen' | 'pedidos' | 'menu' | 'promociones' | 'zona' | 'historial' | 'config';
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
+type MenuDraftOption = { label: string; price: string; imageUrl: string };
 
 
 
@@ -63,6 +65,31 @@ const isRpcMissingError = (error: unknown) => {
     || (err.message ?? '').includes('404')
     || (err.details ?? '').toLowerCase().includes('function')
     || (err.message ?? '').toLowerCase().includes('could not find');
+};
+
+const isMenuOptionsMissingTableError = (error: unknown) => {
+  const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  if (!err) return false;
+  const fullText = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase();
+  return err.code === 'PGRST205' || fullText.includes('menu_item_options') || fullText.includes('schema cache');
+};
+
+const isMenuOptionsImageColumnMissingError = (error: unknown) => {
+  const err = error as { message?: string; details?: string; hint?: string } | null;
+  if (!err) return false;
+  const fullText = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase();
+  return fullText.includes('image_url') && fullText.includes('menu_item_options');
+};
+
+const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
 };
 
 
@@ -127,7 +154,18 @@ export default function App() {
     name: '',
     description: '',
     price: '',
-    category: 'Especialidades'
+    category: 'Especialidades',
+    imageUrl: ''
+  });
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+    reader.readAsDataURL(file);
   });
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
@@ -209,6 +247,57 @@ export default function App() {
     () => restaurantOrders.find((order) => order.id === selectedOrderId) ?? null,
     [restaurantOrders, selectedOrderId]
   );
+
+  const selectedOrderDisplayItems = useMemo(() => {
+    if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
+
+    const normalizeMoney = (value: number) => Math.round(value * 100);
+    const denormalizeMoney = (value: number) => value / 100;
+
+    const rawItems = selectedOrder.items.filter((item) => Number.isFinite(Number(item.subtotal)) && Number(item.subtotal) > 0);
+    const rawSubtotal = rawItems.reduce((acc, item) => acc + normalizeMoney(Number(item.subtotal)), 0);
+    const orderTotal = normalizeMoney(Number(selectedOrder.total));
+
+    let itemsToDisplay = rawItems;
+
+    if (rawItems.length > 0 && orderTotal > 0 && rawSubtotal !== orderTotal) {
+      const dp = new Map<number, number[]>();
+      dp.set(0, []);
+
+      rawItems.forEach((item, index) => {
+        const itemValue = normalizeMoney(Number(item.subtotal));
+        if (itemValue <= 0) return;
+
+        const snapshot = Array.from(dp.entries());
+        snapshot.forEach(([sum, indices]) => {
+          const nextSum = sum + itemValue;
+          if (nextSum > orderTotal || dp.has(nextSum)) return;
+          dp.set(nextSum, [...indices, index]);
+        });
+      });
+
+      const matched = dp.get(orderTotal);
+      if (matched && matched.length > 0) {
+        itemsToDisplay = matched.map((index) => rawItems[index]);
+      }
+    }
+
+    const grouped = new Map<string, CartItem>();
+    itemsToDisplay.forEach((item) => {
+      const key = `${item.menu_item_id}::${item.option_id ?? item.option_label ?? ''}::${item.name}::${item.unit_price}`;
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, { ...item });
+        return;
+      }
+
+      const qty = existing.qty + item.qty;
+      const subtotal = denormalizeMoney(normalizeMoney(Number(existing.subtotal)) + normalizeMoney(Number(item.subtotal)));
+      grouped.set(key, { ...existing, qty, subtotal });
+    });
+
+    return Array.from(grouped.values());
+  }, [selectedOrder]);
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
 
@@ -803,14 +892,41 @@ export default function App() {
   const loadRestaurantData = async (restaurantId: string) => {
     try {
       setMenuLoading(true);
-      const { data: menuData, error: menuError } = await supabase
-        .from('menu_items')
-        .select('*')
-        .eq('restaurant_id', restaurantId)
-        .order('sort_order', { ascending: true });
+      let normalizedMenu: MenuItem[] = [];
 
-      if (menuError) throw menuError;
-      setMenuItems((menuData ?? []) as MenuItem[]);
+      if (menuOptionsEnabled) {
+        const { data: menuWithOptions, error: menuWithOptionsError } = await supabase
+          .from('menu_items')
+          .select('*, menu_item_options(*)')
+          .eq('restaurant_id', restaurantId)
+          .order('sort_order', { ascending: true });
+
+        if (menuWithOptionsError && isMenuOptionsMissingTableError(menuWithOptionsError)) {
+          setMenuOptionsEnabled(false);
+          setMenuOptionsNotice('Opciones de menú desactivadas temporalmente: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
+        } else if (menuWithOptionsError) {
+          throw menuWithOptionsError;
+        } else {
+          normalizedMenu = ((menuWithOptions ?? []) as Array<MenuItem & { menu_item_options?: MenuItemOption[] }>).map((item) => ({
+            ...item,
+            menu_item_options: [...(item.menu_item_options ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+          }));
+          setMenuOptionsNotice('');
+        }
+      }
+
+      if (!menuOptionsEnabled || normalizedMenu.length === 0) {
+        const { data: plainMenuData, error: plainMenuError } = await supabase
+          .from('menu_items')
+          .select('*')
+          .eq('restaurant_id', restaurantId)
+          .order('sort_order', { ascending: true });
+
+        if (plainMenuError) throw plainMenuError;
+        normalizedMenu = (plainMenuData ?? []) as MenuItem[];
+      }
+
+      setMenuItems(normalizedMenu);
 
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
@@ -847,44 +963,59 @@ export default function App() {
 
   const getItemQty = (menuItemId: string) => cart[menuItemId]?.qty ?? 0;
 
-  const addItem = (item: MenuItem) => {
+  const buildCartKey = (menuItemId: string, option?: Pick<MenuItemOption, 'id' | 'label'> | null) => {
+    if (!option) return menuItemId;
+    return `${menuItemId}::${option.id ?? option.label}`;
+  };
+
+  const getItemOptionQty = (menuItemId: string, option?: Pick<MenuItemOption, 'id' | 'label'> | null) => {
+    const cartKey = buildCartKey(menuItemId, option);
+    return cart[cartKey]?.qty ?? 0;
+  };
+
+  const addItem = (item: MenuItem, option?: MenuItemOption) => {
     setCart((prev) => {
-      const existing = prev[item.id];
+      const cartKey = buildCartKey(item.id, option ?? null);
+      const existing = prev[cartKey];
+      const unitPrice = option?.price ?? item.price;
       if (existing) {
         const qty = existing.qty + 1;
         return {
           ...prev,
-          [item.id]: { ...existing, qty, subtotal: qty * existing.unit_price }
+          [cartKey]: { ...existing, qty, subtotal: qty * existing.unit_price }
         };
       }
 
       return {
         ...prev,
-        [item.id]: {
+        [cartKey]: {
           menu_item_id: item.id,
-          name: item.name,
+          option_id: option?.id ?? null,
+          option_label: option?.label ?? null,
+          name: option?.label ? `${item.name} · ${option.label}` : item.name,
           qty: 1,
-          unit_price: item.price,
-          subtotal: item.price
+          unit_price: unitPrice,
+          subtotal: unitPrice
         }
       };
     });
   };
 
-  const removeItem = (item: MenuItem) => {
+  const removeItem = (item: MenuItem, option?: MenuItemOption) => {
     setCart((prev) => {
-      const existing = prev[item.id];
+      const cartKey = buildCartKey(item.id, option ?? null);
+      const existing = prev[cartKey];
       if (!existing) return prev;
       if (existing.qty <= 1) {
         const next = { ...prev };
-        delete next[item.id];
+        delete next[cartKey];
         return next;
       }
 
       const qty = existing.qty - 1;
       return {
         ...prev,
-        [item.id]: { ...existing, qty, subtotal: qty * existing.unit_price }
+        [cartKey]: { ...existing, qty, subtotal: qty * existing.unit_price }
       };
     });
   };
@@ -1164,8 +1295,27 @@ export default function App() {
       return;
     }
 
-    if (!menuDraft.name.trim() || !menuDraft.price.trim()) {
-      setErrorMessage('Completa nombre y precio del platillo.');
+    const parsedOptions = menuDraftOptions
+      .map((option, index) => ({
+        label: option.label.trim(),
+        price: option.price.trim(),
+        image_url: option.imageUrl.trim() || null,
+        sort_order: index
+      }))
+      .filter((option) => option.label && option.price)
+      .map((option) => ({
+        label: option.label,
+        price: Number(option.price),
+        image_url: option.image_url,
+        sort_order: option.sort_order,
+        available: true
+      }))
+      .filter((option) => Number.isFinite(option.price) && option.price > 0);
+
+    const hasOptions = parsedOptions.length > 0;
+
+    if (!menuDraft.name.trim() || (!hasOptions && !menuDraft.price.trim())) {
+      setErrorMessage('Completa nombre y precio del platillo (o agrega opciones con precio).');
       return;
     }
 
@@ -1173,19 +1323,49 @@ export default function App() {
       setActionLoading(true);
       setErrorMessage('');
 
+      const fallbackPrice = hasOptions ? Math.min(...parsedOptions.map((option) => option.price)) : Number(menuDraft.price);
       const payload = {
         restaurant_id: selectedRestaurant.id,
         name: menuDraft.name.trim(),
         description: menuDraft.description.trim() || null,
-        price: Number(menuDraft.price),
+        price: fallbackPrice,
         category: menuDraft.category.trim() || 'Especialidades',
+        photo_url_1: menuDraft.imageUrl.trim() || null,
         available: true
       };
 
-      const { error } = await supabase.from('menu_items').insert(payload);
+      const { data: createdItem, error } = await supabase.from('menu_items').insert(payload).select('id').single();
       if (error) throw error;
 
-      setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category });
+      if (hasOptions && createdItem?.id) {
+        if (menuOptionsEnabled) {
+          const optionRows = parsedOptions.map((option) => ({
+            menu_item_id: createdItem.id,
+            label: option.label,
+            price: option.price,
+            image_url: option.image_url,
+            sort_order: option.sort_order,
+            available: true
+          }));
+          const { error: optionError } = await supabase.from('menu_item_options').insert(optionRows);
+          if (optionError && isMenuOptionsMissingTableError(optionError)) {
+            setMenuOptionsEnabled(false);
+            setMenuOptionsNotice('El platillo se guardó, pero las opciones no: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
+          } else if (optionError && isMenuOptionsImageColumnMissingError(optionError)) {
+            const fallbackRows = optionRows.map(({ image_url: _discard, ...rest }) => rest);
+            const { error: fallbackOptionError } = await supabase.from('menu_item_options').insert(fallbackRows);
+            if (fallbackOptionError) throw fallbackOptionError;
+            setMenuOptionsNotice('Se guardaron opciones sin imagen. Ejecuta migración 008_menu_item_options_image_url.sql para habilitar imagen por opción.');
+          } else if (optionError) {
+            throw optionError;
+          }
+        } else {
+          setMenuOptionsNotice('El platillo se guardó sin opciones porque aún falta la migración 007_menu_item_options.sql en Supabase.');
+        }
+      }
+
+      setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category, imageUrl: '' });
+      setMenuDraftOptions([{ label: '', price: '', imageUrl: '' }]);
       await loadRestaurantData(selectedRestaurant.id);
     } catch (error) {
       console.error(error);
@@ -1204,6 +1384,105 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setErrorMessage('No pudimos actualizar la disponibilidad del platillo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const editMenuItem = async (item: MenuItem) => {
+    const nextName = window.prompt('Nombre del platillo:', item.name);
+    if (nextName === null) return;
+
+    const nextPriceRaw = window.prompt('Precio base MXN:', String(item.price));
+    if (nextPriceRaw === null) return;
+
+    const nextCategory = window.prompt('Categoría:', item.category ?? 'Especialidades');
+    if (nextCategory === null) return;
+
+    const nextDescription = window.prompt('Descripción:', item.description ?? '');
+    if (nextDescription === null) return;
+
+    const nextImageUrl = window.prompt('Imagen del platillo (URL o base64):', item.photo_url_1 ?? '');
+    if (nextImageUrl === null) return;
+
+    const parsedPrice = Number(nextPriceRaw);
+    if (!nextName.trim() || !Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      setErrorMessage('Para editar: captura nombre válido y precio mayor a 0.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase
+        .from('menu_items')
+        .update({
+          name: nextName.trim(),
+          price: parsedPrice,
+          category: nextCategory.trim() || 'Especialidades',
+          description: nextDescription.trim() || null,
+          photo_url_1: nextImageUrl.trim() || null
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+
+      if (menuOptionsEnabled && item.menu_item_options && item.menu_item_options.length > 0) {
+        for (const option of item.menu_item_options) {
+          const nextOptionPriceRaw = window.prompt(`Precio para opción "${option.label}"`, String(option.price));
+          if (nextOptionPriceRaw === null) continue;
+          const nextOptionLabel = window.prompt(`Nombre para opción "${option.label}"`, option.label);
+          if (nextOptionLabel === null) continue;
+          const nextOptionImageUrl = window.prompt(`Imagen para opción "${option.label}" (URL o base64)`, option.image_url ?? '');
+          if (nextOptionImageUrl === null) continue;
+
+          const parsedOptionPrice = Number(nextOptionPriceRaw);
+          if (!Number.isFinite(parsedOptionPrice) || parsedOptionPrice <= 0) continue;
+
+          const { error: optionUpdateError } = await supabase
+            .from('menu_item_options')
+            .update({
+              label: nextOptionLabel.trim() || option.label,
+              price: parsedOptionPrice,
+              image_url: nextOptionImageUrl.trim() || null
+            })
+            .eq('id', option.id);
+
+          if (optionUpdateError && isMenuOptionsImageColumnMissingError(optionUpdateError)) {
+            const { error: fallbackOptionUpdateError } = await supabase
+              .from('menu_item_options')
+              .update({
+                label: nextOptionLabel.trim() || option.label,
+                price: parsedOptionPrice
+              })
+              .eq('id', option.id);
+            if (fallbackOptionUpdateError) throw fallbackOptionUpdateError;
+            setMenuOptionsNotice('Precios de opciones actualizados sin imagen. Ejecuta migración 008_menu_item_options_image_url.sql para habilitar imagen por opción.');
+          } else if (optionUpdateError) throw optionUpdateError;
+        }
+      }
+
+      if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo editar el platillo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const deleteMenuItem = async (item: MenuItem) => {
+    const accepted = window.confirm(`¿Seguro que deseas eliminar "${item.name}"? Esta acción no se puede deshacer.`);
+    if (!accepted) return;
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase.from('menu_items').delete().eq('id', item.id);
+      if (error) throw error;
+      if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo eliminar el platillo.');
     } finally {
       setActionLoading(false);
     }
@@ -1672,101 +1951,9 @@ export default function App() {
                           </div>
                         )}
 
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </article>
+                    );
+                  })}
                 </div>
 
                 {selectedOrder && (
@@ -1804,11 +1991,47 @@ export default function App() {
                 )}
               </>
             )}
+
 
             {restaurantPanel === 'pedidos' && (
               <>
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
+
+                {selectedOrder && (
+                  <article className="incoming-order selected-order-card">
+                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
+                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
+                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <div className="client-box">
+                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
+                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
+                        <>
+                          {' '}
+                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
+                            WhatsApp
+                          </a>
+                        </>
+                      )}
+                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
+                    </div>
+                    <div className="detail-items">
+                      <h5>Detalle de productos</h5>
+                      <ul>
+                        {selectedOrderDisplayItems.map((item) => (
+                          <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? item.name}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
+                      <div className="mini-map-box">
+                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
+                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                      </div>
+                    )}
+                  </article>
+                )}
+
                 <div className="orders-filters">
                   <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
                   <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
@@ -1866,525 +2089,6 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
-                <div className="orders-grid-title">📦 Todos los pedidos</div>
-                <div className="orders-filters">
-                  <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateFrom} onChange={(e) => setOrderDateFrom(e.target.value)} />
-                  <input className="fi" type="date" value={orderDateTo} onChange={(e) => setOrderDateTo(e.target.value)} />
-                  <button className="btn ghost" onClick={() => { setOrderSearchTerm(''); setOrderDateFrom(''); setOrderDateTo(''); }}>Limpiar filtros</button>
-                </div>
-                <div className="orders-table-wrap">
-                  <table className="orders-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th># Pedido</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Ubicación</th>
-                        <th>Estatus</th>
-                        <th>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRestaurantOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString('es-MX')}</td>
-                          <td>#{order.order_number}</td>
-                          <td>{order.client_name ?? 'Sin nombre'}</td>
-                          <td>{formatPrice(Number(order.total))}</td>
-                          <td>{order.client_location_note ?? 'Sin referencia'}</td>
-                          <td><span className="status-chip">{statusLabel(order.status)}</span></td>
-                          <td>
-                            <div className="table-actions">
-                              <select
-                                className="fi"
-                                disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
-                                value=""
-                                onChange={(e) => {
-                                  void handleQuickOrderStatusChange(order, e.target.value);
-                                  e.target.value = '';
-                                }}
-                              >
-                                <option value="">Cambiar estatus</option>
-                                {(nextStatusByOrderState[order.status] ?? []).map((nextStatus) => (
-                                  <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
-                                ))}
-                              </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredRestaurantOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
-                      </div>
-                    )}
-                  </article>
-                )}
               </>
             )}
 
@@ -2393,17 +2097,82 @@ export default function App() {
                 <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
                 <div className="menu-create-grid">
                   <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
-                  <div className="fg"><label>Precio MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
+                  <div className="fg"><label>Precio base MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
                   <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
+                  <div className="fg menu-create-full">
+                    <label>Imagen principal del platillo</label>
+                    <p className="field-hint">Medida recomendada: <strong>1200x800 px</strong> (relación 3:2) en JPG/WebP.</p>
+                    <div className="menu-option-row menu-option-row-image">
+                      <input className="fi" placeholder="Pega URL de imagen o usa el botón para subir" value={menuDraft.imageUrl} onChange={(e) => setMenuDraft((prev) => ({ ...prev, imageUrl: e.target.value }))} />
+                      <input className="fi" type="file" accept="image/*" onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const dataUrl = await fileToDataUrl(file);
+                          setMenuDraft((prev) => ({ ...prev, imageUrl: dataUrl }));
+                        } catch {
+                          setErrorMessage('No se pudo cargar la imagen del platillo.');
+                        }
+                      }} />
+                    </div>
+                  </div>
                   <div className="fg menu-create-full"><label>Descripción</label><textarea className="fta" placeholder="Describe ingredientes o promoción" value={menuDraft.description} onChange={(e) => setMenuDraft((prev) => ({ ...prev, description: e.target.value }))} /></div>
+                  <div className="fg menu-create-full">
+                    <label>Opciones del platillo (opcional)</label>
+                    <p className="field-hint">Ejemplo: pizza Pequeña, Mediana y Grande, cada una con su precio.</p>
+                    {!menuOptionsEnabled ? (
+                      <div className="menu-empty">Esta función estará disponible cuando se ejecute la migración <code>007_menu_item_options.sql</code>.</div>
+                    ) : (
+                      <div className="menu-options-editor">
+                        {menuDraftOptions.map((option, index) => (
+                          <div key={`draft-option-${index}`} className="menu-option-row">
+                            <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
+                            <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                            <input className="fi" placeholder="Imagen opción (URL/base64)" value={option.imageUrl} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: e.target.value } : item))} />
+                            <input className="fi" type="file" accept="image/*" onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              try {
+                                const dataUrl = await fileToDataUrl(file);
+                                setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: dataUrl } : item));
+                              } catch {
+                                setErrorMessage('No se pudo cargar la imagen de la opción.');
+                              }
+                            }} />
+                            {menuDraftOptions.length > 1 && (
+                              <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}>Quitar</button>
+                            )}
+                          </div>
+                        ))}
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <button className="btn" onClick={createMenuItem} disabled={actionLoading || !selectedRestaurant}>+ Agregar platillo</button>
+                {menuOptionsNotice && <div className="pending-badge">⚠️ {menuOptionsNotice}</div>}
                 <div className="menu-cards">
                   {menuItems.map((item) => (
                     <article className="menu-card" key={item.id}>
-                      <div className="menu-emoji">🍽️</div>
-                      <div className="menu-info"><h4>{item.name}</h4><p>{formatPrice(item.price)}</p><small>{item.available ? 'Disponible' : 'No disponible'}</small></div>
-                      <button className="btn ghost" onClick={() => toggleMenuItemAvailability(item)}>{item.available ? 'Pausar' : 'Activar'}</button>
+                      <div className="menu-emoji">{item.photo_url_1 ? <img src={item.photo_url_1} alt={item.name} className="menu-photo" /> : '🍽️'}</div>
+                      <div className="menu-info">
+                        <h4>{item.name}</h4>
+                        {item.menu_item_options && item.menu_item_options.length > 0 ? (
+                          <div className="menu-card-options">
+                            {item.menu_item_options.filter((option) => option.available).map((option) => (
+                              <div key={option.id} className="menu-card-option"><span>{option.label}</span><strong>{formatPrice(option.price)}</strong></div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p>{formatPrice(item.price)}</p>
+                        )}
+                        <small>{item.available ? 'Disponible' : 'No disponible'}</small>
+                      </div>
+                      <div className="menu-card-actions">
+                        <button className="btn ghost" onClick={() => toggleMenuItemAvailability(item)}>{item.available ? 'Pausar' : 'Activar'}</button>
+                        <button className="btn ghost" onClick={() => editMenuItem(item)}>Editar</button>
+                        <button className="btn ghost danger" onClick={() => deleteMenuItem(item)}>Eliminar</button>
+                      </div>
                     </article>
                   ))}
                   {menuItems.length === 0 && <div className="menu-empty">Aún no tienes platillos. Usa el formulario para agregar el primero.</div>}
@@ -2714,17 +2483,37 @@ export default function App() {
                     <div className="product-grid">
                       {sectionItems.map((item) => (
                         <article className="product-card" key={item.id}>
-                          <div className="product-cover">🍽️</div>
+                          <div className="product-cover">{item.photo_url_1 ? <img src={item.photo_url_1} alt={item.name} className="product-photo" /> : '🍽️'}</div>
                           <div className="product-body">
                             <div className="product-title">{item.name}</div>
                             <div className="product-desc">{item.description ?? 'Sin descripción'}</div>
-                            <div className="product-footer">
-                              <div className="product-price">{formatPrice(item.price)}</div>
-                              <div className="qty-row">
-                                <button className="madd msub" onClick={() => removeItem(item)}>-</button>
-                                <span className="mqty">{getItemQty(item.id)}</span>
-                                <button className="madd" onClick={() => addItem(item)}>+</button>
-                              </div>
+                            <div className="product-footer product-footer-stack">
+                              {item.menu_item_options && item.menu_item_options.filter((option) => option.available).length > 0 ? (
+                                <div className="product-options-list">
+                                  {item.menu_item_options.filter((option) => option.available).map((option) => (
+                                    <div key={`${item.id}-${option.id}`} className="product-option-row">
+                                      <div className="product-option-meta">
+                                        {option.image_url ? <img src={option.image_url} alt={option.label} className="option-photo" /> : <span className="option-photo-fallback">🍽️</span>}
+                                        <div className="product-price">{option.label} · {formatPrice(option.price)}</div>
+                                      </div>
+                                      <div className="qty-row">
+                                        <button className="madd msub" onClick={() => removeItem(item, option)}>-</button>
+                                        <span className="mqty">{getItemOptionQty(item.id, option)}</span>
+                                        <button className="madd" onClick={() => addItem(item, option)}>+</button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="product-price">{formatPrice(item.price)}</div>
+                                  <div className="qty-row">
+                                    <button className="madd msub" onClick={() => removeItem(item)}>-</button>
+                                    <span className="mqty">{getItemQty(item.id)}</span>
+                                    <button className="madd" onClick={() => addItem(item)}>+</button>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
                         </article>
