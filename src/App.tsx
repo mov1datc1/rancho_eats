@@ -73,6 +73,13 @@ const isMenuOptionsMissingTableError = (error: unknown) => {
   return err.code === 'PGRST205' || fullText.includes('menu_item_options') || fullText.includes('schema cache');
 };
 
+const isMenuOptionsImageColumnMissingError = (error: unknown) => {
+  const err = error as { message?: string; details?: string; hint?: string } | null;
+  if (!err) return false;
+  const fullText = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase();
+  return fullText.includes('image_url') && fullText.includes('menu_item_options');
+};
+
 const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
   const toRad = (value: number) => (value * Math.PI) / 180;
   const earthRadiusKm = 6371;
@@ -146,7 +153,18 @@ export default function App() {
     name: '',
     description: '',
     price: '',
-    category: 'Especialidades'
+    category: 'Especialidades',
+    imageUrl: ''
+  });
+  const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string; imageUrl: string }>>([{ label: '', price: '', imageUrl: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+    reader.readAsDataURL(file);
   });
   const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string }>>([{ label: '', price: '' }]);
   const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
@@ -1283,12 +1301,14 @@ export default function App() {
       .map((option, index) => ({
         label: option.label.trim(),
         price: option.price.trim(),
+        image_url: option.imageUrl.trim() || null,
         sort_order: index
       }))
       .filter((option) => option.label && option.price)
       .map((option) => ({
         label: option.label,
         price: Number(option.price),
+        image_url: option.image_url,
         sort_order: option.sort_order,
         available: true
       }))
@@ -1312,6 +1332,7 @@ export default function App() {
         description: menuDraft.description.trim() || null,
         price: fallbackPrice,
         category: menuDraft.category.trim() || 'Especialidades',
+        photo_url_1: menuDraft.imageUrl.trim() || null,
         available: true
       };
 
@@ -1324,6 +1345,7 @@ export default function App() {
             menu_item_id: createdItem.id,
             label: option.label,
             price: option.price,
+            image_url: option.image_url,
             sort_order: option.sort_order,
             available: true
           }));
@@ -1331,6 +1353,11 @@ export default function App() {
           if (optionError && isMenuOptionsMissingTableError(optionError)) {
             setMenuOptionsEnabled(false);
             setMenuOptionsNotice('El platillo se guardó, pero las opciones no: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
+          } else if (optionError && isMenuOptionsImageColumnMissingError(optionError)) {
+            const fallbackRows = optionRows.map(({ image_url: _discard, ...rest }) => rest);
+            const { error: fallbackOptionError } = await supabase.from('menu_item_options').insert(fallbackRows);
+            if (fallbackOptionError) throw fallbackOptionError;
+            setMenuOptionsNotice('Se guardaron opciones sin imagen. Ejecuta migración 008_menu_item_options_image_url.sql para habilitar imagen por opción.');
           } else if (optionError) {
             throw optionError;
           }
@@ -1339,8 +1366,8 @@ export default function App() {
         }
       }
 
-      setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category });
-      setMenuDraftOptions([{ label: '', price: '' }]);
+      setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category, imageUrl: '' });
+      setMenuDraftOptions([{ label: '', price: '', imageUrl: '' }]);
       await loadRestaurantData(selectedRestaurant.id);
     } catch (error) {
       console.error(error);
@@ -1377,6 +1404,9 @@ export default function App() {
     const nextDescription = window.prompt('Descripción:', item.description ?? '');
     if (nextDescription === null) return;
 
+    const nextImageUrl = window.prompt('Imagen del platillo (URL o base64):', item.photo_url_1 ?? '');
+    if (nextImageUrl === null) return;
+
     const parsedPrice = Number(nextPriceRaw);
     if (!nextName.trim() || !Number.isFinite(parsedPrice) || parsedPrice <= 0) {
       setErrorMessage('Para editar: captura nombre válido y precio mayor a 0.');
@@ -1392,10 +1422,47 @@ export default function App() {
           name: nextName.trim(),
           price: parsedPrice,
           category: nextCategory.trim() || 'Especialidades',
-          description: nextDescription.trim() || null
+          description: nextDescription.trim() || null,
+          photo_url_1: nextImageUrl.trim() || null
         })
         .eq('id', item.id);
       if (error) throw error;
+
+      if (menuOptionsEnabled && item.menu_item_options && item.menu_item_options.length > 0) {
+        for (const option of item.menu_item_options) {
+          const nextOptionPriceRaw = window.prompt(`Precio para opción "${option.label}"`, String(option.price));
+          if (nextOptionPriceRaw === null) continue;
+          const nextOptionLabel = window.prompt(`Nombre para opción "${option.label}"`, option.label);
+          if (nextOptionLabel === null) continue;
+          const nextOptionImageUrl = window.prompt(`Imagen para opción "${option.label}" (URL o base64)`, option.image_url ?? '');
+          if (nextOptionImageUrl === null) continue;
+
+          const parsedOptionPrice = Number(nextOptionPriceRaw);
+          if (!Number.isFinite(parsedOptionPrice) || parsedOptionPrice <= 0) continue;
+
+          const { error: optionUpdateError } = await supabase
+            .from('menu_item_options')
+            .update({
+              label: nextOptionLabel.trim() || option.label,
+              price: parsedOptionPrice,
+              image_url: nextOptionImageUrl.trim() || null
+            })
+            .eq('id', option.id);
+
+          if (optionUpdateError && isMenuOptionsImageColumnMissingError(optionUpdateError)) {
+            const { error: fallbackOptionUpdateError } = await supabase
+              .from('menu_item_options')
+              .update({
+                label: nextOptionLabel.trim() || option.label,
+                price: parsedOptionPrice
+              })
+              .eq('id', option.id);
+            if (fallbackOptionUpdateError) throw fallbackOptionUpdateError;
+            setMenuOptionsNotice('Precios de opciones actualizados sin imagen. Ejecuta migración 008_menu_item_options_image_url.sql para habilitar imagen por opción.');
+          } else if (optionUpdateError) throw optionUpdateError;
+        }
+      }
+
       if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
     } catch (error) {
       console.error(error);
@@ -2034,6 +2101,23 @@ export default function App() {
                   <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
                   <div className="fg"><label>Precio base MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
                   <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
+                  <div className="fg menu-create-full">
+                    <label>Imagen principal del platillo</label>
+                    <p className="field-hint">Medida recomendada: <strong>1200x800 px</strong> (relación 3:2) en JPG/WebP.</p>
+                    <div className="menu-option-row menu-option-row-image">
+                      <input className="fi" placeholder="Pega URL de imagen o usa el botón para subir" value={menuDraft.imageUrl} onChange={(e) => setMenuDraft((prev) => ({ ...prev, imageUrl: e.target.value }))} />
+                      <input className="fi" type="file" accept="image/*" onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const dataUrl = await fileToDataUrl(file);
+                          setMenuDraft((prev) => ({ ...prev, imageUrl: dataUrl }));
+                        } catch {
+                          setErrorMessage('No se pudo cargar la imagen del platillo.');
+                        }
+                      }} />
+                    </div>
+                  </div>
                   <div className="fg menu-create-full"><label>Descripción</label><textarea className="fta" placeholder="Describe ingredientes o promoción" value={menuDraft.description} onChange={(e) => setMenuDraft((prev) => ({ ...prev, description: e.target.value }))} /></div>
                   <div className="fg menu-create-full">
                     <label>Opciones del platillo (opcional)</label>
@@ -2046,12 +2130,23 @@ export default function App() {
                           <div key={`draft-option-${index}`} className="menu-option-row">
                             <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
                             <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                            <input className="fi" placeholder="Imagen opción (URL/base64)" value={option.imageUrl} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: e.target.value } : item))} />
+                            <input className="fi" type="file" accept="image/*" onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              try {
+                                const dataUrl = await fileToDataUrl(file);
+                                setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: dataUrl } : item));
+                              } catch {
+                                setErrorMessage('No se pudo cargar la imagen de la opción.');
+                              }
+                            }} />
                             {menuDraftOptions.length > 1 && (
                               <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}>Quitar</button>
                             )}
                           </div>
                         ))}
-                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '' }])}>+ Agregar opción</button>
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
                       </div>
                     )}
                   </div>
@@ -2061,7 +2156,7 @@ export default function App() {
                 <div className="menu-cards">
                   {menuItems.map((item) => (
                     <article className="menu-card" key={item.id}>
-                      <div className="menu-emoji">🍽️</div>
+                      <div className="menu-emoji">{item.photo_url_1 ? <img src={item.photo_url_1} alt={item.name} className="menu-photo" /> : '🍽️'}</div>
                       <div className="menu-info">
                         <h4>{item.name}</h4>
                         {item.menu_item_options && item.menu_item_options.length > 0 ? (
@@ -2390,7 +2485,7 @@ export default function App() {
                     <div className="product-grid">
                       {sectionItems.map((item) => (
                         <article className="product-card" key={item.id}>
-                          <div className="product-cover">🍽️</div>
+                          <div className="product-cover">{item.photo_url_1 ? <img src={item.photo_url_1} alt={item.name} className="product-photo" /> : '🍽️'}</div>
                           <div className="product-body">
                             <div className="product-title">{item.name}</div>
                             <div className="product-desc">{item.description ?? 'Sin descripción'}</div>
@@ -2399,7 +2494,10 @@ export default function App() {
                                 <div className="product-options-list">
                                   {item.menu_item_options.filter((option) => option.available).map((option) => (
                                     <div key={`${item.id}-${option.id}`} className="product-option-row">
-                                      <div className="product-price">{option.label} · {formatPrice(option.price)}</div>
+                                      <div className="product-option-meta">
+                                        {option.image_url ? <img src={option.image_url} alt={option.label} className="option-photo" /> : <span className="option-photo-fallback">🍽️</span>}
+                                        <div className="product-price">{option.label} · {formatPrice(option.price)}</div>
+                                      </div>
                                       <div className="qty-row">
                                         <button className="madd msub" onClick={() => removeItem(item, option)}>-</button>
                                         <span className="mqty">{getItemOptionQty(item.id, option)}</span>
