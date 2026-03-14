@@ -66,6 +66,13 @@ const isRpcMissingError = (error: unknown) => {
     || (err.message ?? '').toLowerCase().includes('could not find');
 };
 
+const isMenuOptionsMissingTableError = (error: unknown) => {
+  const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  if (!err) return false;
+  const fullText = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase();
+  return err.code === 'PGRST205' || fullText.includes('menu_item_options') || fullText.includes('schema cache');
+};
+
 const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
   const toRad = (value: number) => (value * Math.PI) / 180;
   const earthRadiusKm = 6371;
@@ -142,6 +149,8 @@ export default function App() {
     category: 'Especialidades'
   });
   const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string }>>([{ label: '', price: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
@@ -816,17 +825,40 @@ export default function App() {
   const loadRestaurantData = async (restaurantId: string) => {
     try {
       setMenuLoading(true);
-      const { data: menuData, error: menuError } = await supabase
-        .from('menu_items')
-        .select('*, menu_item_options(*)')
-        .eq('restaurant_id', restaurantId)
-        .order('sort_order', { ascending: true });
+      let normalizedMenu: MenuItem[] = [];
 
-      if (menuError) throw menuError;
-      const normalizedMenu = ((menuData ?? []) as Array<MenuItem & { menu_item_options?: MenuItemOption[] }>).map((item) => ({
-        ...item,
-        menu_item_options: [...(item.menu_item_options ?? [])].sort((a, b) => a.sort_order - b.sort_order)
-      }));
+      if (menuOptionsEnabled) {
+        const { data: menuWithOptions, error: menuWithOptionsError } = await supabase
+          .from('menu_items')
+          .select('*, menu_item_options(*)')
+          .eq('restaurant_id', restaurantId)
+          .order('sort_order', { ascending: true });
+
+        if (menuWithOptionsError && isMenuOptionsMissingTableError(menuWithOptionsError)) {
+          setMenuOptionsEnabled(false);
+          setMenuOptionsNotice('Opciones de menú desactivadas temporalmente: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
+        } else if (menuWithOptionsError) {
+          throw menuWithOptionsError;
+        } else {
+          normalizedMenu = ((menuWithOptions ?? []) as Array<MenuItem & { menu_item_options?: MenuItemOption[] }>).map((item) => ({
+            ...item,
+            menu_item_options: [...(item.menu_item_options ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+          }));
+          setMenuOptionsNotice('');
+        }
+      }
+
+      if (!menuOptionsEnabled || normalizedMenu.length === 0) {
+        const { data: plainMenuData, error: plainMenuError } = await supabase
+          .from('menu_items')
+          .select('*')
+          .eq('restaurant_id', restaurantId)
+          .order('sort_order', { ascending: true });
+
+        if (plainMenuError) throw plainMenuError;
+        normalizedMenu = (plainMenuData ?? []) as MenuItem[];
+      }
+
       setMenuItems(normalizedMenu);
 
       const { data: ordersData, error: ordersError } = await supabase
@@ -1236,15 +1268,24 @@ export default function App() {
       if (error) throw error;
 
       if (hasOptions && createdItem?.id) {
-        const optionRows = parsedOptions.map((option) => ({
-          menu_item_id: createdItem.id,
-          label: option.label,
-          price: option.price,
-          sort_order: option.sort_order,
-          available: true
-        }));
-        const { error: optionError } = await supabase.from('menu_item_options').insert(optionRows);
-        if (optionError) throw optionError;
+        if (menuOptionsEnabled) {
+          const optionRows = parsedOptions.map((option) => ({
+            menu_item_id: createdItem.id,
+            label: option.label,
+            price: option.price,
+            sort_order: option.sort_order,
+            available: true
+          }));
+          const { error: optionError } = await supabase.from('menu_item_options').insert(optionRows);
+          if (optionError && isMenuOptionsMissingTableError(optionError)) {
+            setMenuOptionsEnabled(false);
+            setMenuOptionsNotice('El platillo se guardó, pero las opciones no: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
+          } else if (optionError) {
+            throw optionError;
+          }
+        } else {
+          setMenuOptionsNotice('El platillo se guardó sin opciones porque aún falta la migración 007_menu_item_options.sql en Supabase.');
+        }
       }
 
       setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category });
@@ -2467,21 +2508,26 @@ export default function App() {
                   <div className="fg menu-create-full">
                     <label>Opciones del platillo (opcional)</label>
                     <p className="field-hint">Ejemplo: pizza Pequeña, Mediana y Grande, cada una con su precio.</p>
-                    <div className="menu-options-editor">
-                      {menuDraftOptions.map((option, index) => (
-                        <div key={`draft-option-${index}`} className="menu-option-row">
-                          <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
-                          <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
-                          {menuDraftOptions.length > 1 && (
-                            <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}>Quitar</button>
-                          )}
-                        </div>
-                      ))}
-                      <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '' }])}>+ Agregar opción</button>
-                    </div>
+                    {!menuOptionsEnabled ? (
+                      <div className="menu-empty">Esta función estará disponible cuando se ejecute la migración <code>007_menu_item_options.sql</code>.</div>
+                    ) : (
+                      <div className="menu-options-editor">
+                        {menuDraftOptions.map((option, index) => (
+                          <div key={`draft-option-${index}`} className="menu-option-row">
+                            <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
+                            <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                            {menuDraftOptions.length > 1 && (
+                              <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}>Quitar</button>
+                            )}
+                          </div>
+                        ))}
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '' }])}>+ Agregar opción</button>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <button className="btn" onClick={createMenuItem} disabled={actionLoading || !selectedRestaurant}>+ Agregar platillo</button>
+                {menuOptionsNotice && <div className="pending-badge">⚠️ {menuOptionsNotice}</div>}
                 <div className="menu-cards">
                   {menuItems.map((item) => (
                     <article className="menu-card" key={item.id}>
