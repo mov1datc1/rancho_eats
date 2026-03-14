@@ -26,10 +26,25 @@ export interface MenuItem {
   price: number;
   available: boolean;
   category: string;
+  photo_url_1?: string | null;
+  photo_url_2?: string | null;
+  menu_item_options?: MenuItemOption[];
+}
+
+export interface MenuItemOption {
+  id: string;
+  menu_item_id: string;
+  label: string;
+  price: number;
+  image_url?: string | null;
+  available: boolean;
+  sort_order: number;
 }
 
 export interface CartItem {
   menu_item_id: string;
+  option_id?: string | null;
+  option_label?: string | null;
   name: string;
   qty: number;
   unit_price: number;
