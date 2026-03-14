@@ -177,6 +177,16 @@ export default function App() {
     reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
     reader.readAsDataURL(file);
   });
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+    reader.readAsDataURL(file);
+  });
   const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string; imageUrl: string }>>([{ label: '', price: '', imageUrl: '' }]);
   const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
   const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
