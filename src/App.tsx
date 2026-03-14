@@ -1313,6 +1313,65 @@ export default function App() {
     }
   };
 
+  const editMenuItem = async (item: MenuItem) => {
+    const nextName = window.prompt('Nombre del platillo:', item.name);
+    if (nextName === null) return;
+
+    const nextPriceRaw = window.prompt('Precio base MXN:', String(item.price));
+    if (nextPriceRaw === null) return;
+
+    const nextCategory = window.prompt('Categoría:', item.category ?? 'Especialidades');
+    if (nextCategory === null) return;
+
+    const nextDescription = window.prompt('Descripción:', item.description ?? '');
+    if (nextDescription === null) return;
+
+    const parsedPrice = Number(nextPriceRaw);
+    if (!nextName.trim() || !Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      setErrorMessage('Para editar: captura nombre válido y precio mayor a 0.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase
+        .from('menu_items')
+        .update({
+          name: nextName.trim(),
+          price: parsedPrice,
+          category: nextCategory.trim() || 'Especialidades',
+          description: nextDescription.trim() || null
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+      if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo editar el platillo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const deleteMenuItem = async (item: MenuItem) => {
+    const accepted = window.confirm(`¿Seguro que deseas eliminar "${item.name}"? Esta acción no se puede deshacer.`);
+    if (!accepted) return;
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase.from('menu_items').delete().eq('id', item.id);
+      if (error) throw error;
+      if (selectedRestaurant) await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo eliminar el platillo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const signInRestaurant = async () => {
     try {
       setActionLoading(true);
@@ -2545,7 +2604,11 @@ export default function App() {
                         )}
                         <small>{item.available ? 'Disponible' : 'No disponible'}</small>
                       </div>
-                      <button className="btn ghost" onClick={() => toggleMenuItemAvailability(item)}>{item.available ? 'Pausar' : 'Activar'}</button>
+                      <div className="menu-card-actions">
+                        <button className="btn ghost" onClick={() => toggleMenuItemAvailability(item)}>{item.available ? 'Pausar' : 'Activar'}</button>
+                        <button className="btn ghost" onClick={() => editMenuItem(item)}>Editar</button>
+                        <button className="btn ghost danger" onClick={() => deleteMenuItem(item)}>Eliminar</button>
+                      </div>
                     </article>
                   ))}
                   {menuItems.length === 0 && <div className="menu-empty">Aún no tienes platillos. Usa el formulario para agregar el primero.</div>}
