@@ -166,6 +166,9 @@ export default function App() {
     reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
     reader.readAsDataURL(file);
   });
+  const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string }>>([{ label: '', price: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
