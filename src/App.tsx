@@ -25,8 +25,6 @@ type RestaurantPanelKey = 'resumen' | 'pedidos' | 'menu' | 'promociones' | 'zona
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
 
-
-
 const statusClassByRestaurant = {
   ACTIVE: 'aprobado',
   PENDING: 'pendiente',
@@ -92,7 +90,6 @@ const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => 
   return earthRadiusKm * c;
 };
 
-
 const getMobileInstallContext = () => {
   if (typeof navigator === 'undefined' || typeof window === 'undefined') {
     return { isMobile: false, isiOS: false, isStandalone: false };
@@ -157,59 +154,20 @@ export default function App() {
     category: 'Especialidades',
     imageUrl: ''
   });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
+
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
+    { label: '', price: '', imageUrl: '' }
+  ]);
   const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
   const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
 
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-    reader.readAsDataURL(file);
-  });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
-
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-    reader.readAsDataURL(file);
-  });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
-
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-    reader.readAsDataURL(file);
-  });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
-
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-    reader.readAsDataURL(file);
-  });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string; imageUrl: string }>>([{ label: '', price: '', imageUrl: '' }]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
-
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-    reader.readAsDataURL(file);
-  });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<Array<{ label: string; price: string }>>([{ label: '', price: '' }]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+      reader.readAsDataURL(file);
+    });
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
@@ -343,7 +301,6 @@ export default function App() {
   }, [selectedOrder]);
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
-
   const playNewOrderSound = () => {
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -461,7 +418,6 @@ export default function App() {
     void loadTestRestaurants();
   }, [isTestRoute]);
 
-
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -484,7 +440,6 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, [isStandalone]);
-
 
   useEffect(() => {
     if (!selectedRestaurant?.id || activeTab !== 'restaurante') return;
@@ -542,12 +497,9 @@ export default function App() {
     };
   }, [searchedOrder?.id]);
 
-
   useEffect(() => {
     searchedOrderStatusRef.current = searchedOrder?.status ?? null;
   }, [searchedOrder?.id]);
-
-
 
   const installPwa = async () => {
     if (deferredPrompt) {
@@ -624,7 +576,6 @@ export default function App() {
       const parsedActive = (activeData ?? []) as Restaurant[];
       setRestaurants(parsedActive);
       setSelectedRestaurant(parsedActive[0] ?? null);
-
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
@@ -632,7 +583,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
 
   const fetchPendingRestaurantsFromFunction = async () => {
     if (!adminFunctionEnabled) return null;
@@ -656,8 +606,7 @@ export default function App() {
   const loadPendingRestaurants = async (rpcEnabled = adminRpcEnabled) => {
     try {
       if (rpcEnabled) {
-        const { data: pendingData, error: pendingError } = await supabase
-          .rpc('admin_list_restaurant_requests');
+        const { data: pendingData, error: pendingError } = await supabase.rpc('admin_list_restaurant_requests');
 
         if (!pendingError) {
           setPendingRestaurants((pendingData ?? []) as Restaurant[]);
@@ -831,7 +780,6 @@ export default function App() {
 
         return;
       }
-
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar el dashboard del super admin.');
@@ -1063,7 +1011,6 @@ export default function App() {
     });
   };
 
-
   const updateRestaurantOrderStatus = async (
     order: Order,
     nextStatus: 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED',
@@ -1113,7 +1060,6 @@ export default function App() {
 
     await updateRestaurantOrderStatus(order, status);
   };
-
 
   const goToWizardStep = (step: 1 | 2 | 3) => {
     if (step === 2 && cartCount === 0) {
@@ -1258,7 +1204,6 @@ export default function App() {
     }
   };
 
-
   const loadOwnedRestaurant = async (userId: string) => {
     const { data, error } = await supabase
       .from('restaurants')
@@ -1290,7 +1235,6 @@ export default function App() {
     setRegisterMessage(`✅ Bienvenido a tu panel, ${owned.name}.`);
     return owned;
   };
-
 
   const toggleRestaurantOpenStatus = async () => {
     if (!selectedRestaurant) return;
@@ -1993,7 +1937,6 @@ export default function App() {
                             <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
                           </div>
                         )}
-
                       </article>
                     );
                   })}
@@ -2034,7 +1977,6 @@ export default function App() {
                 )}
               </>
             )}
-
 
             {restaurantPanel === 'pedidos' && (
               <>
@@ -2255,8 +2197,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-
 
       {isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante' && (
         <div className="page active">
