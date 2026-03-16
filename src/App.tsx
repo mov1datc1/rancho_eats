@@ -21,9 +21,11 @@ import type {
 } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
-type RestaurantPanelKey = 'resumen' | 'pedidos' | 'menu' | 'promociones' | 'zona' | 'historial' | 'config';
+type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'config';
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
+
+
 
 const statusClassByRestaurant = {
   ACTIVE: 'aprobado',
@@ -90,6 +92,7 @@ const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => 
   return earthRadiusKm * c;
 };
 
+
 const getMobileInstallContext = () => {
   if (typeof navigator === 'undefined' || typeof window === 'undefined') {
     return { isMobile: false, isiOS: false, isStandalone: false };
@@ -119,7 +122,7 @@ const baseForm = {
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('cliente');
   const [restaurantsMenuOpen, setRestaurantsMenuOpen] = useState(false);
-  const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('resumen');
+  const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('dashboard');
   const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
   const [adminPanel, setAdminPanel] = useState<AdminPanelKey>('dashboard');
 
@@ -153,6 +156,24 @@ export default function App() {
     price: '',
     category: 'Especialidades',
     imageUrl: ''
+  });
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+  const [dashboardDateFrom, setDashboardDateFrom] = useState('');
+  const [dashboardDateTo, setDashboardDateTo] = useState('');
+  const [configDraft, setConfigDraft] = useState({
+    openTime: '09:00',
+    closeTime: '21:00',
+    restaurantImageUrl: ''
+  });
+  const [configPassword, setConfigPassword] = useState('');
+
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+    reader.readAsDataURL(file);
   });
 
   const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
@@ -248,6 +269,96 @@ export default function App() {
     () => restaurantOrders.find((order) => order.id === selectedOrderId) ?? null,
     [restaurantOrders, selectedOrderId]
   );
+
+  const selectedOrderDisplayItems = useMemo(() => {
+    if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
+
+    const normalizeMoney = (value: number) => Math.round(value * 100);
+    const denormalizeMoney = (value: number) => value / 100;
+
+    const rawItems = selectedOrder.items.filter((item) => Number.isFinite(Number(item.subtotal)) && Number(item.subtotal) > 0);
+    const rawSubtotal = rawItems.reduce((acc, item) => acc + normalizeMoney(Number(item.subtotal)), 0);
+    const orderTotal = normalizeMoney(Number(selectedOrder.total));
+
+    let itemsToDisplay = rawItems;
+
+    if (rawItems.length > 0 && orderTotal > 0 && rawSubtotal !== orderTotal) {
+      const dp = new Map<number, number[]>();
+      dp.set(0, []);
+
+      rawItems.forEach((item, index) => {
+        const itemValue = normalizeMoney(Number(item.subtotal));
+        if (itemValue <= 0) return;
+
+        const snapshot = Array.from(dp.entries());
+        snapshot.forEach(([sum, indices]) => {
+          const nextSum = sum + itemValue;
+          if (nextSum > orderTotal || dp.has(nextSum)) return;
+          dp.set(nextSum, [...indices, index]);
+        });
+      });
+
+      const matched = dp.get(orderTotal);
+      if (matched && matched.length > 0) {
+        itemsToDisplay = matched.map((index) => rawItems[index]);
+      }
+    }
+
+    const grouped = new Map<string, CartItem>();
+    itemsToDisplay.forEach((item) => {
+      const key = `${item.menu_item_id}::${item.option_id ?? item.option_label ?? ''}::${item.name}::${item.unit_price}`;
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, { ...item });
+        return;
+      }
+
+      const qty = existing.qty + item.qty;
+      const subtotal = denormalizeMoney(normalizeMoney(Number(existing.subtotal)) + normalizeMoney(Number(item.subtotal)));
+      grouped.set(key, { ...existing, qty, subtotal });
+    });
+
+    return Array.from(grouped.values());
+  }, [selectedOrder]);
+  const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
+  const dashboardOrders = useMemo(() => {
+    const fromDate = dashboardDateFrom ? new Date(`${dashboardDateFrom}T00:00:00`) : null;
+    const toDate = dashboardDateTo ? new Date(`${dashboardDateTo}T23:59:59`) : null;
+
+    return restaurantOrders.filter((order) => {
+      const orderDate = new Date(order.created_at);
+      if (fromDate && orderDate < fromDate) return false;
+      if (toDate && orderDate > toDate) return false;
+      return true;
+    });
+  }, [dashboardDateFrom, dashboardDateTo, restaurantOrders]);
+  const dashboardMetrics = useMemo(() => {
+    const accepted = dashboardOrders.filter((order) => ['ACCEPTED', 'ON_THE_WAY'].includes(order.status)).length;
+    const rejected = dashboardOrders.filter((order) => order.status === 'REJECTED').length;
+    const delivered = dashboardOrders.filter((order) => order.status === 'DELIVERED').length;
+    const pending = dashboardOrders.filter((order) => order.status === 'PENDING').length;
+    const deliveredRevenue = dashboardOrders
+      .filter((order) => order.status === 'DELIVERED')
+      .reduce((acc, order) => acc + Number(order.total), 0);
+
+    return {
+      accepted,
+      rejected,
+      delivered,
+      pending,
+      total: dashboardOrders.length,
+      deliveredRevenue
+    };
+  }, [dashboardOrders]);
+
+  useEffect(() => {
+    if (!selectedRestaurant) return;
+    setConfigDraft({
+      openTime: selectedRestaurant.open_time ?? '09:00',
+      closeTime: selectedRestaurant.close_time ?? '21:00',
+      restaurantImageUrl: selectedRestaurant.photo_url ?? ''
+    });
+  }, [selectedRestaurant]);
 
   const selectedOrderDisplayItems = useMemo(() => {
     if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
@@ -1264,6 +1375,99 @@ export default function App() {
     }
   };
 
+  const downloadDashboardPdf = () => {
+    const reportWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!reportWindow) {
+      setErrorMessage('No se pudo abrir la vista de impresión. Habilita pop-ups e inténtalo de nuevo.');
+      return;
+    }
+
+    reportWindow.document.write(`
+      <html>
+        <head>
+          <title>Reporte ${selectedRestaurant?.name ?? 'Restaurante'}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #2D1810; }
+            h1 { margin: 0 0 8px; }
+            p { margin: 0 0 16px; color: #6c4f3e; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            th, td { border: 1px solid #e8d7ca; padding: 8px; text-align: left; }
+            th { background: #f7eee7; }
+          </style>
+        </head>
+        <body>
+          <h1>Dashboard · ${selectedRestaurant?.name ?? 'Restaurante'}</h1>
+          <p>Rango: ${dashboardDateFrom || 'inicio'} a ${dashboardDateTo || 'hoy'}</p>
+          <table>
+            <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+            <tbody>
+              <tr><td>Pedidos totales</td><td>${dashboardMetrics.total}</td></tr>
+              <tr><td>Aceptados</td><td>${dashboardMetrics.accepted}</td></tr>
+              <tr><td>Rechazados</td><td>${dashboardMetrics.rejected}</td></tr>
+              <tr><td>Entregados</td><td>${dashboardMetrics.delivered}</td></tr>
+              <tr><td>Pendientes</td><td>${dashboardMetrics.pending}</td></tr>
+              <tr><td>Ingresos (entregados)</td><td>${formatPrice(dashboardMetrics.deliveredRevenue)}</td></tr>
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    reportWindow.document.close();
+    reportWindow.focus();
+    reportWindow.print();
+  };
+
+  const updateRestaurantSettings = async () => {
+    if (!selectedRestaurant) return;
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const payload = {
+        open_time: configDraft.openTime,
+        close_time: configDraft.closeTime,
+        photo_url: configDraft.restaurantImageUrl.trim() || null
+      };
+
+      const { data, error } = await supabase
+        .from('restaurants')
+        .update(payload)
+        .eq('id', selectedRestaurant.id)
+        .eq('owner_id', adminUser?.id ?? '')
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      setSelectedRestaurant(data as Restaurant);
+      await loadInitialData();
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo guardar la configuración del restaurante.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const updateRestaurantPassword = async () => {
+    if (!configPassword.trim() || configPassword.trim().length < 8) {
+      setErrorMessage('La nueva contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase.auth.updateUser({ password: configPassword.trim() });
+      if (error) throw error;
+      setConfigPassword('');
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo actualizar la contraseña.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const buildWhatsAppUrl = (phone: string | null | undefined, order?: Order) => {
     const clean = (phone ?? '').replace(/\D/g, '');
     if (!clean) return null;
@@ -1639,12 +1843,10 @@ export default function App() {
   };
 
   const restaurantPanels: Array<{ key: RestaurantPanelKey; label: string }> = [
+    { key: 'dashboard', label: '📈 Dashboard' },
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
     { key: 'menu', label: '📋 Mi menú' },
-    { key: 'promociones', label: '🏷️ Promociones' },
-    { key: 'zona', label: '📍 Zona de entrega' },
-    { key: 'historial', label: '📈 Historial' },
     { key: 'config', label: '⚙️ Configuración' }
   ];
 
@@ -1881,6 +2083,62 @@ export default function App() {
               <article className="stat-card"><p>MENÚ</p><strong>{menuItems.length}</strong><small>Platillos cargados</small></article>
             </div>
 
+            {restaurantPanel === 'dashboard' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>📈 Dashboard del restaurante</div>
+                <div className="orders-filters" style={{ marginBottom: '.6rem' }}>
+                  <input className="fi" type="date" value={dashboardDateFrom} onChange={(e) => setDashboardDateFrom(e.target.value)} />
+                  <input className="fi" type="date" value={dashboardDateTo} onChange={(e) => setDashboardDateTo(e.target.value)} />
+                  <button className="btn ghost" onClick={() => { setDashboardDateFrom(''); setDashboardDateTo(''); }}>Limpiar fechas</button>
+                  <button className="btn" onClick={downloadDashboardPdf}>Descargar en PDF</button>
+                </div>
+
+                <div className="stats-row" style={{ marginBottom: '.75rem' }}>
+                  <article className="stat-card"><p>ACEPTADOS</p><strong>{dashboardMetrics.accepted}</strong></article>
+                  <article className="stat-card"><p>RECHAZADOS</p><strong>{dashboardMetrics.rejected}</strong></article>
+                  <article className="stat-card"><p>ENTREGADOS</p><strong>{dashboardMetrics.delivered}</strong></article>
+                  <article className="stat-card"><p>INGRESOS</p><strong>{formatPrice(dashboardMetrics.deliveredRevenue)}</strong></article>
+                </div>
+
+                <div className="bars" style={{ background: '#fff', border: '1px solid #ecd8c7', borderRadius: '12px', padding: '.8rem' }}>
+                  {[
+                    { label: 'Aceptados', value: dashboardMetrics.accepted, color: '#2D6A4F' },
+                    { label: 'Rechazados', value: dashboardMetrics.rejected, color: '#B42318' },
+                    { label: 'Entregados', value: dashboardMetrics.delivered, color: '#C8410B' },
+                    { label: 'Pendientes', value: dashboardMetrics.pending, color: '#8B5E3C' }
+                  ].map((item) => {
+                    const max = Math.max(1, dashboardMetrics.total);
+                    const width = Math.max(6, Math.round((item.value / max) * 100));
+                    return (
+                      <div key={item.label} className="bar-row">
+                        <span>{item.label}</span>
+                        <div className="bar-track"><div className="bar-fill" style={{ width: `${width}%`, background: item.color }} /></div>
+                        <strong>{item.value}</strong>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {restaurantPanel === 'config' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>⚙️ Configuración del restaurante</div>
+                <div className="frow">
+                  <div className="fg"><label>Correo de acceso</label><input className="fi" value={selectedRestaurant?.email ?? ''} readOnly /></div>
+                  <div className="fg"><label>Nueva contraseña</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" value={configPassword} onChange={(e) => setConfigPassword(e.target.value)} /></div>
+                </div>
+                <button className="btn ghost" onClick={updateRestaurantPassword} disabled={actionLoading}>Cambiar contraseña</button>
+
+                <div className="frow" style={{ marginTop: '.7rem' }}>
+                  <div className="fg"><label>Hora de apertura</label><input className="fi" type="time" value={configDraft.openTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, openTime: e.target.value }))} /></div>
+                  <div className="fg"><label>Hora de cierre</label><input className="fi" type="time" value={configDraft.closeTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, closeTime: e.target.value }))} /></div>
+                </div>
+                <div className="fg"><label>Imagen del restaurante (opcional)</label><input className="fi" placeholder="URL/base64" value={configDraft.restaurantImageUrl} onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: e.target.value }))} /></div>
+                <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración</button>
+              </div>
+            )}
+
             {restaurantPanel === 'resumen' && (
               <>
                 <div className="orders-grid-title">📦 Pedidos entrantes</div>
@@ -1942,6 +2200,11 @@ export default function App() {
                   })}
                 </div>
 
+                      </article>
+                    );
+                  })}
+                </div>
+
                 {selectedOrder && (
                   <article className="incoming-order selected-order-card">
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
@@ -1977,6 +2240,7 @@ export default function App() {
                 )}
               </>
             )}
+
 
             {restaurantPanel === 'pedidos' && (
               <>

@@ -14,6 +14,9 @@ export interface Restaurant {
   status: RestaurantStatus;
   owner_id: string | null;
   zones: string[];
+  open_time?: string;
+  close_time?: string;
+  photo_url?: string | null;
   created_at: string;
   updated_at: string;
 }
