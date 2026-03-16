@@ -175,6 +175,24 @@ export default function App() {
     reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
     reader.readAsDataURL(file);
   });
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+  const [dashboardDateFrom, setDashboardDateFrom] = useState('');
+  const [dashboardDateTo, setDashboardDateTo] = useState('');
+  const [configDraft, setConfigDraft] = useState({
+    openTime: '09:00',
+    closeTime: '21:00',
+    restaurantImageUrl: ''
+  });
+  const [configPassword, setConfigPassword] = useState('');
+
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+    reader.readAsDataURL(file);
+  });
 
   const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
     { label: '', price: '', imageUrl: '' }
@@ -359,54 +377,6 @@ export default function App() {
       restaurantImageUrl: selectedRestaurant.photo_url ?? ''
     });
   }, [selectedRestaurant]);
-
-  const selectedOrderDisplayItems = useMemo(() => {
-    if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
-
-    const normalizeMoney = (value: number) => Math.round(value * 100);
-    const denormalizeMoney = (value: number) => value / 100;
-
-    const rawItems = selectedOrder.items.filter((item) => Number.isFinite(Number(item.subtotal)) && Number(item.subtotal) > 0);
-    const rawSubtotal = rawItems.reduce((acc, item) => acc + normalizeMoney(Number(item.subtotal)), 0);
-    const orderTotal = normalizeMoney(Number(selectedOrder.total));
-
-    let itemsToDisplay = rawItems;
-
-    if (rawItems.length > 0 && orderTotal > 0 && rawSubtotal !== orderTotal) {
-      const dp = new Map<number, number[]>();
-      dp.set(0, []);
-
-      rawItems.forEach((item, index) => {
-        const itemValue = normalizeMoney(Number(item.subtotal));
-        if (itemValue <= 0) return;
-
-        const snapshot = Array.from(dp.entries());
-        snapshot.forEach(([sum, indices]) => {
-          const nextSum = sum + itemValue;
-          if (nextSum > orderTotal || dp.has(nextSum)) return;
-          dp.set(nextSum, [...indices, index]);
-        });
-      });
-
-      const matched = dp.get(orderTotal);
-      if (matched && matched.length > 0) {
-        itemsToDisplay = matched.map((index) => rawItems[index]);
-      }
-    }
-
-    const grouped = new Map<string, CartItem>();
-    itemsToDisplay.forEach((item) => {
-      const key = `${item.menu_item_id}::${item.option_id ?? item.option_label ?? ''}::${item.name}::${item.unit_price}`;
-      const existing = grouped.get(key);
-      if (!existing) {
-        grouped.set(key, { ...item });
-        return;
-      }
-
-      const qty = existing.qty + item.qty;
-      const subtotal = denormalizeMoney(normalizeMoney(Number(existing.subtotal)) + normalizeMoney(Number(item.subtotal)));
-      grouped.set(key, { ...existing, qty, subtotal });
-    });
 
     return Array.from(grouped.values());
   }, [selectedOrder]);
@@ -2205,6 +2175,11 @@ export default function App() {
                   })}
                 </div>
 
+                      </article>
+                    );
+                  })}
+                </div>
+
                 {selectedOrder && (
                   <article className="incoming-order selected-order-card">
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
@@ -2247,22 +2222,28 @@ export default function App() {
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
 
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
+            {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
+              <div className="menu-editor">
+                <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
+                <div className="menu-create-grid">
+                  <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
+                  <div className="fg"><label>Precio base MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
+                  <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
+                  <div className="fg menu-create-full">
+                    <label>Imagen principal del platillo</label>
+                    <p className="field-hint">Medida recomendada: <strong>1200x800 px</strong> (relación 3:2) en JPG/WebP.</p>
+                    <div className="menu-option-row menu-option-row-image">
+                      <input className="fi" placeholder="Pega URL de imagen o usa el botón para subir" value={menuDraft.imageUrl} onChange={(e) => setMenuDraft((prev) => ({ ...prev, imageUrl: e.target.value }))} />
+                      <input className="fi" type="file" accept="image/*" onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const dataUrl = await fileToDataUrl(file);
+                          setMenuDraft((prev) => ({ ...prev, imageUrl: dataUrl }));
+                        } catch {
+                          setErrorMessage('No se pudo cargar la imagen del platillo.');
+                        }
+                      }} />
                     </div>
                     <div className="detail-items">
                       <h5>Detalle de productos</h5>
