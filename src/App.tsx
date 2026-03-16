@@ -176,6 +176,20 @@ export default function App() {
     reader.readAsDataURL(file);
   });
 
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
+    { label: '', price: '', imageUrl: '' }
+  ]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+      reader.readAsDataURL(file);
+    });
+
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
     pending_restaurants: 0,
@@ -346,6 +360,57 @@ export default function App() {
     });
   }, [selectedRestaurant]);
 
+  const selectedOrderDisplayItems = useMemo(() => {
+    if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
+
+    const normalizeMoney = (value: number) => Math.round(value * 100);
+    const denormalizeMoney = (value: number) => value / 100;
+
+    const rawItems = selectedOrder.items.filter((item) => Number.isFinite(Number(item.subtotal)) && Number(item.subtotal) > 0);
+    const rawSubtotal = rawItems.reduce((acc, item) => acc + normalizeMoney(Number(item.subtotal)), 0);
+    const orderTotal = normalizeMoney(Number(selectedOrder.total));
+
+    let itemsToDisplay = rawItems;
+
+    if (rawItems.length > 0 && orderTotal > 0 && rawSubtotal !== orderTotal) {
+      const dp = new Map<number, number[]>();
+      dp.set(0, []);
+
+      rawItems.forEach((item, index) => {
+        const itemValue = normalizeMoney(Number(item.subtotal));
+        if (itemValue <= 0) return;
+
+        const snapshot = Array.from(dp.entries());
+        snapshot.forEach(([sum, indices]) => {
+          const nextSum = sum + itemValue;
+          if (nextSum > orderTotal || dp.has(nextSum)) return;
+          dp.set(nextSum, [...indices, index]);
+        });
+      });
+
+      const matched = dp.get(orderTotal);
+      if (matched && matched.length > 0) {
+        itemsToDisplay = matched.map((index) => rawItems[index]);
+      }
+    }
+
+    const grouped = new Map<string, CartItem>();
+    itemsToDisplay.forEach((item) => {
+      const key = `${item.menu_item_id}::${item.option_id ?? item.option_label ?? ''}::${item.name}::${item.unit_price}`;
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, { ...item });
+        return;
+      }
+
+      const qty = existing.qty + item.qty;
+      const subtotal = denormalizeMoney(normalizeMoney(Number(existing.subtotal)) + normalizeMoney(Number(item.subtotal)));
+      grouped.set(key, { ...existing, qty, subtotal });
+    });
+
+    return Array.from(grouped.values());
+  }, [selectedOrder]);
+  const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
   const playNewOrderSound = () => {
     try {
@@ -464,7 +529,6 @@ export default function App() {
     void loadTestRestaurants();
   }, [isTestRoute]);
 
-
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -487,7 +551,6 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, [isStandalone]);
-
 
   useEffect(() => {
     if (!selectedRestaurant?.id || activeTab !== 'restaurante') return;
@@ -545,12 +608,9 @@ export default function App() {
     };
   }, [searchedOrder?.id]);
 
-
   useEffect(() => {
     searchedOrderStatusRef.current = searchedOrder?.status ?? null;
   }, [searchedOrder?.id]);
-
-
 
   const installPwa = async () => {
     if (deferredPrompt) {
@@ -627,7 +687,6 @@ export default function App() {
       const parsedActive = (activeData ?? []) as Restaurant[];
       setRestaurants(parsedActive);
       setSelectedRestaurant(parsedActive[0] ?? null);
-
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
@@ -635,7 +694,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
 
   const fetchPendingRestaurantsFromFunction = async () => {
     if (!adminFunctionEnabled) return null;
@@ -659,8 +717,7 @@ export default function App() {
   const loadPendingRestaurants = async (rpcEnabled = adminRpcEnabled) => {
     try {
       if (rpcEnabled) {
-        const { data: pendingData, error: pendingError } = await supabase
-          .rpc('admin_list_restaurant_requests');
+        const { data: pendingData, error: pendingError } = await supabase.rpc('admin_list_restaurant_requests');
 
         if (!pendingError) {
           setPendingRestaurants((pendingData ?? []) as Restaurant[]);
@@ -834,7 +891,6 @@ export default function App() {
 
         return;
       }
-
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar el dashboard del super admin.');
@@ -1066,7 +1122,6 @@ export default function App() {
     });
   };
 
-
   const updateRestaurantOrderStatus = async (
     order: Order,
     nextStatus: 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED',
@@ -1116,7 +1171,6 @@ export default function App() {
 
     await updateRestaurantOrderStatus(order, status);
   };
-
 
   const goToWizardStep = (step: 1 | 2 | 3) => {
     if (step === 2 && cartCount === 0) {
@@ -1261,7 +1315,6 @@ export default function App() {
     }
   };
 
-
   const loadOwnedRestaurant = async (userId: string) => {
     const { data, error } = await supabase
       .from('restaurants')
@@ -1293,7 +1346,6 @@ export default function App() {
     setRegisterMessage(`✅ Bienvenido a tu panel, ${owned.name}.`);
     return owned;
   };
-
 
   const toggleRestaurantOpenStatus = async () => {
     if (!selectedRestaurant) return;
@@ -2143,6 +2195,10 @@ export default function App() {
                             <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
                           </div>
                         )}
+                      </article>
+                    );
+                  })}
+                </div>
 
                       </article>
                     );
@@ -2405,8 +2461,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-
 
       {isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante' && (
         <div className="page active">
