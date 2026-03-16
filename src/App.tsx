@@ -176,6 +176,20 @@ export default function App() {
     reader.readAsDataURL(file);
   });
 
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
+    { label: '', price: '', imageUrl: '' }
+  ]);
+  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+      reader.readAsDataURL(file);
+    });
+
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
     pending_restaurants: 0,
@@ -346,6 +360,9 @@ export default function App() {
     });
   }, [selectedRestaurant]);
 
+    return Array.from(grouped.values());
+  }, [selectedOrder]);
+  const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
   const playNewOrderSound = () => {
     try {
@@ -464,7 +481,6 @@ export default function App() {
     void loadTestRestaurants();
   }, [isTestRoute]);
 
-
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -487,7 +503,6 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, [isStandalone]);
-
 
   useEffect(() => {
     if (!selectedRestaurant?.id || activeTab !== 'restaurante') return;
@@ -545,12 +560,9 @@ export default function App() {
     };
   }, [searchedOrder?.id]);
 
-
   useEffect(() => {
     searchedOrderStatusRef.current = searchedOrder?.status ?? null;
   }, [searchedOrder?.id]);
-
-
 
   const installPwa = async () => {
     if (deferredPrompt) {
@@ -627,7 +639,6 @@ export default function App() {
       const parsedActive = (activeData ?? []) as Restaurant[];
       setRestaurants(parsedActive);
       setSelectedRestaurant(parsedActive[0] ?? null);
-
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
@@ -635,7 +646,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
 
   const fetchPendingRestaurantsFromFunction = async () => {
     if (!adminFunctionEnabled) return null;
@@ -659,8 +669,7 @@ export default function App() {
   const loadPendingRestaurants = async (rpcEnabled = adminRpcEnabled) => {
     try {
       if (rpcEnabled) {
-        const { data: pendingData, error: pendingError } = await supabase
-          .rpc('admin_list_restaurant_requests');
+        const { data: pendingData, error: pendingError } = await supabase.rpc('admin_list_restaurant_requests');
 
         if (!pendingError) {
           setPendingRestaurants((pendingData ?? []) as Restaurant[]);
@@ -834,7 +843,6 @@ export default function App() {
 
         return;
       }
-
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar el dashboard del super admin.');
@@ -1066,7 +1074,6 @@ export default function App() {
     });
   };
 
-
   const updateRestaurantOrderStatus = async (
     order: Order,
     nextStatus: 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED',
@@ -1116,7 +1123,6 @@ export default function App() {
 
     await updateRestaurantOrderStatus(order, status);
   };
-
 
   const goToWizardStep = (step: 1 | 2 | 3) => {
     if (step === 2 && cartCount === 0) {
@@ -1261,7 +1267,6 @@ export default function App() {
     }
   };
 
-
   const loadOwnedRestaurant = async (userId: string) => {
     const { data, error } = await supabase
       .from('restaurants')
@@ -1293,7 +1298,6 @@ export default function App() {
     setRegisterMessage(`✅ Bienvenido a tu panel, ${owned.name}.`);
     return owned;
   };
-
 
   const toggleRestaurantOpenStatus = async () => {
     if (!selectedRestaurant) return;
@@ -2143,6 +2147,20 @@ export default function App() {
                             <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
                           </div>
                         )}
+                      </article>
+                    );
+                  })}
+                </div>
+
+                      </article>
+                    );
+                  })}
+                </div>
+
+                      </article>
+                    );
+                  })}
+                </div>
 
                       </article>
                     );
@@ -2191,22 +2209,28 @@ export default function App() {
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
 
-                {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
-                    <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
-                    <div className="client-box">
-                      👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
-                      {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
-                        <>
-                          {' '}
-                          <a className="wa-link" href={buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) ?? '#'} target="_blank" rel="noreferrer" title="Abrir WhatsApp con mensaje prellenado">
-                            WhatsApp
-                          </a>
-                        </>
-                      )}
-                      <br />📝 {selectedOrder.client_location_note ?? 'Sin referencia de ubicación'}
+            {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
+              <div className="menu-editor">
+                <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
+                <div className="menu-create-grid">
+                  <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
+                  <div className="fg"><label>Precio base MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
+                  <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
+                  <div className="fg menu-create-full">
+                    <label>Imagen principal del platillo</label>
+                    <p className="field-hint">Medida recomendada: <strong>1200x800 px</strong> (relación 3:2) en JPG/WebP.</p>
+                    <div className="menu-option-row menu-option-row-image">
+                      <input className="fi" placeholder="Pega URL de imagen o usa el botón para subir" value={menuDraft.imageUrl} onChange={(e) => setMenuDraft((prev) => ({ ...prev, imageUrl: e.target.value }))} />
+                      <input className="fi" type="file" accept="image/*" onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const dataUrl = await fileToDataUrl(file);
+                          setMenuDraft((prev) => ({ ...prev, imageUrl: dataUrl }));
+                        } catch {
+                          setErrorMessage('No se pudo cargar la imagen del platillo.');
+                        }
+                      }} />
                     </div>
                     <div className="detail-items">
                       <h5>Detalle de productos</h5>
@@ -2214,12 +2238,7 @@ export default function App() {
                         {selectedOrderDisplayItems.map((item) => (
                           <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? item.name}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
                         ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
                       </div>
                     )}
                   </article>
@@ -2405,8 +2424,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-
 
       {isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante' && (
         <div className="page active">
