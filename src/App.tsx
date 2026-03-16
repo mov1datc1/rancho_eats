@@ -175,24 +175,6 @@ export default function App() {
     reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
     reader.readAsDataURL(file);
   });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
-  const [dashboardDateFrom, setDashboardDateFrom] = useState('');
-  const [dashboardDateTo, setDashboardDateTo] = useState('');
-  const [configDraft, setConfigDraft] = useState({
-    openTime: '09:00',
-    closeTime: '21:00',
-    restaurantImageUrl: ''
-  });
-  const [configPassword, setConfigPassword] = useState('');
-
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-    reader.readAsDataURL(file);
-  });
 
   const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
     { label: '', price: '', imageUrl: '' }
@@ -2180,6 +2162,11 @@ export default function App() {
                   })}
                 </div>
 
+                      </article>
+                    );
+                  })}
+                </div>
+
                 {selectedOrder && (
                   <article className="incoming-order selected-order-card">
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
@@ -2251,12 +2238,7 @@ export default function App() {
                         {selectedOrderDisplayItems.map((item) => (
                           <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? item.name}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
                         ))}
-                      </ul>
-                    </div>
-                    {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
-                      <div className="mini-map-box">
-                        <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
-                        <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
                       </div>
                     )}
                   </article>
