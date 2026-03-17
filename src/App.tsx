@@ -264,6 +264,11 @@ export default function App() {
     [restaurantOrders, selectedOrderId]
   );
 
+  const restaurantImagePreviewSrc = useMemo(() => {
+    const cleaned = sanitizeImageUrl(configDraft.restaurantImageUrl);
+    return cleaned && isValidRestaurantImageUrl(cleaned) ? cleaned : '';
+  }, [configDraft.restaurantImageUrl]);
+
   const selectedOrderDisplayItems = useMemo(() => {
     if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
 
@@ -1916,7 +1921,18 @@ export default function App() {
             <div className="rest-grid">
               {restaurants.map((restaurant) => (
                 <div key={restaurant.id} className="rcard" onClick={() => openMenu(restaurant)}>
-                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🍽️<div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div></div>
+                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
+                    {restaurant.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(restaurant.photo_url)) && (
+                      <img
+                        src={sanitizeImageUrl(restaurant.photo_url)}
+                        alt={`Banner ${restaurant.name}`}
+                        className="restaurant-banner-photo"
+                        onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                      />
+                    )}
+                    <span className="banner-fallback">🍽️</span>
+                    <div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div>
+                  </div>
                   <div className="rcard-body">
                     <div className="rname">{restaurant.name}</div>
                     <div className="rmeta"><span>📦 {restaurant.type}</span><span>📍 {restaurant.delivery_radius_km} km</span></div>
@@ -2178,12 +2194,12 @@ export default function App() {
                     className="fi"
                     placeholder="https://... o data:image/..."
                     value={configDraft.restaurantImageUrl}
-                    onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: e.target.value }))}
+                    onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: sanitizeImageUrl(e.target.value) }))}
                   />
-                  {configDraft.restaurantImageUrl && isValidRestaurantImageUrl(sanitizeImageUrl(configDraft.restaurantImageUrl)) && (
+                  {restaurantImagePreviewSrc && (
                     <div className="restaurant-image-preview">
                       <img
-                        src={sanitizeImageUrl(configDraft.restaurantImageUrl)}
+                        src={restaurantImagePreviewSrc}
                         alt="Vista previa restaurante"
                         onError={() => setRestaurantImageNotice('⚠️ La imagen no se pudo previsualizar. Revisa que sea URL/data:image válida.')}
                       />
@@ -2721,7 +2737,18 @@ export default function App() {
 
       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🥩<button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button></div>
+          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
+            {selectedRestaurant?.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(selectedRestaurant.photo_url)) && (
+              <img
+                src={sanitizeImageUrl(selectedRestaurant.photo_url)}
+                alt={`Banner ${selectedRestaurant.name}`}
+                className="modal-banner-photo"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            )}
+            <span className="banner-fallback">🥩</span>
+            <button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button>
+          </div>
           <div className="modal-body">
             <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div>
             <div className="mmeta">⭐ 4.8 · 📍 Hasta {Math.round(selectedRestaurant?.delivery_radius_km ?? 20)} km · ⏱️ ~45 min · 💵 Solo efectivo</div>
