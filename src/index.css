@@ -68,9 +68,11 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 
 .restaurant-page{display:grid;grid-template-columns:280px 1fr;background:#f2ece4}
 .restaurant-sidebar{background:var(--dark);padding:1.2rem 0;min-height:calc(100vh - 108px)}
+.restaurant-sidebar{display:flex;flex-direction:column}
 .restaurant-sidebar h3{color:var(--brand-light);font-family:'Playfair Display',serif;font-size:2rem;padding:0 1rem 1rem}
 .restaurant-sidebar ul{list-style:none}.restaurant-sidebar button{width:100%;text-align:left;padding:.9rem 1rem;background:transparent;border:0;color:rgba(255,255,255,.6);font-weight:700;font-size:1.05rem;cursor:pointer}
 .restaurant-sidebar button.active,.restaurant-sidebar button:hover{background:rgba(200,65,11,.2);color:var(--brand-light);border-left:4px solid var(--brand-light)}
+.restaurant-sidebar-footer{margin-top:auto;padding-top:.5rem}
 .restaurant-main{padding:1.4rem}
 .restaurant-header-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.restaurant-header-row h2{font-family:'Playfair Display',serif;font-size:2.9rem}.restaurant-header-row p{font-size:1.4rem;color:var(--muted)}.restaurant-header-row p span{color:var(--green);font-weight:700}
 .stats-row{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:.8rem;margin-bottom:1rem}.stat-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:1rem}.stat-card p{font-size:.95rem;color:var(--muted);font-weight:700}.stat-card strong{display:block;font-size:2.5rem;margin-top:.3rem}.stat-card small{font-size:1rem;color:var(--green);font-weight:700}
@@ -222,6 +224,11 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .spam-table th{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .bars{display:grid;gap:.5rem}
 .bar-row{display:grid;grid-template-columns:170px 1fr 45px;gap:.7rem;align-items:center}
+.dashboard-timeline-card{margin-bottom:.8rem;background:#fff;border:1px solid #ecd8c7;border-radius:12px;padding:.8rem}
+.dashboard-timeline-card h4{margin:0 0 .55rem;color:#2d1810}
+.dashboard-timeline-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.55rem}
+.dashboard-day-card{background:#f9f2ec;border:1px solid #ecd8c7;border-radius:10px;padding:.55rem;display:grid;gap:.2rem;color:#5f4332}
+.dashboard-day-card strong{color:#2d1810}
 .bar-track{height:12px;background:#f2e7dc;border-radius:999px;overflow:hidden}
 .bar-fill{height:100%;background:var(--brand);border-radius:999px}
 
