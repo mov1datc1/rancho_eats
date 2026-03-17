@@ -176,19 +176,6 @@ export default function App() {
     reader.readAsDataURL(file);
   });
 
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
-    { label: '', price: '', imageUrl: '' }
-  ]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
-
-  const fileToDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-      reader.readAsDataURL(file);
-    });
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
@@ -359,10 +346,6 @@ export default function App() {
       restaurantImageUrl: selectedRestaurant.photo_url ?? ''
     });
   }, [selectedRestaurant]);
-
-    return Array.from(grouped.values());
-  }, [selectedOrder]);
-  const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
   const playNewOrderSound = () => {
     try {
@@ -2152,20 +2135,7 @@ export default function App() {
                   })}
                 </div>
 
-                      </article>
-                    );
-                  })}
-                </div>
 
-                      </article>
-                    );
-                  })}
-                </div>
-
-                      </article>
-                    );
-                  })}
-                </div>
 
                 {selectedOrder && (
                   <article className="incoming-order selected-order-card">
@@ -2203,46 +2173,10 @@ export default function App() {
               </>
             )}
 
-
             {restaurantPanel === 'pedidos' && (
               <>
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
-
-            {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
-              <div className="menu-editor">
-                <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
-                <div className="menu-create-grid">
-                  <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
-                  <div className="fg"><label>Precio base MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
-                  <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
-                  <div className="fg menu-create-full">
-                    <label>Imagen principal del platillo</label>
-                    <p className="field-hint">Medida recomendada: <strong>1200x800 px</strong> (relación 3:2) en JPG/WebP.</p>
-                    <div className="menu-option-row menu-option-row-image">
-                      <input className="fi" placeholder="Pega URL de imagen o usa el botón para subir" value={menuDraft.imageUrl} onChange={(e) => setMenuDraft((prev) => ({ ...prev, imageUrl: e.target.value }))} />
-                      <input className="fi" type="file" accept="image/*" onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        try {
-                          const dataUrl = await fileToDataUrl(file);
-                          setMenuDraft((prev) => ({ ...prev, imageUrl: dataUrl }));
-                        } catch {
-                          setErrorMessage('No se pudo cargar la imagen del platillo.');
-                        }
-                      }} />
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrderDisplayItems.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? item.name}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
-                      </div>
-                    )}
-                  </article>
-                )}
 
                 <div className="orders-filters">
                   <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
@@ -2788,3 +2722,4 @@ export default function App() {
     </div>
   );
 }
+
