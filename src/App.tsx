@@ -1708,7 +1708,11 @@ export default function App() {
     }
   };
 
-  const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+  const updateRestaurantStatus = async (
+    restaurantId: string,
+    status: 'ACTIVE' | 'SUSPENDED',
+    previousStatus?: 'PENDING' | 'ACTIVE' | 'SUSPENDED'
+  ) => {
     if (!isAdmin) {
       setErrorMessage('Solo usuarios admin pueden aprobar o rechazar restaurantes.');
       return;
@@ -1726,11 +1730,16 @@ export default function App() {
       }
 
       if (!adminRpcEnabled || (rpcError && isRpcMissingError(rpcError))) {
-        const { error: fallbackError } = await supabase
+        let fallbackQuery = supabase
           .from('restaurants')
           .update({ status })
-          .eq('id', restaurantId)
-          .eq('status', 'PENDING');
+          .eq('id', restaurantId);
+
+        if (previousStatus) {
+          fallbackQuery = fallbackQuery.eq('status', previousStatus);
+        }
+
+        const { error: fallbackError } = await fallbackQuery;
 
         if (fallbackError) {
           if (!adminFunctionEnabled) throw fallbackError;
@@ -1758,6 +1767,10 @@ export default function App() {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+    await updateRestaurantStatus(restaurantId, status, 'PENDING');
   };
 
   const signInAdmin = async () => {
@@ -2618,15 +2631,29 @@ export default function App() {
                   {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <article className="admin-card">
                       <h4>🍽️ Restaurantes</h4>
-                      {adminRestaurants.map((item) => (
-                        <div key={item.id} className="admin-restaurant-row">
-                          <div>
-                            <strong>{item.name}</strong>
-                            <p>{item.orders_today} pedidos hoy</p>
+                      {adminRestaurants.map((item) => {
+                        const nextStatus = item.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+                        const actionLabel = item.status === 'ACTIVE' ? 'Apagar' : 'Encender';
+
+                        return (
+                          <div key={item.id} className="admin-restaurant-row">
+                            <div>
+                              <strong>{item.name}</strong>
+                              <p>{item.orders_today} pedidos hoy</p>
+                            </div>
+                            <div className="admin-restaurant-actions">
+                              <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
+                              <button
+                                className={`btn ${item.status === 'ACTIVE' ? 'ghost' : 'green'}`}
+                                onClick={() => updateRestaurantStatus(item.id, nextStatus, item.status)}
+                                disabled={actionLoading}
+                              >
+                                {actionLabel}
+                              </button>
+                            </div>
                           </div>
-                          <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </article>
                   )}
 
