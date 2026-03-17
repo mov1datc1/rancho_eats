@@ -23,7 +23,7 @@ import type {
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'config';
-type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
+type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
 
 const RESTAURANT_IMAGE_RECOMMENDED = { width: 1200, height: 675 };
@@ -60,6 +60,14 @@ const formatRelative = (value: string) => {
   if (diffHr < 24) return `hace ${diffHr} hr`;
   const diffDay = Math.floor(diffHr / 24);
   return `hace ${diffDay} día${diffDay > 1 ? 's' : ''}`;
+};
+
+const getOrderCommission = (order: Pick<Order, 'commission_amount'>) => Math.max(0, Number(order.commission_amount ?? 0));
+const getOrderSubtotal = (order: Pick<Order, 'subtotal' | 'total' | 'commission_amount'>) => {
+  const directSubtotal = Number(order.subtotal ?? NaN);
+  if (Number.isFinite(directSubtotal)) return Math.max(0, directSubtotal);
+  const fallback = Number(order.total) - getOrderCommission(order);
+  return Math.max(0, fallback);
 };
 
 const isRpcMissingError = (error: unknown) => {
@@ -196,6 +204,8 @@ export default function App() {
   const [adminOrdersChart, setAdminOrdersChart] = useState<AdminOrdersByRestaurant[]>([]);
   const [adminOrders, setAdminOrders] = useState<AdminOrderFeedItem[]>([]);
   const [adminMapPoints, setAdminMapPoints] = useState<AdminMapPoint[]>([]);
+  const [commissionAmount, setCommissionAmount] = useState(0);
+  const [commissionDraft, setCommissionDraft] = useState('0');
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -236,7 +246,9 @@ export default function App() {
 
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
-  const cartTotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const cartSubtotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const cartCommission = useMemo(() => (cartCount > 0 ? Math.max(0, commissionAmount) : 0), [cartCount, commissionAmount]);
+  const cartTotal = useMemo(() => cartSubtotal + cartCommission, [cartSubtotal, cartCommission]);
   const groupedMenuItems = useMemo(() => {
     const source = menuItems.filter((item) => item.available);
     return source.reduce<Record<string, MenuItem[]>>((acc, item) => {
@@ -461,7 +473,8 @@ export default function App() {
         loadPendingRestaurants(rpcAvailable),
         loadAdminDashboardData(rpcAvailable),
         loadAdminOrders(rpcAvailable),
-        loadAdminMapPoints(rpcAvailable)
+        loadAdminMapPoints(rpcAvailable),
+        loadCommissionSettings()
       ]);
     };
 
@@ -475,7 +488,8 @@ export default function App() {
         loadPendingRestaurants(adminRpcEnabled),
         loadAdminDashboardData(adminRpcEnabled),
         loadAdminOrders(adminRpcEnabled),
-        loadAdminMapPoints(adminRpcEnabled)
+        loadAdminMapPoints(adminRpcEnabled),
+        loadCommissionSettings()
       ]);
     };
 
@@ -657,11 +671,31 @@ export default function App() {
       const parsedActive = (activeData ?? []) as Restaurant[];
       setRestaurants(parsedActive);
       setSelectedRestaurant(parsedActive[0] ?? null);
+      await loadCommissionSettings();
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCommissionSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('commission_fee')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (error) throw error;
+      const nextCommission = Math.max(0, Number(data?.commission_fee ?? 0));
+      setCommissionAmount(nextCommission);
+      setCommissionDraft(nextCommission.toFixed(2));
+    } catch (error) {
+      console.error(error);
+      setCommissionAmount(0);
+      setCommissionDraft('0.00');
     }
   };
 
@@ -1187,6 +1221,8 @@ export default function App() {
           client_lat: clientPoint.lat,
           client_lng: clientPoint.lng,
           items: cartItems,
+          subtotal: cartSubtotal,
+          commission_amount: cartCommission,
           total: cartTotal,
           status: 'PENDING'
         })
@@ -1773,6 +1809,39 @@ export default function App() {
     await updateRestaurantStatus(restaurantId, status, 'PENDING');
   };
 
+  const saveCommissionSettings = async () => {
+    if (!isAdmin) {
+      setErrorMessage('Solo usuarios admin pueden actualizar comisiones.');
+      return;
+    }
+
+    const parsed = Number(commissionDraft);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setErrorMessage('Ingresa una comisión válida (número mayor o igual a 0).');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const normalized = Number(parsed.toFixed(2));
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ id: 1, commission_fee: normalized }, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      setCommissionAmount(normalized);
+      setCommissionDraft(normalized.toFixed(2));
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos guardar la comisión global de la app.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const signInAdmin = async () => {
     try {
       setActionLoading(true);
@@ -2241,7 +2310,7 @@ export default function App() {
                     return (
                       <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
                         <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
-                        <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                        <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                         <div className="client-box">
                           👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
                           {buildWhatsAppUrl(order.client_phone, order) && (
@@ -2293,7 +2362,7 @@ export default function App() {
                   <article className="incoming-order selected-order-card" style={{ marginBottom: '.9rem' }}>
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
                     <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(selectedOrder))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(selectedOrder))} · <strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
                     <div className="client-box">
                       👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
                       {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
@@ -2536,6 +2605,7 @@ export default function App() {
                 {[
                   { key: 'dashboard', label: '📊 Dashboard' },
                   { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                  { key: 'comisiones', label: '💰 Comisiones' },
                   { key: 'pedidos', label: '📦 Pedidos' },
                   { key: 'antispam', label: '🚨 Anti-spam' },
                   { key: 'mapa', label: '📍 Mapa en vivo' },
@@ -2573,13 +2643,14 @@ export default function App() {
                 <>
                   <div className="admin-session">
                     <p>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
-                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled)])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
+                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled), loadCommissionSettings()])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
                   </div>
 
                   <div className="admin-panel-tabs">
                     {[
                       { key: 'dashboard', label: '📊 Dashboard' },
                       { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                      { key: 'comisiones', label: '💰 Comisiones' },
                       { key: 'pedidos', label: '📦 Pedidos' },
                       { key: 'antispam', label: '🚨 Anti-spam' },
                       { key: 'mapa', label: '📍 Mapa en vivo' },
@@ -2742,6 +2813,36 @@ export default function App() {
                     </article>
                   )}
 
+                  {adminPanel === 'comisiones' && (
+                    <article className="admin-card">
+                      <h4>💰 Comisiones por uso de la app</h4>
+                      <p style={{ color: 'var(--muted)' }}>Define una comisión fija global por pedido. Se sumará al subtotal de productos en todos los pedidos nuevos.</p>
+                      <div className="frow" style={{ marginTop: '.75rem' }}>
+                        <div className="fg">
+                          <label>Comisión fija por pedido (MXN)</label>
+                          <input
+                            className="fi"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={commissionDraft}
+                            onChange={(e) => setCommissionDraft(e.target.value)}
+                            placeholder="Ej. 12.00"
+                          />
+                        </div>
+                        <div className="fg">
+                          <label>Vista previa para cliente</label>
+                          <input className="fi" value={`Subtotal + Comisión = Total (${formatPrice(150)} + ${formatPrice(Math.max(0, Number(commissionDraft) || 0))} = ${formatPrice(150 + Math.max(0, Number(commissionDraft) || 0))})`} readOnly />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                        <button className="btn" onClick={saveCommissionSettings} disabled={actionLoading}>Guardar comisión</button>
+                        <button className="btn ghost" onClick={() => setCommissionDraft(commissionAmount.toFixed(2))} disabled={actionLoading}>Restablecer</button>
+                      </div>
+                      <p style={{ color: 'var(--muted)', marginTop: '.65rem' }}>Comisión activa actual: <strong>{formatPrice(commissionAmount)}</strong>.</p>
+                    </article>
+                  )}
+
                   {adminPanel === 'config' && (
                     <article className="admin-card">
                       <h4>⚙️ Configuración super admin</h4>
@@ -2874,7 +2975,9 @@ export default function App() {
             <div className="cash-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
 
             <div className="cart-bar" style={{ display: 'flex' }}>
-              <div className="cart-info">🛒 {cartCount} productos · Total: <strong>{formatPrice(cartTotal)}</strong></div>
+              <div className="cart-info">
+                🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong> · Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
+              </div>
               <div className="wizard-actions">
                 {orderWizardStep > 1 && (
                   <button className="btn ghost" onClick={() => setOrderWizardStep((prev) => (prev === 3 ? 2 : 1))} disabled={actionLoading}>Atrás</button>

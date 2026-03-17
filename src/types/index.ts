@@ -64,6 +64,8 @@ export interface Order {
   client_lat: number;
   client_lng: number;
   items: CartItem[];
+  subtotal?: number | null;
+  commission_amount?: number | null;
   total: number;
   status: string;
   rejection_reason?: string | null;
