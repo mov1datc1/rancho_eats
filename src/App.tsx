@@ -337,6 +337,27 @@ export default function App() {
       deliveredRevenue
     };
   }, [dashboardOrders]);
+  const dashboardTimeline = useMemo(() => {
+    const byDay = new Map<string, { accepted: number; rejected: number; delivered: number }>();
+
+    dashboardOrders.forEach((order) => {
+      const key = new Date(order.created_at).toISOString().slice(0, 10);
+      if (!byDay.has(key)) byDay.set(key, { accepted: 0, rejected: 0, delivered: 0 });
+      const entry = byDay.get(key);
+      if (!entry) return;
+
+      if (['ACCEPTED', 'ON_THE_WAY'].includes(order.status)) entry.accepted += 1;
+      if (order.status === 'REJECTED') entry.rejected += 1;
+      if (order.status === 'DELIVERED') entry.delivered += 1;
+    });
+
+    const points = Array.from(byDay.entries())
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+      .map(([date, values]) => ({ date, ...values }));
+
+    const maxValue = points.reduce((acc, item) => Math.max(acc, item.accepted, item.rejected, item.delivered), 1);
+    return { points, maxValue };
+  }, [dashboardOrders]);
 
   useEffect(() => {
     if (!selectedRestaurant) return;
@@ -1781,8 +1802,7 @@ export default function App() {
     { key: 'dashboard', label: '📈 Dashboard' },
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
-    { key: 'menu', label: '📋 Mi menú' },
-    { key: 'config', label: '⚙️ Configuración' }
+    { key: 'menu', label: '📋 Mi menú' }
   ];
 
   return (
@@ -1994,6 +2014,9 @@ export default function App() {
                 <li key={panel.key}><button className={restaurantPanel === panel.key ? 'active' : ''} onClick={() => setRestaurantPanel(panel.key)}>{panel.label}</button></li>
               ))}
             </ul>
+            <div className="restaurant-sidebar-footer">
+              <button className={restaurantPanel === 'config' ? 'active' : ''} onClick={() => setRestaurantPanel('config')}>⚙️ Configuración</button>
+            </div>
           </aside>
 
           <section className="restaurant-main">
@@ -2035,6 +2058,24 @@ export default function App() {
                   <article className="stat-card"><p>INGRESOS</p><strong>{formatPrice(dashboardMetrics.deliveredRevenue)}</strong></article>
                 </div>
 
+                <div className="dashboard-timeline-card">
+                  <h4>Pedidos por día (aceptados / rechazados / entregados)</h4>
+                  {dashboardTimeline.points.length === 0 ? (
+                    <p>No hay información para el rango seleccionado.</p>
+                  ) : (
+                    <div className="dashboard-timeline-grid">
+                      {dashboardTimeline.points.map((point) => (
+                        <article key={point.date} className="dashboard-day-card">
+                          <strong>{new Date(`${point.date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</strong>
+                          <span>Aceptados: {point.accepted}</span>
+                          <span>Rechazados: {point.rejected}</span>
+                          <span>Entregados: {point.delivered}</span>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="bars" style={{ background: '#fff', border: '1px solid #ecd8c7', borderRadius: '12px', padding: '.8rem' }}>
                   {[
                     { label: 'Aceptados', value: dashboardMetrics.accepted, color: '#2D6A4F' },
@@ -2059,6 +2100,7 @@ export default function App() {
             {restaurantPanel === 'config' && (
               <div className="panel-placeholder">
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>⚙️ Configuración del restaurante</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Este panel conserva el mismo correo de registro del restaurante.</p>
                 <div className="frow">
                   <div className="fg"><label>Correo de acceso</label><input className="fi" value={selectedRestaurant?.email ?? ''} readOnly /></div>
                   <div className="fg"><label>Nueva contraseña</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" value={configPassword} onChange={(e) => setConfigPassword(e.target.value)} /></div>
@@ -2722,4 +2764,3 @@ export default function App() {
     </div>
   );
 }
-
