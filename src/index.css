@@ -97,6 +97,10 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .menu-emoji{height:120px;background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:2.5rem}.menu-info{padding:.7rem}.menu-info h4{font-size:1.4rem}.menu-info p{font-size:1.8rem;color:var(--brand);font-weight:700}.menu-info small{font-size:1rem;color:var(--green);font-weight:700}
 .menu-card-actions{display:grid;gap:.35rem;padding:.65rem}.btn.ghost.danger{color:#b42318;border-color:#f3c7c3}
 .panel-placeholder{background:#fff;border-radius:14px;padding:1.1rem;box-shadow:var(--shadow);font-size:1.2rem;color:var(--muted)}
+.input-help{font-size:.88rem;color:#7b5b49;margin:.3rem 0}
+.image-picker-row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.45rem}
+.restaurant-image-preview{margin-top:.55rem;border:1px solid #ead7c9;border-radius:10px;padding:.45rem;background:#fffaf5;max-width:360px}
+.restaurant-image-preview img{display:block;width:100%;height:auto;border-radius:8px;object-fit:cover}
 
 .admin-requests{display:grid;gap:.8rem;margin-top:1rem}.admin-request-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:1rem}.admin-request-card h4{font-size:1.4rem}.admin-request-card p{font-size:1rem;color:var(--muted);margin:.3rem 0 .7rem}
 .admin-status-row{display:flex;justify-content:space-between;align-items:center;gap:.8rem}.status-pill{padding:.25rem .6rem;border-radius:999px;font-size:.85rem;font-weight:700}
