@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
@@ -25,6 +26,9 @@ type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'config
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
 
+const RESTAURANT_IMAGE_RECOMMENDED = { width: 1200, height: 675 };
+const sanitizeImageUrl = (value: string) => value.replace(/\s+/g, '').trim();
+const isValidRestaurantImageUrl = (value: string) => /^(https?:\/\/|data:image\/)/i.test(value);
 
 
 const statusClassByRestaurant = {
@@ -168,6 +172,8 @@ export default function App() {
     restaurantImageUrl: ''
   });
   const [configPassword, setConfigPassword] = useState('');
+  const [restaurantImageMeta, setRestaurantImageMeta] = useState<{ width: number; height: number } | null>(null);
+  const [restaurantImageNotice, setRestaurantImageNotice] = useState('');
 
   const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -219,6 +225,7 @@ export default function App() {
   const [pwaHelpText, setPwaHelpText] = useState(() => mobileInstallContext.isiOS ? 'En iPhone/iPad: toca Compartir y luego “Agregar a pantalla de inicio”.' : mobileInstallContext.isMobile ? 'Si no aparece el popup automático, abre el menú del navegador y toca “Instalar app”.' : '');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => (typeof Notification !== 'undefined' ? Notification.permission : 'default'));
   const searchedOrderStatusRef = useRef<string | null>(null);
+  const restaurantImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const isAdminRoute = location.pathname === '/administrador';
@@ -366,6 +373,8 @@ export default function App() {
       closeTime: selectedRestaurant.close_time ?? '21:00',
       restaurantImageUrl: selectedRestaurant.photo_url ?? ''
     });
+    setRestaurantImageMeta(null);
+    setRestaurantImageNotice('');
   }, [selectedRestaurant]);
 
   const playNewOrderSound = () => {
@@ -1373,16 +1382,55 @@ export default function App() {
     reportWindow.print();
   };
 
+  const onRestaurantImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setErrorMessage('');
+      setRestaurantImageNotice('');
+      const dataUrl = await fileToDataUrl(file);
+      const safeDataUrl = sanitizeImageUrl(dataUrl);
+
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+        img.src = safeDataUrl;
+      });
+
+      setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: safeDataUrl }));
+      setRestaurantImageMeta(dimensions);
+
+      if (dimensions.width < RESTAURANT_IMAGE_RECOMMENDED.width || dimensions.height < RESTAURANT_IMAGE_RECOMMENDED.height) {
+        setRestaurantImageNotice(`⚠️ Imagen pequeña (${dimensions.width}x${dimensions.height}px). Recomendado: ${RESTAURANT_IMAGE_RECOMMENDED.width}x${RESTAURANT_IMAGE_RECOMMENDED.height}px o mayor.`);
+      } else {
+        setRestaurantImageNotice(`✅ Imagen lista (${dimensions.width}x${dimensions.height}px).`);
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo procesar la imagen. Prueba con JPG/PNG/WebP.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const updateRestaurantSettings = async () => {
     if (!selectedRestaurant) return;
     try {
       setActionLoading(true);
       setErrorMessage('');
 
+      const cleanedImageUrl = sanitizeImageUrl(configDraft.restaurantImageUrl);
+      if (cleanedImageUrl && !isValidRestaurantImageUrl(cleanedImageUrl)) {
+        setErrorMessage('La imagen debe ser URL (http/https) o base64 válido (data:image/...).');
+        return;
+      }
+
       const payload = {
         open_time: configDraft.openTime,
         close_time: configDraft.closeTime,
-        photo_url: configDraft.restaurantImageUrl.trim() || null
+        photo_url: cleanedImageUrl || null
       };
 
       const { data, error } = await supabase
@@ -2111,7 +2159,37 @@ export default function App() {
                   <div className="fg"><label>Hora de apertura</label><input className="fi" type="time" value={configDraft.openTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, openTime: e.target.value }))} /></div>
                   <div className="fg"><label>Hora de cierre</label><input className="fi" type="time" value={configDraft.closeTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, closeTime: e.target.value }))} /></div>
                 </div>
-                <div className="fg"><label>Imagen del restaurante (opcional)</label><input className="fi" placeholder="URL/base64" value={configDraft.restaurantImageUrl} onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: e.target.value }))} /></div>
+                <div className="fg">
+                  <label>Imagen del restaurante (opcional)</label>
+                  <p className="input-help">Tamaño recomendado: {RESTAURANT_IMAGE_RECOMMENDED.width} x {RESTAURANT_IMAGE_RECOMMENDED.height}px (16:9), formato JPG/PNG/WebP.</p>
+                  <div className="image-picker-row">
+                    <button type="button" className="btn ghost" onClick={() => restaurantImageInputRef.current?.click()}>Seleccionar imagen</button>
+                    <input
+                      ref={restaurantImageInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(event) => void onRestaurantImageFileChange(event)}
+                    />
+                    {restaurantImageMeta && <span className="input-help">{restaurantImageMeta.width} x {restaurantImageMeta.height}px</span>}
+                  </div>
+                  {restaurantImageNotice && <p className="input-help">{restaurantImageNotice}</p>}
+                  <input
+                    className="fi"
+                    placeholder="https://... o data:image/..."
+                    value={configDraft.restaurantImageUrl}
+                    onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: e.target.value }))}
+                  />
+                  {configDraft.restaurantImageUrl && isValidRestaurantImageUrl(sanitizeImageUrl(configDraft.restaurantImageUrl)) && (
+                    <div className="restaurant-image-preview">
+                      <img
+                        src={sanitizeImageUrl(configDraft.restaurantImageUrl)}
+                        alt="Vista previa restaurante"
+                        onError={() => setRestaurantImageNotice('⚠️ La imagen no se pudo previsualizar. Revisa que sea URL/data:image válida.')}
+                      />
+                    </div>
+                  )}
+                </div>
                 <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración</button>
               </div>
             )}
