@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
@@ -25,6 +26,9 @@ type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'config
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
 
+const RESTAURANT_IMAGE_RECOMMENDED = { width: 1200, height: 675 };
+const sanitizeImageUrl = (value: string) => value.replace(/\s+/g, '').trim();
+const isValidRestaurantImageUrl = (value: string) => /^(https?:\/\/|data:image\/)/i.test(value);
 
 
 const statusClassByRestaurant = {
@@ -168,6 +172,8 @@ export default function App() {
     restaurantImageUrl: ''
   });
   const [configPassword, setConfigPassword] = useState('');
+  const [restaurantImageMeta, setRestaurantImageMeta] = useState<{ width: number; height: number } | null>(null);
+  const [restaurantImageNotice, setRestaurantImageNotice] = useState('');
 
   const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -219,6 +225,7 @@ export default function App() {
   const [pwaHelpText, setPwaHelpText] = useState(() => mobileInstallContext.isiOS ? 'En iPhone/iPad: toca Compartir y luego “Agregar a pantalla de inicio”.' : mobileInstallContext.isMobile ? 'Si no aparece el popup automático, abre el menú del navegador y toca “Instalar app”.' : '');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => (typeof Notification !== 'undefined' ? Notification.permission : 'default'));
   const searchedOrderStatusRef = useRef<string | null>(null);
+  const restaurantImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const isAdminRoute = location.pathname === '/administrador';
@@ -256,6 +263,11 @@ export default function App() {
     () => restaurantOrders.find((order) => order.id === selectedOrderId) ?? null,
     [restaurantOrders, selectedOrderId]
   );
+
+  const restaurantImagePreviewSrc = useMemo(() => {
+    const cleaned = sanitizeImageUrl(configDraft.restaurantImageUrl);
+    return cleaned && isValidRestaurantImageUrl(cleaned) ? cleaned : '';
+  }, [configDraft.restaurantImageUrl]);
 
   const selectedOrderDisplayItems = useMemo(() => {
     if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
@@ -337,6 +349,27 @@ export default function App() {
       deliveredRevenue
     };
   }, [dashboardOrders]);
+  const dashboardTimeline = useMemo(() => {
+    const byDay = new Map<string, { accepted: number; rejected: number; delivered: number }>();
+
+    dashboardOrders.forEach((order) => {
+      const key = new Date(order.created_at).toISOString().slice(0, 10);
+      if (!byDay.has(key)) byDay.set(key, { accepted: 0, rejected: 0, delivered: 0 });
+      const entry = byDay.get(key);
+      if (!entry) return;
+
+      if (['ACCEPTED', 'ON_THE_WAY'].includes(order.status)) entry.accepted += 1;
+      if (order.status === 'REJECTED') entry.rejected += 1;
+      if (order.status === 'DELIVERED') entry.delivered += 1;
+    });
+
+    const points = Array.from(byDay.entries())
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+      .map(([date, values]) => ({ date, ...values }));
+
+    const maxValue = points.reduce((acc, item) => Math.max(acc, item.accepted, item.rejected, item.delivered), 1);
+    return { points, maxValue };
+  }, [dashboardOrders]);
 
   useEffect(() => {
     if (!selectedRestaurant) return;
@@ -345,6 +378,8 @@ export default function App() {
       closeTime: selectedRestaurant.close_time ?? '21:00',
       restaurantImageUrl: selectedRestaurant.photo_url ?? ''
     });
+    setRestaurantImageMeta(null);
+    setRestaurantImageNotice('');
   }, [selectedRestaurant]);
 
   const playNewOrderSound = () => {
@@ -1352,16 +1387,55 @@ export default function App() {
     reportWindow.print();
   };
 
+  const onRestaurantImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setErrorMessage('');
+      setRestaurantImageNotice('');
+      const dataUrl = await fileToDataUrl(file);
+      const safeDataUrl = sanitizeImageUrl(dataUrl);
+
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+        img.src = safeDataUrl;
+      });
+
+      setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: safeDataUrl }));
+      setRestaurantImageMeta(dimensions);
+
+      if (dimensions.width < RESTAURANT_IMAGE_RECOMMENDED.width || dimensions.height < RESTAURANT_IMAGE_RECOMMENDED.height) {
+        setRestaurantImageNotice(`⚠️ Imagen pequeña (${dimensions.width}x${dimensions.height}px). Recomendado: ${RESTAURANT_IMAGE_RECOMMENDED.width}x${RESTAURANT_IMAGE_RECOMMENDED.height}px o mayor.`);
+      } else {
+        setRestaurantImageNotice(`✅ Imagen lista (${dimensions.width}x${dimensions.height}px).`);
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo procesar la imagen. Prueba con JPG/PNG/WebP.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const updateRestaurantSettings = async () => {
     if (!selectedRestaurant) return;
     try {
       setActionLoading(true);
       setErrorMessage('');
 
+      const cleanedImageUrl = sanitizeImageUrl(configDraft.restaurantImageUrl);
+      if (cleanedImageUrl && !isValidRestaurantImageUrl(cleanedImageUrl)) {
+        setErrorMessage('La imagen debe ser URL (http/https) o base64 válido (data:image/...).');
+        return;
+      }
+
       const payload = {
         open_time: configDraft.openTime,
         close_time: configDraft.closeTime,
-        photo_url: configDraft.restaurantImageUrl.trim() || null
+        photo_url: cleanedImageUrl || null
       };
 
       const { data, error } = await supabase
@@ -1781,8 +1855,7 @@ export default function App() {
     { key: 'dashboard', label: '📈 Dashboard' },
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
-    { key: 'menu', label: '📋 Mi menú' },
-    { key: 'config', label: '⚙️ Configuración' }
+    { key: 'menu', label: '📋 Mi menú' }
   ];
 
   return (
@@ -1848,7 +1921,18 @@ export default function App() {
             <div className="rest-grid">
               {restaurants.map((restaurant) => (
                 <div key={restaurant.id} className="rcard" onClick={() => openMenu(restaurant)}>
-                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🍽️<div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div></div>
+                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
+                    {restaurant.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(restaurant.photo_url)) && (
+                      <img
+                        src={sanitizeImageUrl(restaurant.photo_url)}
+                        alt={`Banner ${restaurant.name}`}
+                        className="restaurant-banner-photo"
+                        onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                      />
+                    )}
+                    <span className="banner-fallback">🍽️</span>
+                    <div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div>
+                  </div>
                   <div className="rcard-body">
                     <div className="rname">{restaurant.name}</div>
                     <div className="rmeta"><span>📦 {restaurant.type}</span><span>📍 {restaurant.delivery_radius_km} km</span></div>
@@ -1994,6 +2078,9 @@ export default function App() {
                 <li key={panel.key}><button className={restaurantPanel === panel.key ? 'active' : ''} onClick={() => setRestaurantPanel(panel.key)}>{panel.label}</button></li>
               ))}
             </ul>
+            <div className="restaurant-sidebar-footer">
+              <button className={restaurantPanel === 'config' ? 'active' : ''} onClick={() => setRestaurantPanel('config')}>⚙️ Configuración</button>
+            </div>
           </aside>
 
           <section className="restaurant-main">
@@ -2035,6 +2122,24 @@ export default function App() {
                   <article className="stat-card"><p>INGRESOS</p><strong>{formatPrice(dashboardMetrics.deliveredRevenue)}</strong></article>
                 </div>
 
+                <div className="dashboard-timeline-card">
+                  <h4>Pedidos por día (aceptados / rechazados / entregados)</h4>
+                  {dashboardTimeline.points.length === 0 ? (
+                    <p>No hay información para el rango seleccionado.</p>
+                  ) : (
+                    <div className="dashboard-timeline-grid">
+                      {dashboardTimeline.points.map((point) => (
+                        <article key={point.date} className="dashboard-day-card">
+                          <strong>{new Date(`${point.date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</strong>
+                          <span>Aceptados: {point.accepted}</span>
+                          <span>Rechazados: {point.rejected}</span>
+                          <span>Entregados: {point.delivered}</span>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="bars" style={{ background: '#fff', border: '1px solid #ecd8c7', borderRadius: '12px', padding: '.8rem' }}>
                   {[
                     { label: 'Aceptados', value: dashboardMetrics.accepted, color: '#2D6A4F' },
@@ -2059,6 +2164,7 @@ export default function App() {
             {restaurantPanel === 'config' && (
               <div className="panel-placeholder">
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>⚙️ Configuración del restaurante</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Este panel conserva el mismo correo de registro del restaurante.</p>
                 <div className="frow">
                   <div className="fg"><label>Correo de acceso</label><input className="fi" value={selectedRestaurant?.email ?? ''} readOnly /></div>
                   <div className="fg"><label>Nueva contraseña</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" value={configPassword} onChange={(e) => setConfigPassword(e.target.value)} /></div>
@@ -2069,7 +2175,37 @@ export default function App() {
                   <div className="fg"><label>Hora de apertura</label><input className="fi" type="time" value={configDraft.openTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, openTime: e.target.value }))} /></div>
                   <div className="fg"><label>Hora de cierre</label><input className="fi" type="time" value={configDraft.closeTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, closeTime: e.target.value }))} /></div>
                 </div>
-                <div className="fg"><label>Imagen del restaurante (opcional)</label><input className="fi" placeholder="URL/base64" value={configDraft.restaurantImageUrl} onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: e.target.value }))} /></div>
+                <div className="fg">
+                  <label>Imagen del restaurante (opcional)</label>
+                  <p className="input-help">Tamaño recomendado: {RESTAURANT_IMAGE_RECOMMENDED.width} x {RESTAURANT_IMAGE_RECOMMENDED.height}px (16:9), formato JPG/PNG/WebP.</p>
+                  <div className="image-picker-row">
+                    <button type="button" className="btn ghost" onClick={() => restaurantImageInputRef.current?.click()}>Seleccionar imagen</button>
+                    <input
+                      ref={restaurantImageInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(event) => void onRestaurantImageFileChange(event)}
+                    />
+                    {restaurantImageMeta && <span className="input-help">{restaurantImageMeta.width} x {restaurantImageMeta.height}px</span>}
+                  </div>
+                  {restaurantImageNotice && <p className="input-help">{restaurantImageNotice}</p>}
+                  <input
+                    className="fi"
+                    placeholder="https://... o data:image/..."
+                    value={configDraft.restaurantImageUrl}
+                    onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: sanitizeImageUrl(e.target.value) }))}
+                  />
+                  {restaurantImagePreviewSrc && (
+                    <div className="restaurant-image-preview">
+                      <img
+                        src={restaurantImagePreviewSrc}
+                        alt="Vista previa restaurante"
+                        onError={() => setRestaurantImageNotice('⚠️ La imagen no se pudo previsualizar. Revisa que sea URL/data:image válida.')}
+                      />
+                    </div>
+                  )}
+                </div>
                 <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración</button>
               </div>
             )}
@@ -2601,7 +2737,18 @@ export default function App() {
 
       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>🥩<button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button></div>
+          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
+            {selectedRestaurant?.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(selectedRestaurant.photo_url)) && (
+              <img
+                src={sanitizeImageUrl(selectedRestaurant.photo_url)}
+                alt={`Banner ${selectedRestaurant.name}`}
+                className="modal-banner-photo"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            )}
+            <span className="banner-fallback">🥩</span>
+            <button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button>
+          </div>
           <div className="modal-body">
             <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div>
             <div className="mmeta">⭐ 4.8 · 📍 Hasta {Math.round(selectedRestaurant?.delivery_radius_km ?? 20)} km · ⏱️ ~45 min · 💵 Solo efectivo</div>
@@ -2722,4 +2869,3 @@ export default function App() {
     </div>
   );
 }
-
