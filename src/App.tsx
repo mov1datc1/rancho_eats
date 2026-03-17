@@ -2271,10 +2271,13 @@ export default function App() {
                   })}
                 </div>
 
+              </>
+            )}
 
-
+            {restaurantPanel === 'pedidos' && (
+              <>
                 {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
+                  <article className="incoming-order selected-order-card" style={{ marginBottom: '.9rem' }}>
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
                     <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
                     <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
@@ -2293,8 +2296,8 @@ export default function App() {
                     <div className="detail-items">
                       <h5>Detalle de productos</h5>
                       <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
+                        {selectedOrderDisplayItems.map((item) => (
+                          <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? 'base'}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
                         ))}
                       </ul>
                     </div>
@@ -2306,11 +2309,6 @@ export default function App() {
                     )}
                   </article>
                 )}
-              </>
-            )}
-
-            {restaurantPanel === 'pedidos' && (
-              <>
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
 
