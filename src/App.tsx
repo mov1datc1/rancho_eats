@@ -1887,26 +1887,37 @@ export default function App() {
       setActionLoading(true);
       setErrorMessage('');
 
-      const { error } = await supabase.functions.invoke('admin-restaurants', {
-        body: {
-          action: 'reset_password',
-          restaurant_id: restaurantId,
-          password: nextPassword.trim()
-        }
+      let rpcError: unknown = null;
+      const { error } = await supabase.rpc('admin_reset_restaurant_password', {
+        p_restaurant_id: restaurantId,
+        p_password: nextPassword.trim()
       });
+      rpcError = error;
 
-      if (error) {
-        const msg = `${error.message ?? ''}`.toLowerCase();
-        if (msg.includes('cors') || msg.includes('failed to send a request') || msg.includes('404') || msg.includes('not found')) {
-          setAdminFunctionEnabled(false);
+      if (rpcError && isRpcMissingError(rpcError)) {
+        const { error: fnError } = await supabase.functions.invoke('admin-restaurants', {
+          body: {
+            action: 'reset_password',
+            restaurant_id: restaurantId,
+            password: nextPassword.trim()
+          }
+        });
+
+        if (fnError) {
+          const msg = `${fnError.message ?? ''}`.toLowerCase();
+          if (msg.includes('cors') || msg.includes('failed to send a request') || msg.includes('404') || msg.includes('not found')) {
+            setAdminFunctionEnabled(false);
+          }
+          throw fnError;
         }
-        throw error;
+      } else if (rpcError) {
+        throw rpcError;
       }
 
       window.alert(`✅ Contraseña actualizada para ${restaurantName}. Comparte la nueva clave con el restaurante.`);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No pudimos resetear la contraseña del restaurante. Verifica que la Edge Function admin-restaurants esté desplegada.');
+      setErrorMessage('No pudimos resetear la contraseña del restaurante. Ejecuta la migración 013_admin_reset_restaurant_password.sql o valida la Edge Function admin-restaurants.');
     } finally {
       setActionLoading(false);
     }
