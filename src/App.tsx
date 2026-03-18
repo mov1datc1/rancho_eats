@@ -22,8 +22,8 @@ import type {
 } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
-type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'config';
-type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
+type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'delivery' | 'config';
+type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
 
 const RESTAURANT_IMAGE_RECOMMENDED = { width: 1200, height: 675 };
@@ -60,6 +60,25 @@ const formatRelative = (value: string) => {
   if (diffHr < 24) return `hace ${diffHr} hr`;
   const diffDay = Math.floor(diffHr / 24);
   return `hace ${diffDay} día${diffDay > 1 ? 's' : ''}`;
+};
+
+const getOrderCommission = (order: Pick<Order, 'commission_amount'>) => Math.max(0, Number(order.commission_amount ?? 0));
+const getOrderSubtotal = (order: Pick<Order, 'subtotal' | 'total' | 'commission_amount' | 'delivery_amount'>) => {
+  const directSubtotal = Number(order.subtotal ?? NaN);
+  if (Number.isFinite(directSubtotal)) return Math.max(0, directSubtotal);
+  const fallback = Number(order.total) - getOrderCommission(order) - getOrderDelivery(order);
+  return Math.max(0, fallback);
+};
+
+const getOrderDelivery = (order: Pick<Order, 'delivery_amount'>) => Math.max(0, Number(order.delivery_amount ?? 0));
+const getRestaurantDeliveryFeeByDistance = (restaurant: Restaurant | null, distanceKm: number | null) => {
+  if (!restaurant || !Number.isFinite(Number(distanceKm)) || distanceKm == null) return 0;
+  const d = Number(distanceKm);
+  if (d <= 10) return Math.max(0, Number(restaurant.delivery_fee_0_10 ?? 0));
+  if (d <= 15) return Math.max(0, Number(restaurant.delivery_fee_10_15 ?? 0));
+  if (d <= 20) return Math.max(0, Number(restaurant.delivery_fee_15_20 ?? 0));
+  if (d <= 30) return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
+  return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
 };
 
 const isRpcMissingError = (error: unknown) => {
@@ -118,6 +137,7 @@ const baseForm = {
   password: '',
   type: 'OTRO',
   description: '',
+  address: '',
   radius: '10',
   openTime: '09:00',
   closeTime: '21:00'
@@ -146,6 +166,7 @@ export default function App() {
   const [searchedOrder, setSearchedOrder] = useState<Order | null>(null);
 
   const [clientPoint, setClientPoint] = useState({ lat: 21.0419, lng: -102.3425 });
+  const [registerPoint, setRegisterPoint] = useState({ lat: 21.0419, lng: -102.3425 });
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
@@ -169,7 +190,14 @@ export default function App() {
   const [configDraft, setConfigDraft] = useState({
     openTime: '09:00',
     closeTime: '21:00',
-    restaurantImageUrl: ''
+    restaurantImageUrl: '',
+    address: '',
+    lat: '',
+    lng: '',
+    deliveryFee0_10: '0',
+    deliveryFee10_15: '0',
+    deliveryFee15_20: '0',
+    deliveryFee20_30: '0'
   });
   const [configPassword, setConfigPassword] = useState('');
   const [restaurantImageMeta, setRestaurantImageMeta] = useState<{ width: number; height: number } | null>(null);
@@ -196,6 +224,8 @@ export default function App() {
   const [adminOrdersChart, setAdminOrdersChart] = useState<AdminOrdersByRestaurant[]>([]);
   const [adminOrders, setAdminOrders] = useState<AdminOrderFeedItem[]>([]);
   const [adminMapPoints, setAdminMapPoints] = useState<AdminMapPoint[]>([]);
+  const [commissionAmount, setCommissionAmount] = useState(0);
+  const [commissionDraft, setCommissionDraft] = useState('0');
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -236,7 +266,15 @@ export default function App() {
 
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
-  const cartTotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const cartSubtotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const estimatedDeliveryDistanceKm = useMemo(() => {
+    if (!selectedRestaurant) return null;
+    if (!Number.isFinite(Number(selectedRestaurant.lat)) || !Number.isFinite(Number(selectedRestaurant.lng))) return null;
+    return haversineKm(Number(selectedRestaurant.lat), Number(selectedRestaurant.lng), clientPoint.lat, clientPoint.lng);
+  }, [selectedRestaurant, clientPoint.lat, clientPoint.lng]);
+  const cartDelivery = useMemo(() => (cartCount > 0 && orderWizardStep === 3 ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, orderWizardStep, selectedRestaurant, estimatedDeliveryDistanceKm]);
+  const cartCommission = useMemo(() => (cartCount > 0 ? Math.max(0, commissionAmount) : 0), [cartCount, commissionAmount]);
+  const cartTotal = useMemo(() => cartSubtotal + cartCommission + cartDelivery, [cartSubtotal, cartCommission, cartDelivery]);
   const groupedMenuItems = useMemo(() => {
     const source = menuItems.filter((item) => item.available);
     return source.reduce<Record<string, MenuItem[]>>((acc, item) => {
@@ -376,7 +414,14 @@ export default function App() {
     setConfigDraft({
       openTime: selectedRestaurant.open_time ?? '09:00',
       closeTime: selectedRestaurant.close_time ?? '21:00',
-      restaurantImageUrl: selectedRestaurant.photo_url ?? ''
+      restaurantImageUrl: selectedRestaurant.photo_url ?? '',
+      address: selectedRestaurant.address ?? '',
+      lat: selectedRestaurant.lat != null ? String(selectedRestaurant.lat) : '',
+      lng: selectedRestaurant.lng != null ? String(selectedRestaurant.lng) : '',
+      deliveryFee0_10: String(selectedRestaurant.delivery_fee_0_10 ?? 0),
+      deliveryFee10_15: String(selectedRestaurant.delivery_fee_10_15 ?? 0),
+      deliveryFee15_20: String(selectedRestaurant.delivery_fee_15_20 ?? 0),
+      deliveryFee20_30: String(selectedRestaurant.delivery_fee_20_30 ?? 0)
     });
     setRestaurantImageMeta(null);
     setRestaurantImageNotice('');
@@ -461,7 +506,8 @@ export default function App() {
         loadPendingRestaurants(rpcAvailable),
         loadAdminDashboardData(rpcAvailable),
         loadAdminOrders(rpcAvailable),
-        loadAdminMapPoints(rpcAvailable)
+        loadAdminMapPoints(rpcAvailable),
+        loadCommissionSettings()
       ]);
     };
 
@@ -475,7 +521,8 @@ export default function App() {
         loadPendingRestaurants(adminRpcEnabled),
         loadAdminDashboardData(adminRpcEnabled),
         loadAdminOrders(adminRpcEnabled),
-        loadAdminMapPoints(adminRpcEnabled)
+        loadAdminMapPoints(adminRpcEnabled),
+        loadCommissionSettings()
       ]);
     };
 
@@ -657,11 +704,31 @@ export default function App() {
       const parsedActive = (activeData ?? []) as Restaurant[];
       setRestaurants(parsedActive);
       setSelectedRestaurant(parsedActive[0] ?? null);
+      await loadCommissionSettings();
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCommissionSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('commission_fee')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (error) throw error;
+      const nextCommission = Math.max(0, Number(data?.commission_fee ?? 0));
+      setCommissionAmount(nextCommission);
+      setCommissionDraft(nextCommission.toFixed(2));
+    } catch (error) {
+      console.error(error);
+      setCommissionAmount(0);
+      setCommissionDraft('0.00');
     }
   };
 
@@ -1187,6 +1254,9 @@ export default function App() {
           client_lat: clientPoint.lat,
           client_lng: clientPoint.lng,
           items: cartItems,
+          subtotal: cartSubtotal,
+          commission_amount: cartCommission,
+          delivery_amount: cartDelivery,
           total: cartTotal,
           status: 'PENDING'
         })
@@ -1263,7 +1333,14 @@ export default function App() {
         phone: registerForm.whatsapp,
         email: registerForm.email,
         type: registerForm.type,
+        address: registerForm.address || null,
+        lat: registerPoint.lat,
+        lng: registerPoint.lng,
         delivery_radius_km: Number(registerForm.radius),
+        delivery_fee_0_10: 0,
+        delivery_fee_10_15: 0,
+        delivery_fee_15_20: 0,
+        delivery_fee_20_30: 0,
         zones: selectedZones,
         open_time: registerForm.openTime,
         close_time: registerForm.closeTime,
@@ -1275,6 +1352,7 @@ export default function App() {
 
       setRegisterMessage('✅ Tu solicitud fue enviada. El admin la revisará para activarte.');
       setRegisterForm(baseForm);
+      setRegisterPoint({ lat: 21.0419, lng: -102.3425 });
       setSelectedZones(['Aranda centro']);
       await loadInitialData();
     } catch (error) {
@@ -1432,10 +1510,29 @@ export default function App() {
         return;
       }
 
+      const parsedLat = Number(configDraft.lat);
+      const parsedLng = Number(configDraft.lng);
+      const fee0_10 = Math.max(0, Number(configDraft.deliveryFee0_10 || 0));
+      const fee10_15 = Math.max(0, Number(configDraft.deliveryFee10_15 || 0));
+      const fee15_20 = Math.max(0, Number(configDraft.deliveryFee15_20 || 0));
+      const fee20_30 = Math.max(0, Number(configDraft.deliveryFee20_30 || 0));
+
+      if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+        setErrorMessage('Configura coordenadas válidas del restaurante para calcular envío por kilometraje.');
+        return;
+      }
+
       const payload = {
         open_time: configDraft.openTime,
         close_time: configDraft.closeTime,
-        photo_url: cleanedImageUrl || null
+        photo_url: cleanedImageUrl || null,
+        address: configDraft.address || null,
+        lat: parsedLat,
+        lng: parsedLng,
+        delivery_fee_0_10: fee0_10,
+        delivery_fee_10_15: fee10_15,
+        delivery_fee_15_20: fee15_20,
+        delivery_fee_20_30: fee20_30
       };
 
       const { data, error } = await supabase
@@ -1708,7 +1805,11 @@ export default function App() {
     }
   };
 
-  const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+  const updateRestaurantStatus = async (
+    restaurantId: string,
+    status: 'ACTIVE' | 'SUSPENDED',
+    previousStatus?: 'PENDING' | 'ACTIVE' | 'SUSPENDED'
+  ) => {
     if (!isAdmin) {
       setErrorMessage('Solo usuarios admin pueden aprobar o rechazar restaurantes.');
       return;
@@ -1726,11 +1827,16 @@ export default function App() {
       }
 
       if (!adminRpcEnabled || (rpcError && isRpcMissingError(rpcError))) {
-        const { error: fallbackError } = await supabase
+        let fallbackQuery = supabase
           .from('restaurants')
           .update({ status })
-          .eq('id', restaurantId)
-          .eq('status', 'PENDING');
+          .eq('id', restaurantId);
+
+        if (previousStatus) {
+          fallbackQuery = fallbackQuery.eq('status', previousStatus);
+        }
+
+        const { error: fallbackError } = await fallbackQuery;
 
         if (fallbackError) {
           if (!adminFunctionEnabled) throw fallbackError;
@@ -1755,6 +1861,43 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setErrorMessage('No pudimos actualizar el estado del restaurante.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+    await updateRestaurantStatus(restaurantId, status, 'PENDING');
+  };
+
+  const saveCommissionSettings = async () => {
+    if (!isAdmin) {
+      setErrorMessage('Solo usuarios admin pueden actualizar comisiones.');
+      return;
+    }
+
+    const parsed = Number(commissionDraft);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setErrorMessage('Ingresa una comisión válida (número mayor o igual a 0).');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const normalized = Number(parsed.toFixed(2));
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ id: 1, commission_fee: normalized }, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      setCommissionAmount(normalized);
+      setCommissionDraft(normalized.toFixed(2));
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos guardar la comisión global de la app.');
     } finally {
       setActionLoading(false);
     }
@@ -1855,7 +1998,8 @@ export default function App() {
     { key: 'dashboard', label: '📈 Dashboard' },
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
-    { key: 'menu', label: '📋 Mi menú' }
+    { key: 'menu', label: '📋 Mi menú' },
+    { key: 'delivery', label: '🛵 Delivery' }
   ];
 
   return (
@@ -2161,6 +2305,38 @@ export default function App() {
               </div>
             )}
 
+            {restaurantPanel === 'delivery' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>🛵 Configuración de delivery</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Configura la ubicación base del restaurante y la tarifa por rango de distancia.</p>
+
+                <div className="frow">
+                  <div className="fg"><label>Dirección del restaurante</label><input className="fi" value={configDraft.address} onChange={(e) => setConfigDraft((prev) => ({ ...prev, address: e.target.value }))} placeholder="Ej. Calle Morelos 123, Arandas" /></div>
+                  <div className="fg"><label>Tarifa 0 a 10 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee0_10} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee0_10: e.target.value }))} /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Tarifa 10 a 15 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee10_15} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee10_15: e.target.value }))} /></div>
+                  <div className="fg"><label>Tarifa 15 a 20 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee15_20} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee15_20: e.target.value }))} /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Tarifa 20 a 30 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee20_30} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee20_30: e.target.value }))} /></div>
+                  <div className="fg"><label>Vista previa actual</label><input className="fi" readOnly value={estimatedDeliveryDistanceKm == null ? 'Falta coordenada de restaurante o cliente para estimar.' : `${estimatedDeliveryDistanceKm.toFixed(1)} km → ${formatPrice(cartDelivery)}`} /></div>
+                </div>
+
+                <div className="fg">
+                  <label>Ubicación en mapa del restaurante</label>
+                  <MapPicker
+                    lat={Number(configDraft.lat || selectedRestaurant?.lat || 21.0419)}
+                    lng={Number(configDraft.lng || selectedRestaurant?.lng || -102.3425)}
+                    addressText={configDraft.address}
+                    onAddressTextChange={(value) => setConfigDraft((prev) => ({ ...prev, address: value }))}
+                    onChange={(point) => setConfigDraft((prev) => ({ ...prev, lat: String(point.lat), lng: String(point.lng) }))}
+                  />
+                </div>
+                <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración de delivery</button>
+              </div>
+            )}
+
             {restaurantPanel === 'config' && (
               <div className="panel-placeholder">
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>⚙️ Configuración del restaurante</div>
@@ -2228,7 +2404,7 @@ export default function App() {
                     return (
                       <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
                         <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
-                        <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                        <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(order))} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                         <div className="client-box">
                           👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
                           {buildWhatsAppUrl(order.client_phone, order) && (
@@ -2280,7 +2456,7 @@ export default function App() {
                   <article className="incoming-order selected-order-card" style={{ marginBottom: '.9rem' }}>
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
                     <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(selectedOrder))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(selectedOrder))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(selectedOrder))} · <strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
                     <div className="client-box">
                       👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
                       {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
@@ -2483,6 +2659,8 @@ export default function App() {
                 </div>
                 <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" value={registerForm.description} onChange={(e) => setRegisterForm((p) => ({ ...p, description: e.target.value }))} /></div>
                 <div className="fg"><label>Radio de entrega máximo</label><select className="fs" value={registerForm.radius} onChange={(e) => setRegisterForm((p) => ({ ...p, radius: e.target.value }))}><option value="5">5 km</option><option value="10">10 km</option><option value="15">15 km</option><option value="20">20 km</option><option value="30">30 km</option></select></div>
+                <div className="fg"><label>Dirección base del restaurante</label><input className="fi" placeholder="Ej. Av. Hidalgo 120, Arandas" value={registerForm.address} onChange={(e) => setRegisterForm((p) => ({ ...p, address: e.target.value }))} /></div>
+                <div className="fg"><label>Ubicación en mapa del restaurante</label><MapPicker lat={registerPoint.lat} lng={registerPoint.lng} addressText={registerForm.address} onAddressTextChange={(value) => setRegisterForm((p) => ({ ...p, address: value }))} onChange={setRegisterPoint} /></div>
                 <div className="fg"><label>Zonas que cubre</label><div className="zchips">{['Aranda centro', 'Arandas', 'El Saucito', 'Las Flores', 'La Providencia', 'San José', 'El Llano', 'Ranchos varios'].map((zone) => (<button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>))}</div></div>
                 <div className="frow"><div className="fg"><label>Apertura</label><input className="fi" type="time" value={registerForm.openTime} onChange={(e) => setRegisterForm((p) => ({ ...p, openTime: e.target.value }))} /></div><div className="fg"><label>Cierre</label><input className="fi" type="time" value={registerForm.closeTime} onChange={(e) => setRegisterForm((p) => ({ ...p, closeTime: e.target.value }))} /></div></div>
                 <button className="btnreg" onClick={submitRegister} disabled={actionLoading}>Enviar registro →</button>
@@ -2523,6 +2701,7 @@ export default function App() {
                 {[
                   { key: 'dashboard', label: '📊 Dashboard' },
                   { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                  { key: 'comisiones', label: '💰 Comisiones' },
                   { key: 'pedidos', label: '📦 Pedidos' },
                   { key: 'antispam', label: '🚨 Anti-spam' },
                   { key: 'mapa', label: '📍 Mapa en vivo' },
@@ -2560,13 +2739,14 @@ export default function App() {
                 <>
                   <div className="admin-session">
                     <p>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
-                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled)])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
+                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled), loadCommissionSettings()])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
                   </div>
 
                   <div className="admin-panel-tabs">
                     {[
                       { key: 'dashboard', label: '📊 Dashboard' },
                       { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                      { key: 'comisiones', label: '💰 Comisiones' },
                       { key: 'pedidos', label: '📦 Pedidos' },
                       { key: 'antispam', label: '🚨 Anti-spam' },
                       { key: 'mapa', label: '📍 Mapa en vivo' },
@@ -2618,15 +2798,29 @@ export default function App() {
                   {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <article className="admin-card">
                       <h4>🍽️ Restaurantes</h4>
-                      {adminRestaurants.map((item) => (
-                        <div key={item.id} className="admin-restaurant-row">
-                          <div>
-                            <strong>{item.name}</strong>
-                            <p>{item.orders_today} pedidos hoy</p>
+                      {adminRestaurants.map((item) => {
+                        const nextStatus = item.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+                        const actionLabel = item.status === 'ACTIVE' ? 'Apagar' : 'Encender';
+
+                        return (
+                          <div key={item.id} className="admin-restaurant-row">
+                            <div>
+                              <strong>{item.name}</strong>
+                              <p>{item.orders_today} pedidos hoy</p>
+                            </div>
+                            <div className="admin-restaurant-actions">
+                              <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
+                              <button
+                                className={`btn ${item.status === 'ACTIVE' ? 'ghost' : 'green'}`}
+                                onClick={() => updateRestaurantStatus(item.id, nextStatus, item.status)}
+                                disabled={actionLoading}
+                              >
+                                {actionLabel}
+                              </button>
+                            </div>
                           </div>
-                          <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </article>
                   )}
 
@@ -2712,6 +2906,36 @@ export default function App() {
                           );
                         })}
                       </div>
+                    </article>
+                  )}
+
+                  {adminPanel === 'comisiones' && (
+                    <article className="admin-card">
+                      <h4>💰 Comisiones por uso de la app</h4>
+                      <p style={{ color: 'var(--muted)' }}>Define una comisión fija global por pedido. Se sumará al subtotal de productos en todos los pedidos nuevos.</p>
+                      <div className="frow" style={{ marginTop: '.75rem' }}>
+                        <div className="fg">
+                          <label>Comisión fija por pedido (MXN)</label>
+                          <input
+                            className="fi"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={commissionDraft}
+                            onChange={(e) => setCommissionDraft(e.target.value)}
+                            placeholder="Ej. 12.00"
+                          />
+                        </div>
+                        <div className="fg">
+                          <label>Vista previa para cliente</label>
+                          <input className="fi" value={`Subtotal + Comisión = Total (${formatPrice(150)} + ${formatPrice(Math.max(0, Number(commissionDraft) || 0))} = ${formatPrice(150 + Math.max(0, Number(commissionDraft) || 0))})`} readOnly />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                        <button className="btn" onClick={saveCommissionSettings} disabled={actionLoading}>Guardar comisión</button>
+                        <button className="btn ghost" onClick={() => setCommissionDraft(commissionAmount.toFixed(2))} disabled={actionLoading}>Restablecer</button>
+                      </div>
+                      <p style={{ color: 'var(--muted)', marginTop: '.65rem' }}>Comisión activa actual: <strong>{formatPrice(commissionAmount)}</strong>.</p>
                     </article>
                   )}
 
@@ -2847,7 +3071,9 @@ export default function App() {
             <div className="cash-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
 
             <div className="cart-bar" style={{ display: 'flex' }}>
-              <div className="cart-info">🛒 {cartCount} productos · Total: <strong>{formatPrice(cartTotal)}</strong></div>
+              <div className="cart-info">
+                🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong> + Delivery: <strong>{formatPrice(cartDelivery)}</strong> · Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
+              </div>
               <div className="wizard-actions">
                 {orderWizardStep > 1 && (
                   <button className="btn ghost" onClick={() => setOrderWizardStep((prev) => (prev === 3 ? 2 : 1))} disabled={actionLoading}>Atrás</button>

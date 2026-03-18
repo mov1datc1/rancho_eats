@@ -222,6 +222,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .admin-restaurant-row,.admin-activity-row{display:flex;align-items:center;justify-content:space-between;gap:.8rem;padding:.6rem 0;border-bottom:1px solid #efe2d6}
 .admin-restaurant-row:last-child,.admin-activity-row:last-child{border-bottom:none}
 .admin-restaurant-row p,.admin-activity-row p{color:var(--muted);font-size:.9rem}
+.admin-restaurant-actions{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;justify-content:flex-end}
 .admin-activity-row{align-items:flex-start}
 .dot{width:10px;height:10px;border-radius:50%;margin-top:.4rem;flex-shrink:0}
 .dot-orange{background:var(--brand)}.dot-green{background:var(--green)}.dot-red{background:#C00}.dot-amber{background:var(--amber)}
