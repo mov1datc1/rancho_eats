@@ -71,6 +71,33 @@ serve(async (req) => {
       return json({ ok: true });
     }
 
+    if (body.action === 'reset_password') {
+      const nextPassword = `${body.password ?? ''}`.trim();
+      if (!body.restaurant_id || nextPassword.length < 8) {
+        return json({ error: 'restaurant_id/password required, min 8 chars' }, 400);
+      }
+
+      const { data: restaurant, error: restaurantError } = await serviceClient
+        .from('restaurants')
+        .select('id,name,owner_id,email')
+        .eq('id', body.restaurant_id)
+        .maybeSingle();
+
+      if (restaurantError) throw restaurantError;
+      if (!restaurant?.owner_id) {
+        return json({ error: 'Restaurant has no linked owner user' }, 400);
+      }
+
+      const { error: authError } = await serviceClient.auth.admin.updateUserById(restaurant.owner_id, {
+        password: nextPassword,
+        email: restaurant.email ?? undefined,
+        email_confirm: true
+      });
+
+      if (authError) throw authError;
+      return json({ ok: true, owner_id: restaurant.owner_id, restaurant_name: restaurant.name });
+    }
+
     return json({ error: 'Unsupported action' }, 400);
   } catch (error) {
     console.error(error);

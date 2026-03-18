@@ -1870,6 +1870,48 @@ export default function App() {
     await updateRestaurantStatus(restaurantId, status, 'PENDING');
   };
 
+  const resetRestaurantPassword = async (restaurantId: string, restaurantName: string) => {
+    if (!isAdmin) {
+      setErrorMessage('Solo usuarios admin pueden resetear claves de restaurantes.');
+      return;
+    }
+
+    const nextPassword = window.prompt(`Nueva contraseña para ${restaurantName}:`, '');
+    if (nextPassword === null) return;
+    if (nextPassword.trim().length < 8) {
+      setErrorMessage('La nueva contraseña del restaurante debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const { error } = await supabase.functions.invoke('admin-restaurants', {
+        body: {
+          action: 'reset_password',
+          restaurant_id: restaurantId,
+          password: nextPassword.trim()
+        }
+      });
+
+      if (error) {
+        const msg = `${error.message ?? ''}`.toLowerCase();
+        if (msg.includes('cors') || msg.includes('failed to send a request') || msg.includes('404') || msg.includes('not found')) {
+          setAdminFunctionEnabled(false);
+        }
+        throw error;
+      }
+
+      window.alert(`✅ Contraseña actualizada para ${restaurantName}. Comparte la nueva clave con el restaurante.`);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos resetear la contraseña del restaurante. Verifica que la Edge Function admin-restaurants esté desplegada.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const saveCommissionSettings = async () => {
     if (!isAdmin) {
       setErrorMessage('Solo usuarios admin pueden actualizar comisiones.');
@@ -2810,6 +2852,13 @@ export default function App() {
                             </div>
                             <div className="admin-restaurant-actions">
                               <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
+                              <button
+                                className="btn ghost"
+                                onClick={() => resetRestaurantPassword(item.id, item.name)}
+                                disabled={actionLoading}
+                              >
+                                Reset clave
+                              </button>
                               <button
                                 className={`btn ${item.status === 'ACTIVE' ? 'ghost' : 'green'}`}
                                 onClick={() => updateRestaurantStatus(item.id, nextStatus, item.status)}
