@@ -770,8 +770,7 @@ export default function App() {
         .eq('status', 'PENDING')
         .order('created_at', { ascending: false });
 
-      if (fallbackError) throw fallbackError;
-      if ((fallbackData ?? []).length > 0) {
+      if (!fallbackError) {
         setPendingRestaurants((fallbackData ?? []) as Restaurant[]);
         return;
       }
@@ -782,10 +781,10 @@ export default function App() {
         return;
       }
 
-      setPendingRestaurants([]);
+      throw fallbackError;
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003, CORS de Edge Functions y proyecto Supabase configurado.');
+      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003 y la configuración del proyecto Supabase.');
     }
   };
 
@@ -1887,37 +1886,17 @@ export default function App() {
       setActionLoading(true);
       setErrorMessage('');
 
-      let rpcError: unknown = null;
       const { error } = await supabase.rpc('admin_reset_restaurant_password', {
         p_restaurant_id: restaurantId,
         p_password: nextPassword.trim()
       });
-      rpcError = error;
 
-      if (rpcError && isRpcMissingError(rpcError)) {
-        const { error: fnError } = await supabase.functions.invoke('admin-restaurants', {
-          body: {
-            action: 'reset_password',
-            restaurant_id: restaurantId,
-            password: nextPassword.trim()
-          }
-        });
-
-        if (fnError) {
-          const msg = `${fnError.message ?? ''}`.toLowerCase();
-          if (msg.includes('cors') || msg.includes('failed to send a request') || msg.includes('404') || msg.includes('not found')) {
-            setAdminFunctionEnabled(false);
-          }
-          throw fnError;
-        }
-      } else if (rpcError) {
-        throw rpcError;
-      }
+      if (error) throw error;
 
       window.alert(`✅ Contraseña actualizada para ${restaurantName}. Comparte la nueva clave con el restaurante.`);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No pudimos resetear la contraseña del restaurante. Ejecuta la migración 013_admin_reset_restaurant_password.sql o valida la Edge Function admin-restaurants.');
+      setErrorMessage('No pudimos resetear la contraseña del restaurante. Ejecuta las migraciones 013 y 014 en Supabase para habilitar el reset sin Edge Function.');
     } finally {
       setActionLoading(false);
     }
