@@ -22,7 +22,7 @@ import type {
 } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
-type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'config';
+type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'delivery' | 'config';
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
 
@@ -63,11 +63,22 @@ const formatRelative = (value: string) => {
 };
 
 const getOrderCommission = (order: Pick<Order, 'commission_amount'>) => Math.max(0, Number(order.commission_amount ?? 0));
-const getOrderSubtotal = (order: Pick<Order, 'subtotal' | 'total' | 'commission_amount'>) => {
+const getOrderSubtotal = (order: Pick<Order, 'subtotal' | 'total' | 'commission_amount' | 'delivery_amount'>) => {
   const directSubtotal = Number(order.subtotal ?? NaN);
   if (Number.isFinite(directSubtotal)) return Math.max(0, directSubtotal);
-  const fallback = Number(order.total) - getOrderCommission(order);
+  const fallback = Number(order.total) - getOrderCommission(order) - getOrderDelivery(order);
   return Math.max(0, fallback);
+};
+
+const getOrderDelivery = (order: Pick<Order, 'delivery_amount'>) => Math.max(0, Number(order.delivery_amount ?? 0));
+const getRestaurantDeliveryFeeByDistance = (restaurant: Restaurant | null, distanceKm: number | null) => {
+  if (!restaurant || !Number.isFinite(Number(distanceKm)) || distanceKm == null) return 0;
+  const d = Number(distanceKm);
+  if (d <= 10) return Math.max(0, Number(restaurant.delivery_fee_0_10 ?? 0));
+  if (d <= 15) return Math.max(0, Number(restaurant.delivery_fee_10_15 ?? 0));
+  if (d <= 20) return Math.max(0, Number(restaurant.delivery_fee_15_20 ?? 0));
+  if (d <= 30) return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
+  return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
 };
 
 const isRpcMissingError = (error: unknown) => {
@@ -126,6 +137,7 @@ const baseForm = {
   password: '',
   type: 'OTRO',
   description: '',
+  address: '',
   radius: '10',
   openTime: '09:00',
   closeTime: '21:00'
@@ -154,6 +166,7 @@ export default function App() {
   const [searchedOrder, setSearchedOrder] = useState<Order | null>(null);
 
   const [clientPoint, setClientPoint] = useState({ lat: 21.0419, lng: -102.3425 });
+  const [registerPoint, setRegisterPoint] = useState({ lat: 21.0419, lng: -102.3425 });
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
@@ -177,7 +190,14 @@ export default function App() {
   const [configDraft, setConfigDraft] = useState({
     openTime: '09:00',
     closeTime: '21:00',
-    restaurantImageUrl: ''
+    restaurantImageUrl: '',
+    address: '',
+    lat: '',
+    lng: '',
+    deliveryFee0_10: '0',
+    deliveryFee10_15: '0',
+    deliveryFee15_20: '0',
+    deliveryFee20_30: '0'
   });
   const [configPassword, setConfigPassword] = useState('');
   const [restaurantImageMeta, setRestaurantImageMeta] = useState<{ width: number; height: number } | null>(null);
@@ -247,8 +267,14 @@ export default function App() {
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
   const cartSubtotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const estimatedDeliveryDistanceKm = useMemo(() => {
+    if (!selectedRestaurant) return null;
+    if (!Number.isFinite(Number(selectedRestaurant.lat)) || !Number.isFinite(Number(selectedRestaurant.lng))) return null;
+    return haversineKm(Number(selectedRestaurant.lat), Number(selectedRestaurant.lng), clientPoint.lat, clientPoint.lng);
+  }, [selectedRestaurant, clientPoint.lat, clientPoint.lng]);
+  const cartDelivery = useMemo(() => (cartCount > 0 ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, selectedRestaurant, estimatedDeliveryDistanceKm]);
   const cartCommission = useMemo(() => (cartCount > 0 ? Math.max(0, commissionAmount) : 0), [cartCount, commissionAmount]);
-  const cartTotal = useMemo(() => cartSubtotal + cartCommission, [cartSubtotal, cartCommission]);
+  const cartTotal = useMemo(() => cartSubtotal + cartCommission + cartDelivery, [cartSubtotal, cartCommission, cartDelivery]);
   const groupedMenuItems = useMemo(() => {
     const source = menuItems.filter((item) => item.available);
     return source.reduce<Record<string, MenuItem[]>>((acc, item) => {
@@ -388,7 +414,14 @@ export default function App() {
     setConfigDraft({
       openTime: selectedRestaurant.open_time ?? '09:00',
       closeTime: selectedRestaurant.close_time ?? '21:00',
-      restaurantImageUrl: selectedRestaurant.photo_url ?? ''
+      restaurantImageUrl: selectedRestaurant.photo_url ?? '',
+      address: selectedRestaurant.address ?? '',
+      lat: selectedRestaurant.lat != null ? String(selectedRestaurant.lat) : '',
+      lng: selectedRestaurant.lng != null ? String(selectedRestaurant.lng) : '',
+      deliveryFee0_10: String(selectedRestaurant.delivery_fee_0_10 ?? 0),
+      deliveryFee10_15: String(selectedRestaurant.delivery_fee_10_15 ?? 0),
+      deliveryFee15_20: String(selectedRestaurant.delivery_fee_15_20 ?? 0),
+      deliveryFee20_30: String(selectedRestaurant.delivery_fee_20_30 ?? 0)
     });
     setRestaurantImageMeta(null);
     setRestaurantImageNotice('');
@@ -1223,6 +1256,7 @@ export default function App() {
           items: cartItems,
           subtotal: cartSubtotal,
           commission_amount: cartCommission,
+          delivery_amount: cartDelivery,
           total: cartTotal,
           status: 'PENDING'
         })
@@ -1299,7 +1333,14 @@ export default function App() {
         phone: registerForm.whatsapp,
         email: registerForm.email,
         type: registerForm.type,
+        address: registerForm.address || null,
+        lat: registerPoint.lat,
+        lng: registerPoint.lng,
         delivery_radius_km: Number(registerForm.radius),
+        delivery_fee_0_10: 0,
+        delivery_fee_10_15: 0,
+        delivery_fee_15_20: 0,
+        delivery_fee_20_30: 0,
         zones: selectedZones,
         open_time: registerForm.openTime,
         close_time: registerForm.closeTime,
@@ -1311,6 +1352,7 @@ export default function App() {
 
       setRegisterMessage('✅ Tu solicitud fue enviada. El admin la revisará para activarte.');
       setRegisterForm(baseForm);
+      setRegisterPoint({ lat: 21.0419, lng: -102.3425 });
       setSelectedZones(['Aranda centro']);
       await loadInitialData();
     } catch (error) {
@@ -1468,10 +1510,29 @@ export default function App() {
         return;
       }
 
+      const parsedLat = Number(configDraft.lat);
+      const parsedLng = Number(configDraft.lng);
+      const fee0_10 = Math.max(0, Number(configDraft.deliveryFee0_10 || 0));
+      const fee10_15 = Math.max(0, Number(configDraft.deliveryFee10_15 || 0));
+      const fee15_20 = Math.max(0, Number(configDraft.deliveryFee15_20 || 0));
+      const fee20_30 = Math.max(0, Number(configDraft.deliveryFee20_30 || 0));
+
+      if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+        setErrorMessage('Configura coordenadas válidas del restaurante para calcular envío por kilometraje.');
+        return;
+      }
+
       const payload = {
         open_time: configDraft.openTime,
         close_time: configDraft.closeTime,
-        photo_url: cleanedImageUrl || null
+        photo_url: cleanedImageUrl || null,
+        address: configDraft.address || null,
+        lat: parsedLat,
+        lng: parsedLng,
+        delivery_fee_0_10: fee0_10,
+        delivery_fee_10_15: fee10_15,
+        delivery_fee_15_20: fee15_20,
+        delivery_fee_20_30: fee20_30
       };
 
       const { data, error } = await supabase
@@ -1937,7 +1998,8 @@ export default function App() {
     { key: 'dashboard', label: '📈 Dashboard' },
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
-    { key: 'menu', label: '📋 Mi menú' }
+    { key: 'menu', label: '📋 Mi menú' },
+    { key: 'delivery', label: '🛵 Delivery' }
   ];
 
   return (
@@ -2243,6 +2305,38 @@ export default function App() {
               </div>
             )}
 
+            {restaurantPanel === 'delivery' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>🛵 Configuración de delivery</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Configura la ubicación base del restaurante y la tarifa por rango de distancia.</p>
+
+                <div className="frow">
+                  <div className="fg"><label>Dirección del restaurante</label><input className="fi" value={configDraft.address} onChange={(e) => setConfigDraft((prev) => ({ ...prev, address: e.target.value }))} placeholder="Ej. Calle Morelos 123, Arandas" /></div>
+                  <div className="fg"><label>Tarifa 0 a 10 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee0_10} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee0_10: e.target.value }))} /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Tarifa 10 a 15 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee10_15} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee10_15: e.target.value }))} /></div>
+                  <div className="fg"><label>Tarifa 15 a 20 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee15_20} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee15_20: e.target.value }))} /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Tarifa 20 a 30 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee20_30} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee20_30: e.target.value }))} /></div>
+                  <div className="fg"><label>Vista previa actual</label><input className="fi" readOnly value={estimatedDeliveryDistanceKm == null ? 'Falta coordenada de restaurante o cliente para estimar.' : `${estimatedDeliveryDistanceKm.toFixed(1)} km → ${formatPrice(cartDelivery)}`} /></div>
+                </div>
+
+                <div className="fg">
+                  <label>Ubicación en mapa del restaurante</label>
+                  <MapPicker
+                    lat={Number(configDraft.lat || selectedRestaurant?.lat || 21.0419)}
+                    lng={Number(configDraft.lng || selectedRestaurant?.lng || -102.3425)}
+                    addressText={configDraft.address}
+                    onAddressTextChange={(value) => setConfigDraft((prev) => ({ ...prev, address: value }))}
+                    onChange={(point) => setConfigDraft((prev) => ({ ...prev, lat: String(point.lat), lng: String(point.lng) }))}
+                  />
+                </div>
+                <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración de delivery</button>
+              </div>
+            )}
+
             {restaurantPanel === 'config' && (
               <div className="panel-placeholder">
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>⚙️ Configuración del restaurante</div>
@@ -2310,7 +2404,7 @@ export default function App() {
                     return (
                       <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
                         <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
-                        <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                        <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(order))} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                         <div className="client-box">
                           👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
                           {buildWhatsAppUrl(order.client_phone, order) && (
@@ -2362,7 +2456,7 @@ export default function App() {
                   <article className="incoming-order selected-order-card" style={{ marginBottom: '.9rem' }}>
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
                     <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(selectedOrder))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(selectedOrder))} · <strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(selectedOrder))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(selectedOrder))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(selectedOrder))} · <strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
                     <div className="client-box">
                       👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
                       {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
@@ -2565,6 +2659,8 @@ export default function App() {
                 </div>
                 <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" value={registerForm.description} onChange={(e) => setRegisterForm((p) => ({ ...p, description: e.target.value }))} /></div>
                 <div className="fg"><label>Radio de entrega máximo</label><select className="fs" value={registerForm.radius} onChange={(e) => setRegisterForm((p) => ({ ...p, radius: e.target.value }))}><option value="5">5 km</option><option value="10">10 km</option><option value="15">15 km</option><option value="20">20 km</option><option value="30">30 km</option></select></div>
+                <div className="fg"><label>Dirección base del restaurante</label><input className="fi" placeholder="Ej. Av. Hidalgo 120, Arandas" value={registerForm.address} onChange={(e) => setRegisterForm((p) => ({ ...p, address: e.target.value }))} /></div>
+                <div className="fg"><label>Ubicación en mapa del restaurante</label><MapPicker lat={registerPoint.lat} lng={registerPoint.lng} addressText={registerForm.address} onAddressTextChange={(value) => setRegisterForm((p) => ({ ...p, address: value }))} onChange={setRegisterPoint} /></div>
                 <div className="fg"><label>Zonas que cubre</label><div className="zchips">{['Aranda centro', 'Arandas', 'El Saucito', 'Las Flores', 'La Providencia', 'San José', 'El Llano', 'Ranchos varios'].map((zone) => (<button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>))}</div></div>
                 <div className="frow"><div className="fg"><label>Apertura</label><input className="fi" type="time" value={registerForm.openTime} onChange={(e) => setRegisterForm((p) => ({ ...p, openTime: e.target.value }))} /></div><div className="fg"><label>Cierre</label><input className="fi" type="time" value={registerForm.closeTime} onChange={(e) => setRegisterForm((p) => ({ ...p, closeTime: e.target.value }))} /></div></div>
                 <button className="btnreg" onClick={submitRegister} disabled={actionLoading}>Enviar registro →</button>
@@ -2976,7 +3072,7 @@ export default function App() {
 
             <div className="cart-bar" style={{ display: 'flex' }}>
               <div className="cart-info">
-                🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong> · Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
+                🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong> + Delivery: <strong>{formatPrice(cartDelivery)}</strong> · Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
               </div>
               <div className="wizard-actions">
                 {orderWizardStep > 1 && (

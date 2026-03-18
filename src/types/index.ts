@@ -10,6 +10,11 @@ export interface Restaurant {
   lat: number | null;
   lng: number | null;
   delivery_radius_km: number;
+  delivery_fee_0_10?: number | null;
+  delivery_fee_10_15?: number | null;
+  delivery_fee_15_20?: number | null;
+  delivery_fee_20_30?: number | null;
+  address?: string | null;
   is_open: boolean;
   status: RestaurantStatus;
   owner_id: string | null;
@@ -66,6 +71,7 @@ export interface Order {
   items: CartItem[];
   subtotal?: number | null;
   commission_amount?: number | null;
+  delivery_amount?: number | null;
   total: number;
   status: string;
   rejection_reason?: string | null;
