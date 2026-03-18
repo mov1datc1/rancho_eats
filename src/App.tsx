@@ -272,7 +272,7 @@ export default function App() {
     if (!Number.isFinite(Number(selectedRestaurant.lat)) || !Number.isFinite(Number(selectedRestaurant.lng))) return null;
     return haversineKm(Number(selectedRestaurant.lat), Number(selectedRestaurant.lng), clientPoint.lat, clientPoint.lng);
   }, [selectedRestaurant, clientPoint.lat, clientPoint.lng]);
-  const cartDelivery = useMemo(() => (cartCount > 0 ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, selectedRestaurant, estimatedDeliveryDistanceKm]);
+  const cartDelivery = useMemo(() => (cartCount > 0 && orderWizardStep === 3 ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, orderWizardStep, selectedRestaurant, estimatedDeliveryDistanceKm]);
   const cartCommission = useMemo(() => (cartCount > 0 ? Math.max(0, commissionAmount) : 0), [cartCount, commissionAmount]);
   const cartTotal = useMemo(() => cartSubtotal + cartCommission + cartDelivery, [cartSubtotal, cartCommission, cartDelivery]);
   const groupedMenuItems = useMemo(() => {
