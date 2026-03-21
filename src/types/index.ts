@@ -75,7 +75,31 @@ export interface Order {
   total: number;
   status: string;
   rejection_reason?: string | null;
+  delivery_driver_id?: string | null;
+  delivery_driver_name?: string | null;
+  delivery_driver_phone?: string | null;
+  delivery_assigned_at?: string | null;
+  delivery_started_at?: string | null;
+  delivered_at?: string | null;
+  driver_last_lat?: number | null;
+  driver_last_lng?: number | null;
+  driver_location_accuracy_m?: number | null;
+  driver_location_updated_at?: string | null;
   created_at: string;
+}
+
+export interface DriverProfile {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  phone: string;
+  vehicle_label?: string | null;
+  notes?: string | null;
+  is_active: boolean;
+  access_token: string;
+  last_location_at?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 
