@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { buildStaticMapUrl, hasMapboxToken } from '../../lib/mapbox';
+import { buildGoogleMapsEmbedUrl } from '../../lib/googleMaps';
 
 type MapViewerProps = {
   lat: number;
@@ -8,16 +8,18 @@ type MapViewerProps = {
 };
 
 export default function MapViewer({ lat, lng, title = 'Ubicación' }: MapViewerProps) {
-  const staticMapUrl = useMemo(() => buildStaticMapUrl(lat, lng), [lat, lng]);
-
-  if (!hasMapboxToken()) {
-    return <p style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Mapa deshabilitado por falta de token.</p>;
-  }
+  const embedUrl = useMemo(() => buildGoogleMapsEmbedUrl(lat, lng), [lat, lng]);
 
   return (
     <div>
       <p style={{ fontSize: '.78rem', marginBottom: '.4rem', color: 'var(--muted)' }}>{title}</p>
-      <img src={staticMapUrl} alt={title} className="loc-preview" />
+      <iframe
+        title={title}
+        src={embedUrl}
+        className="loc-preview loc-preview-fallback"
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+      />
     </div>
   );
 }
