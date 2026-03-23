@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildStaticMapUrl, hasMapboxToken } from '../../lib/mapbox';
+import { buildGoogleMapsEmbedUrl, buildGoogleStaticMapUrl, hasGoogleMapsApiKey } from '../../lib/googleMaps';
 import {
   clampZoom,
   getSuggestionSubtitle,
@@ -28,15 +29,8 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
 
   const staticMapUrl = useMemo(() => buildStaticMapUrl(lat, lng, zoom), [lat, lng, zoom]);
   const canUseMapbox = hasMapboxToken();
-  const openStreetMapEmbedUrl = useMemo(() => {
-    const delta = Math.max(0.02, 0.18 / Math.max(1, zoom - 8));
-    const left = lng - delta;
-    const right = lng + delta;
-    const top = lat + delta;
-    const bottom = lat - delta;
-
-    return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${lat}%2C${lng}`;
-  }, [lat, lng, zoom]);
+  const googleMapsStaticUrl = useMemo(() => buildGoogleStaticMapUrl({ center: { lat, lng }, zoom, markers: [{ lat, lng, color: 'red', label: 'P' }] }), [lat, lng, zoom]);
+  const googleMapsEmbedUrl = useMemo(() => buildGoogleMapsEmbedUrl(lat, lng, zoom), [lat, lng, zoom]);
 
   useEffect(() => {
     if (addressText.trim().length < 3) {
@@ -216,15 +210,25 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
             className="loc-preview"
             onError={() => setMapLoadFailed(true)}
           />
+        ) : hasGoogleMapsApiKey() && googleMapsStaticUrl ? (
+          <>
+            <img
+              src={googleMapsStaticUrl}
+              alt="Mapa de respaldo"
+              className="loc-preview loc-preview-fallback"
+              loading="lazy"
+            />
+            <small className="map-fallback-note">Usando Google Static Maps como respaldo para que la ubicación siga visible en todos los dispositivos.</small>
+          </>
         ) : (
           <>
             <iframe
               title="Mapa de respaldo"
-              src={openStreetMapEmbedUrl}
+              src={googleMapsEmbedUrl}
               className="loc-preview loc-preview-fallback"
               loading="lazy"
             />
-            <small className="map-fallback-note">Usando mapa de respaldo de OpenStreetMap para asegurar compatibilidad en todos los dispositivos.</small>
+            <small className="map-fallback-note">Agrega VITE_GOOGLE_MAPS_API_KEY para usar Google Static Maps; mientras tanto se muestra un embed de respaldo.</small>
           </>
         )}
         <div className="map-pin" title="Arrastra el pin">📍</div>
