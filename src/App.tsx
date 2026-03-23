@@ -2583,6 +2583,7 @@ export default function App() {
                                 ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, icon: '🛵', tone: 'driver' } as const]
                                 : [])
                             ]}
+                            showBaseMarkers={false}
                             paths={searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
                               ? [{
                                   color: '0x2f3640cc',

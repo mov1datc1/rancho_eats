@@ -23,6 +23,7 @@ type MapViewerProps = {
   markers?: GoogleStaticMarker[];
   paths?: GoogleStaticPath[];
   overlays?: MapOverlay[];
+  showBaseMarkers?: boolean;
 };
 
 const MAP_WIDTH = 1200;
@@ -39,7 +40,7 @@ const projectToMercator = (latitude: number, longitude: number, zoomLevel: numbe
   return { x, y };
 };
 
-export default function MapViewer({ lat, lng, title = 'Ubicación', zoom = 15, markers, paths, overlays }: MapViewerProps) {
+export default function MapViewer({ lat, lng, title = 'Ubicación', zoom = 15, markers, paths, overlays, showBaseMarkers = true }: MapViewerProps) {
   const mapPoints = useMemo(() => {
     const markerPoints = (markers ?? []).map((marker) => ({ lat: marker.lat, lng: marker.lng }));
     const overlayPoints = (overlays ?? []).map((overlay) => ({ lat: overlay.lat, lng: overlay.lng }));
@@ -58,10 +59,10 @@ export default function MapViewer({ lat, lng, title = 'Ubicación', zoom = 15, m
     () => buildGoogleStaticMapUrl({
       center: resolvedCenter,
       zoom: resolvedZoom,
-      markers: markers?.length ? markers : [{ lat, lng, color: 'red', label: 'U' }],
+      markers: showBaseMarkers ? (markers?.length ? markers : [{ lat, lng, color: 'red', label: 'U' }]) : [],
       paths
     }),
-    [lat, lng, markers, paths, resolvedCenter, resolvedZoom]
+    [lat, lng, markers, paths, resolvedCenter, resolvedZoom, showBaseMarkers]
   );
   const embedUrl = useMemo(() => buildGoogleMapsEmbedUrl(resolvedCenter.lat, resolvedCenter.lng, resolvedZoom), [resolvedCenter.lat, resolvedCenter.lng, resolvedZoom]);
 
