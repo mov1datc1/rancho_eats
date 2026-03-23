@@ -31,6 +31,9 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
   const canUseMapbox = hasMapboxToken();
   const googleMapsStaticUrl = useMemo(() => buildGoogleStaticMapUrl({ center: { lat, lng }, zoom, markers: [{ lat, lng, color: 'red', label: 'P' }] }), [lat, lng, zoom]);
   const googleMapsEmbedUrl = useMemo(() => buildGoogleMapsEmbedUrl(lat, lng, zoom), [lat, lng, zoom]);
+  const mapFallbackNote = import.meta.env.DEV
+    ? 'Mapa de respaldo activo. Para una vista más estable en todos los dispositivos, configura Google Static Maps en el entorno local.'
+    : 'Mapa de respaldo activo. Puedes mover el pin o usar GPS para afinar tu punto de entrega.';
 
   useEffect(() => {
     if (addressText.trim().length < 3) {
@@ -228,7 +231,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
               className="loc-preview loc-preview-fallback"
               loading="lazy"
             />
-            <small className="map-fallback-note">Agrega VITE_GOOGLE_MAPS_API_KEY para usar Google Static Maps; mientras tanto se muestra un embed de respaldo.</small>
+            <small className="map-fallback-note">{mapFallbackNote}</small>
           </>
         )}
         <div className="map-pin" title="Arrastra el pin">📍</div>
