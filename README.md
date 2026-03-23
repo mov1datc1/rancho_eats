@@ -46,6 +46,7 @@ Frontend + Supabase para flujo completo de registro de restaurantes, aprobación
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
    - `VITE_MAPBOX_TOKEN`
+   - `VITE_GOOGLE_MAPS_API_KEY`
 4. Deploy de producción.
 5. En Supabase Auth configura **Site URL** y **Redirect URLs** con tu dominio Vercel (`https://tu-app.vercel.app`).
 6. Verifica que `public/manifest.json` y `public/sw.js` estén siendo servidos en producción.
@@ -66,3 +67,10 @@ Frontend + Supabase para flujo completo de registro de restaurantes, aprobación
 - Cliente: cuando cambia el estatus del pedido en seguimiento se dispara notificación web (si el navegador concede permiso).
 - Restaurante: cuando llega un pedido `PENDING`, se dispara notificación y alerta de sonido en panel.
 - Para experiencia completa en iOS/Android, asegúrate de permitir notificaciones del navegador/PWA en el sistema operativo.
+
+
+## Google Maps
+
+- Para los mapas estáticos y el seguimiento de repartidores, configura `VITE_GOOGLE_MAPS_API_KEY` en tu entorno local y en Vercel.
+- Restringe la key por HTTP referrers a tus dominios reales, por ejemplo `http://localhost:5173/*` y `https://rancho-eats.vercel.app/*`.
+- Mantén habilitada la API **Maps Static API** en Google Cloud para que las vistas previas y el mapa combinado de seguimiento carguen correctamente.
