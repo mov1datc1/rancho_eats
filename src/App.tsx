@@ -2572,15 +2572,34 @@ export default function App() {
                             lng={searchedOrder.driver_last_lng ?? searchedOrder.client_lng}
                             title="Mapa del pedido en camino"
                             markers={[
-                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, color: 'red', label: 'C' },
+                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, color: 'red', label: 'C', size: 'mid' },
                               ...(searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
-                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, color: 'blue', label: 'R' } as const]
+                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, color: 'blue', label: 'R', size: 'mid' } as const]
                                 : [])
                             ]}
+                            overlays={[
+                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, icon: '🏠', tone: 'home' },
+                              ...(searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, icon: '🛵', tone: 'driver' } as const]
+                                : [])
+                            ]}
+                            paths={searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                              ? [{
+                                  color: '0x2f3640cc',
+                                  weight: 5,
+                                  points: [
+                                    { lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng },
+                                    { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng }
+                                  ]
+                                }]
+                              : []}
                           />
                           <div className="tracking-map-legend">
                             <span>🏠 Cliente</span>
                             <span>🛵 Repartidor</span>
+                            {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null && (
+                              <span>📏 Distancia aprox: {haversineKm(searchedOrder.driver_last_lat, searchedOrder.driver_last_lng, searchedOrder.client_lat, searchedOrder.client_lng).toFixed(1)} km</span>
+                            )}
                           </div>
                           {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null ? (
                             <small className="driver-location-meta">Última actualización del repartidor: {searchedOrder.driver_location_updated_at ? formatRelative(searchedOrder.driver_location_updated_at) : 'recién enviada'}.</small>

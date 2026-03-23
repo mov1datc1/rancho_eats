@@ -168,6 +168,12 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .address-option.muted{color:var(--muted);cursor:default}
 .loc-preview{width:100%;height:300px;object-fit:cover;border-radius:10px;border:1.5px solid #C3E6D8;margin:.5rem 0 .35rem;display:block;background:#eef3ef}
 .loc-preview-fallback{pointer-events:none}
+.map-viewer-frame{position:relative}
+.map-viewer-image{margin:.5rem 0 .35rem}
+.map-overlay-badge{position:absolute;transform:translate(-50%,-85%);width:44px;height:44px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;box-shadow:0 10px 22px rgba(34,24,15,.25);border:2px solid rgba(255,255,255,.92);backdrop-filter:blur(2px)}
+.map-overlay-badge-home{background:linear-gradient(135deg,#fff1ea,#ffd7c3)}
+.map-overlay-badge-driver{background:linear-gradient(135deg,#e7fff5,#b6f0d5)}
+.map-overlay-badge-neutral{background:linear-gradient(135deg,#fff,#f1ece7)}
 .map-fallback-note{display:block;font-size:.75rem;color:var(--muted);margin-bottom:.6rem}
 .coord-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:.65rem}.coord-grid label span{display:block;font-size:.7rem;color:var(--muted);font-weight:600;margin-bottom:.2rem}
 .coord-input{width:100%;padding:.68rem .75rem;border:1.5px solid #E0CABB;border-radius:10px;font-size:1.35rem;line-height:1.2;color:var(--text);background:#fff}
