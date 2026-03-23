@@ -63,7 +63,7 @@ export default function MapViewer({ lat, lng, title = 'Ubicación', zoom = 15, m
     }),
     [lat, lng, markers, paths, resolvedCenter, resolvedZoom]
   );
-  const embedUrl = useMemo(() => buildGoogleMapsEmbedUrl(lat, lng, resolvedZoom), [lat, lng, resolvedZoom]);
+  const embedUrl = useMemo(() => buildGoogleMapsEmbedUrl(resolvedCenter.lat, resolvedCenter.lng, resolvedZoom), [resolvedCenter.lat, resolvedCenter.lng, resolvedZoom]);
 
   const overlayStyles = useMemo(() => {
     const centerProjected = projectToMercator(resolvedCenter.lat, resolvedCenter.lng, resolvedZoom);
@@ -81,6 +81,19 @@ export default function MapViewer({ lat, lng, title = 'Ubicación', zoom = 15, m
     });
   }, [overlays, resolvedCenter.lat, resolvedCenter.lng, resolvedZoom]);
 
+  const overlayPathPoints = useMemo(() => {
+    const centerProjected = projectToMercator(resolvedCenter.lat, resolvedCenter.lng, resolvedZoom);
+
+    return (paths ?? []).map((path) =>
+      path.points.map((point) => {
+        const projected = projectToMercator(point.lat, point.lng, resolvedZoom);
+        const x = 50 + ((projected.x - centerProjected.x) / MAP_WIDTH) * 100;
+        const y = 50 + ((projected.y - centerProjected.y) / MAP_HEIGHT) * 100;
+        return `${Math.min(94, Math.max(6, x))},${Math.min(90, Math.max(10, y))}`;
+      }).join(' ')
+    ).filter(Boolean);
+  }, [paths, resolvedCenter.lat, resolvedCenter.lng, resolvedZoom]);
+
   return (
     <div>
       <p style={{ fontSize: '.78rem', marginBottom: '.4rem', color: 'var(--muted)' }}>{title}</p>
@@ -96,7 +109,12 @@ export default function MapViewer({ lat, lng, title = 'Ubicación', zoom = 15, m
             referrerPolicy="no-referrer-when-downgrade"
           />
         )}
-        {hasGoogleMapsApiKey() && overlayStyles.map((overlay, index) => (
+        {overlayPathPoints.map((points, index) => (
+          <svg key={`route-${index}`} className="map-overlay-route" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <polyline points={points} className="map-overlay-route-line" />
+          </svg>
+        ))}
+        {overlayStyles.map((overlay, index) => (
           <div
             key={`${overlay.icon}-${overlay.lat}-${overlay.lng}-${index}`}
             className={`map-overlay-badge map-overlay-badge-${overlay.tone ?? 'neutral'}`}
