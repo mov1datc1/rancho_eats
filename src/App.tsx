@@ -2565,22 +2565,30 @@ export default function App() {
                       <p><strong>Estado del reparto:</strong> {statusLabel(searchedOrder.status)}</p>
                       <p>{searchedOrder.status === 'ON_THE_WAY' ? 'Tu pedido va en camino y la ubicación del repartidor se actualiza en tiempo real.' : 'El restaurante ya asignó un repartidor. En cuanto salga, verás su movimiento aquí.'}</p>
 
-                      <div className="tracking-map-grid">
-                        {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null ? (
-                          <div className="mini-map-box">
-                            <MapViewer lat={searchedOrder.driver_last_lat} lng={searchedOrder.driver_last_lng} title="Ubicación actual del repartidor" />
-                            <small className="driver-location-meta">Última actualización: {searchedOrder.driver_location_updated_at ? formatRelative(searchedOrder.driver_location_updated_at) : 'recién enviada'}.</small>
+                      <div className="tracking-map-grid tracking-map-grid-single">
+                        <div className="mini-map-box">
+                          <MapViewer
+                            lat={searchedOrder.driver_last_lat ?? searchedOrder.client_lat}
+                            lng={searchedOrder.driver_last_lng ?? searchedOrder.client_lng}
+                            title="Mapa del pedido en camino"
+                            markers={[
+                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, color: 'red', label: 'C' },
+                              ...(searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, color: 'blue', label: 'R' } as const]
+                                : [])
+                            ]}
+                          />
+                          <div className="tracking-map-legend">
+                            <span>🏠 Cliente</span>
+                            <span>🛵 Repartidor</span>
                           </div>
-                        ) : (
-                          <div className="menu-empty">El repartidor ya fue asignado. La ubicación aparecerá aquí cuando comparta GPS desde su celular.</div>
-                        )}
-
-                        {searchedOrder.client_lat != null && searchedOrder.client_lng != null && (
-                          <div className="mini-map-box">
-                            <MapViewer lat={searchedOrder.client_lat} lng={searchedOrder.client_lng} title="Tu ubicación registrada" />
-                            <a className="map-link" href={buildGoogleMapsUrl(searchedOrder.client_lat, searchedOrder.client_lng)} target="_blank" rel="noreferrer">Abrir mi ubicación</a>
-                          </div>
-                        )}
+                          {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null ? (
+                            <small className="driver-location-meta">Última actualización del repartidor: {searchedOrder.driver_location_updated_at ? formatRelative(searchedOrder.driver_location_updated_at) : 'recién enviada'}.</small>
+                          ) : (
+                            <small className="driver-location-meta">El repartidor ya fue asignado. La moto aparecerá en cuanto comparta GPS desde su celular.</small>
+                          )}
+                          <a className="map-link" href={buildGoogleMapsUrl(searchedOrder.client_lat, searchedOrder.client_lng)} target="_blank" rel="noreferrer">Abrir mi ubicación</a>
+                        </div>
                       </div>
                     </div>
                   )}

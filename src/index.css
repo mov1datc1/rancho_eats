@@ -332,6 +332,8 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .driver-location-meta{display:block;margin-top:.45rem;color:var(--muted)}
 .tracking-live-card{margin-top:1rem;padding:.9rem 1rem;border-radius:14px;border:1px solid #ecd8c8;background:#fff9f4}
 .tracking-map-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:.75rem}
+.tracking-map-grid-single{grid-template-columns:minmax(0,1fr)}
+.tracking-map-legend{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.6rem;font-size:.9rem;color:var(--muted)}
 .driver-roster{display:grid;gap:.75rem;margin-top:1rem}
 .driver-card{display:grid;grid-template-columns:1.4fr auto;gap:.75rem;align-items:center;padding:.95rem 1rem;border-radius:14px;border:1px solid #ecd8c8;background:#fff}
 .table-actions-stack{flex-direction:column;align-items:stretch}
