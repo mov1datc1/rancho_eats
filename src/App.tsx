@@ -15,6 +15,7 @@ import type {
   AdminRestaurantOverview,
   AdminSummary,
   CartItem,
+  DriverProfile,
   MenuItem,
   MenuItemOption,
   Order,
@@ -22,9 +23,23 @@ import type {
 } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
-type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'delivery' | 'config';
+type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'config';
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
 type MenuDraftOption = { label: string; price: string; imageUrl: string };
+
+type DriverSession = {
+  driver_id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  driver_name: string;
+  driver_phone: string;
+  vehicle_label?: string | null;
+  is_active: boolean;
+  last_location_at?: string | null;
+};
+
+const DRIVER_LOCATION_MIN_DISTANCE_KM = 0.05;
+const DRIVER_LOCATION_MIN_INTERVAL_MS = 15000;
 
 const RESTAURANT_IMAGE_RECOMMENDED = { width: 1200, height: 675 };
 const sanitizeImageUrl = (value: string) => value.replace(/\s+/g, '').trim();
@@ -71,6 +86,16 @@ const getOrderSubtotal = (order: Pick<Order, 'subtotal' | 'total' | 'commission_
 };
 
 const getOrderDelivery = (order: Pick<Order, 'delivery_amount'>) => Math.max(0, Number(order.delivery_amount ?? 0));
+const isDeliveryActiveStatus = (status: string) => ['ACCEPTED', 'ON_THE_WAY'].includes(status);
+const normalizePhone = (value: string | null | undefined) => (value ?? '').replace(/\D/g, '');
+const buildGoogleMapsUrl = (lat: number, lng: number) => `https://maps.google.com/?q=${lat},${lng}`;
+const buildGoogleMapsDirectionsUrl = (lat: number, lng: number) => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+const buildGoogleMapsWebDirectionsUrl = (lat: number, lng: number) => `https://maps.google.com/maps?daddr=${lat},${lng}&dirflg=d`;
+const buildDriverAccessUrl = (accessToken: string) => {
+  if (typeof window === 'undefined') return `/repartidor?token=${accessToken}`;
+  return `${window.location.origin}/repartidor?token=${accessToken}`;
+};
+
 const getRestaurantDeliveryFeeByDistance = (restaurant: Restaurant | null, distanceKm: number | null) => {
   if (!restaurant || !Number.isFinite(Number(distanceKm)) || distanceKm == null) return 0;
   const d = Number(distanceKm);
@@ -155,6 +180,7 @@ export default function App() {
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [restaurantOrders, setRestaurantOrders] = useState<Order[]>([]);
+  const [restaurantDrivers, setRestaurantDrivers] = useState<DriverProfile[]>([]);
   const [orderSearchTerm, setOrderSearchTerm] = useState('');
   const [orderDateFrom, setOrderDateFrom] = useState('');
   const [orderDateTo, setOrderDateTo] = useState('');
@@ -200,6 +226,12 @@ export default function App() {
     deliveryFee20_30: '0'
   });
   const [configPassword, setConfigPassword] = useState('');
+  const [driverDraft, setDriverDraft] = useState({
+    name: '',
+    phone: '',
+    vehicleLabel: '',
+    notes: ''
+  });
   const [restaurantImageMeta, setRestaurantImageMeta] = useState<{ width: number; height: number } | null>(null);
   const [restaurantImageNotice, setRestaurantImageNotice] = useState('');
 
@@ -254,14 +286,26 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [pwaHelpText, setPwaHelpText] = useState(() => mobileInstallContext.isiOS ? 'En iPhone/iPad: toca Compartir y luego “Agregar a pantalla de inicio”.' : mobileInstallContext.isMobile ? 'Si no aparece el popup automático, abre el menú del navegador y toca “Instalar app”.' : '');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => (typeof Notification !== 'undefined' ? Notification.permission : 'default'));
+  const [driverSession, setDriverSession] = useState<DriverSession | null>(null);
+  const [driverOrders, setDriverOrders] = useState<Order[]>([]);
+  const [driverLoading, setDriverLoading] = useState(false);
+  const [driverGpsStatus, setDriverGpsStatus] = useState('');
+  const [driverActiveOrderId, setDriverActiveOrderId] = useState<string | null>(null);
+  const [driverAccessError, setDriverAccessError] = useState('');
   const searchedOrderStatusRef = useRef<string | null>(null);
   const restaurantImageInputRef = useRef<HTMLInputElement | null>(null);
+  const driverWatchIdRef = useRef<number | null>(null);
+  const driverLastSentRef = useRef<{ lat: number; lng: number; sentAt: number; orderId: string } | null>(null);
+  const driverLocationSendingRef = useRef(false);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const isAdminRoute = location.pathname === '/administrador';
   const isRestaurantsRoute = location.pathname === '/restaurantes';
   const isTestRoute = location.pathname === '/pruebas';
-  const restaurantsMode = new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register';
+  const isDriverRoute = location.pathname === '/repartidor';
+  const routeParams = new URLSearchParams(location.search);
+  const restaurantsMode = routeParams.get('mode') === 'login' ? 'login' : 'register';
+  const driverAccessToken = routeParams.get('token')?.trim() ?? '';
   const isStandalone = mobileInstallContext.isStandalone;
 
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
@@ -357,6 +401,7 @@ export default function App() {
 
     return Array.from(grouped.values());
   }, [selectedOrder]);
+  const selectedDriverOrder = useMemo(() => driverOrders.find((order) => order.id === driverActiveOrderId) ?? driverOrders[0] ?? null, [driverActiveOrderId, driverOrders]);
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
   const dashboardOrders = useMemo(() => {
     const fromDate = dashboardDateFrom ? new Date(`${dashboardDateFrom}T00:00:00`) : null;
@@ -536,10 +581,11 @@ export default function App() {
   }, [activeTab, isAdmin, adminPanel]);
 
   useEffect(() => {
+    if (isDriverRoute) return;
     if (isAdminRoute) setActiveTab('admin');
     else if (isRestaurantsRoute && restaurantsMode === 'register') setActiveTab('registro');
     else if (isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante') setActiveTab('registro');
-  }, [isAdminRoute, isRestaurantsRoute, restaurantsMode]);
+  }, [activeTab, isAdminRoute, isDriverRoute, isRestaurantsRoute, restaurantsMode]);
 
   useEffect(() => {
     if (!isTestRoute) return;
@@ -624,6 +670,66 @@ export default function App() {
       void supabase.removeChannel(channel);
     };
   }, [searchedOrder?.id]);
+
+  useEffect(() => {
+    if (!isDriverRoute) return;
+    if (!driverAccessToken) {
+      setDriverAccessError('Falta el token de acceso del repartidor.');
+      return;
+    }
+
+    const bootDriver = async () => {
+      try {
+        setDriverLoading(true);
+        setDriverAccessError('');
+        await loadDriverSession(driverAccessToken);
+        await loadDriverOrders(driverAccessToken);
+      } catch (error) {
+        console.error(error);
+        setDriverAccessError('No pudimos validar el acceso del repartidor.');
+      } finally {
+        setDriverLoading(false);
+      }
+    };
+
+    void bootDriver();
+  }, [driverAccessToken, isDriverRoute]);
+
+  useEffect(() => {
+    if (!isDriverRoute || !driverSession?.driver_id || !driverAccessToken) return;
+
+    const channel = supabase
+      .channel(`driver-orders-${driverSession.driver_id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `delivery_driver_id=eq.${driverSession.driver_id}`
+      }, () => {
+        void loadDriverOrders(driverAccessToken);
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [driverAccessToken, driverSession?.driver_id, isDriverRoute]);
+
+  useEffect(() => {
+    if (!driverActiveOrderId) return;
+    if (driverOrders.some((order) => order.id === driverActiveOrderId && isDeliveryActiveStatus(order.status))) return;
+    stopDriverLocationSharing('El pedido dejó de estar activo para este repartidor.');
+  }, [driverActiveOrderId, driverOrders]);
+
+  useEffect(() => () => {
+    stopDriverLocationSharing('Ubicación pausada.');
+  }, []);
+
+  useEffect(() => {
+    if (!driverOrders.length) return;
+    if (driverActiveOrderId && driverOrders.some((order) => order.id === driverActiveOrderId)) return;
+    setDriverActiveOrderId(driverOrders[0]?.id ?? null);
+  }, [driverActiveOrderId, driverOrders]);
 
   useEffect(() => {
     searchedOrderStatusRef.current = searchedOrder?.status ?? null;
@@ -1027,6 +1133,17 @@ export default function App() {
     }
   };
 
+  const loadRestaurantDrivers = async (restaurantId: string) => {
+    const { data, error } = await supabase
+      .from('driver_profiles')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    setRestaurantDrivers((data ?? []) as DriverProfile[]);
+  };
+
   const loadRestaurantData = async (restaurantId: string) => {
     try {
       setMenuLoading(true);
@@ -1066,11 +1183,14 @@ export default function App() {
 
       setMenuItems(normalizedMenu);
 
-      const { data: ordersData, error: ordersError } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('restaurant_id', restaurantId)
-        .order('created_at', { ascending: false });
+      const [{ data: ordersData, error: ordersError }] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('*')
+          .eq('restaurant_id', restaurantId)
+          .order('created_at', { ascending: false }),
+        loadRestaurantDrivers(restaurantId)
+      ]);
 
       if (ordersError) throw ordersError;
       setRestaurantOrders((ordersData ?? []) as Order[]);
@@ -1170,7 +1290,9 @@ export default function App() {
       setErrorMessage('');
       const payload: Record<string, unknown> = {
         status: nextStatus,
-        rejection_reason: nextStatus === 'REJECTED' ? (reason ?? 'No podemos cubrir esta distancia por ahora.') : null
+        rejection_reason: nextStatus === 'REJECTED' ? (reason ?? 'No podemos cubrir esta distancia por ahora.') : null,
+        delivery_started_at: nextStatus === 'ON_THE_WAY' ? new Date().toISOString() : order.delivery_started_at ?? null,
+        delivered_at: nextStatus === 'DELIVERED' ? new Date().toISOString() : null
       };
 
       const { error } = await supabase
@@ -1583,6 +1705,230 @@ export default function App() {
       : 'Hola, te escribimos de ArandaEats para dar seguimiento a tu pedido.';
 
     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message.trim())}`;
+  };
+
+  const buildDriverDispatchWhatsAppUrl = (driver: DriverProfile, order: Order) => {
+    const clean = normalizePhone(driver.phone);
+    if (!clean) return null;
+    const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
+    const accessUrl = buildDriverAccessUrl(driver.access_token);
+    const mapsUrl = buildGoogleMapsDirectionsUrl(order.client_lat, order.client_lng);
+    const message = `Hola ${driver.name}, te asignaron el pedido #${order.order_number} de ${selectedRestaurant?.name ?? 'ArandaEats'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
+    return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`;
+  };
+
+  const createDriverProfile = async () => {
+    if (!selectedRestaurant) return;
+    if (!driverDraft.name.trim() || !driverDraft.phone.trim()) {
+      setErrorMessage('Captura nombre y WhatsApp del repartidor.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase.from('driver_profiles').insert({
+        restaurant_id: selectedRestaurant.id,
+        name: driverDraft.name.trim(),
+        phone: driverDraft.phone.trim(),
+        vehicle_label: driverDraft.vehicleLabel.trim() || null,
+        notes: driverDraft.notes.trim() || null
+      });
+      if (error) throw error;
+      setDriverDraft({ name: '', phone: '', vehicleLabel: '', notes: '' });
+      await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo guardar el repartidor.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const toggleDriverAvailability = async (driver: DriverProfile) => {
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase
+        .from('driver_profiles')
+        .update({ is_active: !driver.is_active })
+        .eq('id', driver.id)
+        .eq('restaurant_id', driver.restaurant_id);
+      if (error) throw error;
+      await loadRestaurantData(driver.restaurant_id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo actualizar el repartidor.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const assignDriverToOrder = async (order: Order, driverId: string) => {
+    if (!selectedRestaurant) return;
+    const driver = restaurantDrivers.find((item) => item.id === driverId) ?? null;
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const payload = driver
+        ? {
+            delivery_driver_id: driver.id,
+            delivery_driver_name: driver.name,
+            delivery_driver_phone: driver.phone,
+            delivery_assigned_at: new Date().toISOString()
+          }
+        : {
+            delivery_driver_id: null,
+            delivery_driver_name: null,
+            delivery_driver_phone: null,
+            delivery_assigned_at: null,
+            delivery_started_at: null,
+            driver_last_lat: null,
+            driver_last_lng: null,
+            driver_location_accuracy_m: null,
+            driver_location_updated_at: null
+          };
+
+      const { error } = await supabase
+        .from('orders')
+        .update(payload)
+        .eq('id', order.id)
+        .eq('restaurant_id', selectedRestaurant.id);
+
+      if (error) throw error;
+      await loadRestaurantData(selectedRestaurant.id);
+      if (searchedOrder?.id === order.id) {
+        const { data } = await supabase.from('orders').select('*').eq('id', order.id).maybeSingle();
+        if (data) setSearchedOrder(data as Order);
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo asignar el repartidor al pedido.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const loadDriverSession = async (token: string) => {
+    const { data, error } = await supabase.rpc('driver_get_session', { p_access_token: token });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : null;
+    setDriverSession((row as DriverSession | undefined) ?? null);
+    if (!row) throw new Error('No encontramos un acceso válido para repartidor.');
+  };
+
+  const loadDriverOrders = async (token: string) => {
+    const { data, error } = await supabase.rpc('driver_get_assigned_orders', { p_access_token: token });
+    if (error) throw error;
+    setDriverOrders((data ?? []) as Order[]);
+  };
+
+  const stopDriverLocationSharing = (nextMessage = 'Ubicación pausada.') => {
+    if (driverWatchIdRef.current != null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(driverWatchIdRef.current);
+    }
+    driverWatchIdRef.current = null;
+    driverLocationSendingRef.current = false;
+    driverLastSentRef.current = null;
+    setDriverGpsStatus(nextMessage);
+    setDriverActiveOrderId(null);
+  };
+
+  const driverTakeOrder = async (orderId: string) => {
+    const { error } = await supabase.rpc('driver_take_order', { p_access_token: driverAccessToken, p_order_id: orderId });
+    if (error) throw error;
+    await loadDriverOrders(driverAccessToken);
+  };
+
+  const openDriverRoute = async (order: Order) => {
+    if (!driverAccessToken) {
+      setDriverAccessError('El enlace del repartidor no contiene token.');
+      return;
+    }
+
+    if (driverWatchIdRef.current == null || driverActiveOrderId !== order.id) {
+      await startDriverLocationSharing(order);
+    }
+
+    const routeUrl = buildGoogleMapsWebDirectionsUrl(order.client_lat, order.client_lng);
+    const isIOSBrowser = mobileInstallContext.isiOS && !isStandalone;
+    if (isIOSBrowser) {
+      setDriverGpsStatus('⚠️ iPhone puede pausar el GPS si sales de Safari. Usa “Agregar a pantalla de inicio” y regresa a esta pantalla para confirmar envío en tiempo real.');
+    }
+
+    if (typeof window !== 'undefined') {
+      window.open(routeUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const startDriverLocationSharing = async (order: Order) => {
+    if (!driverAccessToken) {
+      setDriverAccessError('El enlace del repartidor no contiene token.');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setDriverGpsStatus('Tu teléfono no permite compartir ubicación desde este navegador.');
+      return;
+    }
+
+    try {
+      setDriverGpsStatus('Activando ubicación del repartidor…');
+      if (order.status === 'ACCEPTED') {
+        await driverTakeOrder(order.id);
+      }
+      setDriverActiveOrderId(order.id);
+      if (driverWatchIdRef.current != null) {
+        navigator.geolocation.clearWatch(driverWatchIdRef.current);
+      }
+
+      driverWatchIdRef.current = navigator.geolocation.watchPosition(
+        (position) => {
+          const nextLat = Number(position.coords.latitude.toFixed(6));
+          const nextLng = Number(position.coords.longitude.toFixed(6));
+          const now = Date.now();
+          const previous = driverLastSentRef.current;
+          const movedEnough = !previous || previous.orderId !== order.id || haversineKm(previous.lat, previous.lng, nextLat, nextLng) >= DRIVER_LOCATION_MIN_DISTANCE_KM;
+          const waitedEnough = !previous || previous.orderId !== order.id || (now - previous.sentAt) >= DRIVER_LOCATION_MIN_INTERVAL_MS;
+
+          if ((!movedEnough && !waitedEnough) || driverLocationSendingRef.current) {
+            return;
+          }
+
+          driverLocationSendingRef.current = true;
+          void (async () => {
+            try {
+              const { error } = await supabase.rpc('driver_update_location', {
+                p_access_token: driverAccessToken,
+                p_order_id: order.id,
+                p_lat: nextLat,
+                p_lng: nextLng,
+                p_accuracy_m: position.coords.accuracy ?? null,
+                p_heading: position.coords.heading ?? null,
+                p_speed_mps: position.coords.speed ?? null
+              });
+              if (error) throw error;
+              driverLastSentRef.current = { lat: nextLat, lng: nextLng, sentAt: now, orderId: order.id };
+              setDriverGpsStatus(`Ubicación enviada ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}.`);
+              await loadDriverOrders(driverAccessToken);
+            } catch (error) {
+              console.error(error);
+              setDriverGpsStatus('No se pudo actualizar la ubicación.');
+            } finally {
+              driverLocationSendingRef.current = false;
+            }
+          })();
+        },
+        (error) => {
+          console.error(error);
+          setDriverGpsStatus('Activa el permiso de ubicación/GPS para compartir tu ruta.');
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+    } catch (error) {
+      console.error(error);
+      setDriverGpsStatus('No se pudo activar el tracking del repartidor.');
+    }
   };
 
   const createMenuItem = async () => {
@@ -2030,6 +2376,7 @@ export default function App() {
     { key: 'dashboard', label: '📈 Dashboard' },
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
+    { key: 'drivers', label: '🧑‍✈️ Repartidores' },
     { key: 'menu', label: '📋 Mi menú' },
     { key: 'delivery', label: '🛵 Delivery' }
   ];
@@ -2038,26 +2385,31 @@ export default function App() {
     <div>
       <nav className="ae-nav">
         <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Aranda<span>Eats</span></div>
-        <ul className="nav-links">
-          <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
-          <li><a href="#">¿Cómo funciona?</a></li>
-          <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/pruebas'); }}>Pruebas</a></li>
-          <li style={{ position: 'relative' }}>
-            <a href="#" onClick={(e) => { e.preventDefault(); setRestaurantsMenuOpen((prev) => !prev); }}>Para restaurantes</a>
-            {restaurantsMenuOpen && (
-              <div style={{ position: 'absolute', top: '2rem', right: 0, background: '#fff', border: '1px solid #ecd8c7', borderRadius: '10px', boxShadow: 'var(--shadow)', minWidth: '180px', zIndex: 1200 }}>
-                <button className="btn ghost" style={{ width: '100%', border: 0, borderBottom: '1px solid #f0e4d8', borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=register'); setRestaurantsMenuOpen(false); }}>Registrarse</button>
-                <button className="btn ghost" style={{ width: '100%', border: 0, borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=login'); setRestaurantsMenuOpen(false); }}>Ingresar</button>
-              </div>
+        {!isDriverRoute && (
+          <>
+            <ul className="nav-links">
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
+              <li><a href="#">¿Cómo funciona?</a></li>
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/pruebas'); }}>Pruebas</a></li>
+              <li style={{ position: 'relative' }}>
+                <a href="#" onClick={(e) => { e.preventDefault(); setRestaurantsMenuOpen((prev) => !prev); }}>Para restaurantes</a>
+                {restaurantsMenuOpen && (
+                  <div style={{ position: 'absolute', top: '2rem', right: 0, background: '#fff', border: '1px solid #ecd8c7', borderRadius: '10px', boxShadow: 'var(--shadow)', minWidth: '180px', zIndex: 1200 }}>
+                    <button className="btn ghost" style={{ width: '100%', border: 0, borderBottom: '1px solid #f0e4d8', borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=register'); setRestaurantsMenuOpen(false); }}>Registrarse</button>
+                    <button className="btn ghost" style={{ width: '100%', border: 0, borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=login'); setRestaurantsMenuOpen(false); }}>Ingresar</button>
+                  </div>
+                )}
+              </li>
+            </ul>
+            {!isAdminRoute && (
+              <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrar Restaurante</button>
             )}
-          </li>
-        </ul>
-        {!isAdminRoute && (
-          <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrar Restaurante</button>
+          </>
         )}
+        {isDriverRoute && <span className="status-chip">Modo repartidor</span>}
       </nav>
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && (
         <div className="tabs">
           {[
             { key: 'cliente', label: '👤 Cliente' },
@@ -2070,7 +2422,7 @@ export default function App() {
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && !isStandalone && (
+      {!isAdminRoute && !isRestaurantsRoute && !isDriverRoute && showPwaBanner && !isStandalone && (
         <div className="pwa-banner pwa-banner-top">
           <div>
             <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
@@ -2082,7 +2434,81 @@ export default function App() {
       {errorMessage && <div className="global-error">{errorMessage}</div>}
       {loading && <div className="global-loading">Cargando datos de la plataforma…</div>}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && activeTab === 'cliente' && (
+      {isDriverRoute && (
+        <div className="page active">
+          <div className="driver-shell">
+            <div className="driver-hero">
+              <div>
+                <div className="hero-badge">🧑‍✈️ Modo repartidor móvil</div>
+                <h1>{driverSession?.driver_name ?? 'Repartidor'}<br /><em>{driverSession?.restaurant_name ?? 'ArandaEats'}</em></h1>
+                <p>Desde aquí solo ves tus pedidos asignados, puedes abrir la ruta del cliente y compartir tu GPS en tiempo real.</p>
+              </div>
+              <div className="driver-hero-status">
+                <strong>{driverLoading ? 'Validando acceso…' : driverSession?.is_active ? 'Acceso activo' : 'Acceso restringido'}</strong>
+                <span>{driverSession?.vehicle_label ?? 'Sin vehículo capturado'}</span>
+                {driverSession?.last_location_at && <small>Última ubicación: {formatRelative(driverSession.last_location_at)}</small>}
+              </div>
+            </div>
+
+            {driverAccessError && <div className="global-error">{driverAccessError}</div>}
+
+            <div className="driver-grid">
+              <section className="driver-panel">
+                <h3>Pedidos asignados</h3>
+                {driverOrders.length === 0 && !driverLoading && (
+                  <div className="menu-empty">Aún no tienes pedidos activos asignados. Cuando el restaurante te asigne uno, aparecerá aquí.</div>
+                )}
+                <div className="driver-orders">
+                  {driverOrders.map((order) => (
+                    <article key={order.id} className={`incoming-order ${driverActiveOrderId === order.id ? 'selected-driver-order' : ''}`}>
+                      <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
+                      <p><strong>Cliente:</strong> {order.client_name ?? 'Sin nombre'} · {order.client_phone ?? 'Sin teléfono'}</p>
+                      <p><strong>Referencia:</strong> {order.client_location_note ?? 'Sin referencia'}</p>
+                      <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                      <div className="driver-actions">
+                        <button className="btn ghost" onClick={() => setDriverActiveOrderId(order.id)}>Ver este pedido</button>
+                        <button className="btn ghost" type="button" onClick={() => void openDriverRoute(order)}>Abrir ruta</button>
+                        <button className="btn green" onClick={() => void startDriverLocationSharing(order)}>{driverActiveOrderId === order.id ? 'Seguir compartiendo GPS' : order.status === 'ACCEPTED' ? 'Tomar pedido y salir' : 'Compartir ubicación'}</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <aside className="driver-panel">
+                <h3>Tracking en tiempo real</h3>
+                {selectedDriverOrder ? (
+                  <>
+                    <div className="driver-status-box">
+                      <strong>Pedido activo #{selectedDriverOrder.order_number}</strong>
+                      <p>{selectedDriverOrder.status === 'ON_THE_WAY' ? 'Tu ubicación ya puede verse por el cliente en tiempo real.' : 'Cuando tomes el pedido, el sistema lo pondrá en camino.'}</p>
+                      <p><strong>GPS:</strong> {driverGpsStatus || 'Presiona “Compartir ubicación” para iniciar.'}</p>
+                      <small className="driver-location-meta">Si abres Google Maps y sales de Safari, iPhone puede pausar la ubicación en segundo plano. Revisa este panel al volver.</small>
+                      <div className="driver-actions">
+                        <button className="btn ghost" onClick={() => stopDriverLocationSharing()}>Pausar GPS</button>
+                        <a className="btn ghost" href={buildGoogleMapsUrl(selectedDriverOrder.client_lat, selectedDriverOrder.client_lng)} target="_blank" rel="noreferrer">Ver cliente</a>
+                      </div>
+                    </div>
+                    <div className="mini-map-box">
+                      <MapViewer lat={selectedDriverOrder.client_lat} lng={selectedDriverOrder.client_lng} title={`Destino pedido #${selectedDriverOrder.order_number}`} />
+                    </div>
+                    {selectedDriverOrder.driver_last_lat != null && selectedDriverOrder.driver_last_lng != null && (
+                      <div className="mini-map-box">
+                        <MapViewer lat={selectedDriverOrder.driver_last_lat} lng={selectedDriverOrder.driver_last_lng} title={`Tu última ubicación enviada · pedido #${selectedDriverOrder.order_number}`} />
+                        <small className="driver-location-meta">Última actualización: {selectedDriverOrder.driver_location_updated_at ? formatRelative(selectedDriverOrder.driver_location_updated_at) : 'recién capturada'}.</small>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="menu-empty">Selecciona un pedido para activar la navegación y el GPS.</div>
+                )}
+              </aside>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && activeTab === 'cliente' && (
         <div className="page active">
           <div className="hero">
             <div className="hero-inner">
@@ -2118,7 +2544,7 @@ export default function App() {
             </div>
           </div>
 
-          {showPwaBanner && !isStandalone && (
+          {showPwaBanner && !isStandalone && !isDriverRoute && (
             <div className="pwa-banner pwa-banner-footer">
               <div>
                 <p>📲 ¿Te vas? También puedes instalar ArandaEats desde aquí.</p>
@@ -2130,7 +2556,7 @@ export default function App() {
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && activeTab === 'seguimiento' && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && activeTab === 'seguimiento' && (
         <div className="page active">
           <div className="track-wrap">
             <div className="track-lookup">
@@ -2154,6 +2580,61 @@ export default function App() {
                     <div key={`${item.menu_item_id}-${item.qty}`}>• {item.qty}x {item.name} · {formatPrice(item.subtotal)}</div>
                   ))}
                   <div className="summary-foot"><strong>Total: {formatPrice(Number(searchedOrder.total))}</strong> · Pago en efectivo<br />📌 Estatus actual: <strong>{statusLabel(searchedOrder.status)}</strong>{searchedOrder.status === 'REJECTED' && searchedOrder.rejection_reason ? ` · Motivo: ${searchedOrder.rejection_reason}` : ''}<br />📍 {searchedOrder.client_location_note ?? 'Sin referencia'}<br />👤 {searchedOrder.client_name ?? 'Sin nombre'} · 📱 {searchedOrder.client_phone ?? 'Sin teléfono'}<br /><span style={{ color: 'var(--muted)' }}>Esta vista se actualiza automáticamente cuando el restaurante cambia el estatus.</span></div>
+
+                  {searchedOrder.delivery_driver_id && (
+                    <div className="tracking-live-card">
+                      <h4>🛵 Seguimiento de reparto</h4>
+                      <p><strong>Repartidor:</strong> {searchedOrder.delivery_driver_name ?? 'Asignado'}{searchedOrder.delivery_driver_phone ? ` · ${searchedOrder.delivery_driver_phone}` : ''}</p>
+                      <p><strong>Estado del reparto:</strong> {statusLabel(searchedOrder.status)}</p>
+                      <p>{searchedOrder.status === 'ON_THE_WAY' ? 'Tu pedido va en camino y la ubicación del repartidor se actualiza en tiempo real.' : 'El restaurante ya asignó un repartidor. En cuanto salga, verás su movimiento aquí.'}</p>
+
+                      <div className="tracking-map-grid tracking-map-grid-single">
+                        <div className="mini-map-box">
+                          <MapViewer
+                            lat={searchedOrder.driver_last_lat ?? searchedOrder.client_lat}
+                            lng={searchedOrder.driver_last_lng ?? searchedOrder.client_lng}
+                            title="Mapa del pedido en camino"
+                            markers={[
+                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, color: 'red', label: 'C', size: 'mid' },
+                              ...(searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, color: 'blue', label: 'R', size: 'mid' } as const]
+                                : [])
+                            ]}
+                            overlays={[
+                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, icon: '🏠', tone: 'home' },
+                              ...(searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, icon: '🛵', tone: 'driver' } as const]
+                                : [])
+                            ]}
+                            showBaseMarkers={false}
+                            paths={searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                              ? [{
+                                  color: '0x2f3640cc',
+                                  weight: 5,
+                                  points: [
+                                    { lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng },
+                                    { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng }
+                                  ]
+                                }]
+                              : []}
+                          />
+                          <div className="tracking-map-legend">
+                            <span>🏠 Cliente</span>
+                            <span>🛵 Repartidor</span>
+                            {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null && (
+                              <span>📏 Distancia aprox: {haversineKm(searchedOrder.driver_last_lat, searchedOrder.driver_last_lng, searchedOrder.client_lat, searchedOrder.client_lng).toFixed(1)} km</span>
+                            )}
+                          </div>
+                          {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null ? (
+                            <small className="driver-location-meta">Última actualización del repartidor: {searchedOrder.driver_location_updated_at ? formatRelative(searchedOrder.driver_location_updated_at) : 'recién enviada'}.</small>
+                          ) : (
+                            <small className="driver-location-meta">El repartidor ya fue asignado. La moto aparecerá en cuanto comparta GPS desde su celular.</small>
+                          )}
+                          <a className="map-link" href={buildGoogleMapsUrl(searchedOrder.client_lat, searchedOrder.client_lng)} target="_blank" rel="noreferrer">Abrir mi ubicación</a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -2337,6 +2818,41 @@ export default function App() {
               </div>
             )}
 
+            {restaurantPanel === 'drivers' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>🧑‍✈️ Repartidores del restaurante</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Cada repartidor recibe un enlace privado por WhatsApp para abrir un panel móvil con solo sus pedidos asignados y compartir GPS.</p>
+
+                <div className="frow">
+                  <div className="fg"><label>Nombre</label><input className="fi" value={driverDraft.name} onChange={(e) => setDriverDraft((prev) => ({ ...prev, name: e.target.value }))} placeholder="Ej. José Martínez" /></div>
+                  <div className="fg"><label>WhatsApp</label><input className="fi" value={driverDraft.phone} onChange={(e) => setDriverDraft((prev) => ({ ...prev, phone: e.target.value }))} placeholder="3441234567" /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Vehículo</label><input className="fi" value={driverDraft.vehicleLabel} onChange={(e) => setDriverDraft((prev) => ({ ...prev, vehicleLabel: e.target.value }))} placeholder="Moto roja / Nissan estaquitas" /></div>
+                  <div className="fg"><label>Notas</label><input className="fi" value={driverDraft.notes} onChange={(e) => setDriverDraft((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Horario, zona o turno" /></div>
+                </div>
+                <button className="btn" onClick={createDriverProfile} disabled={actionLoading || !selectedRestaurant}>Guardar repartidor</button>
+
+                <div className="driver-roster">
+                  {restaurantDrivers.map((driver) => (
+                    <article key={driver.id} className="driver-card">
+                      <div>
+                        <h4>{driver.name}</h4>
+                        <p>{driver.phone} · {driver.vehicle_label ?? 'Vehículo sin capturar'}</p>
+                        <p style={{ color: 'var(--muted)' }}>{driver.notes ?? 'Sin notas'}{driver.last_location_at ? ` · Última ubicación ${formatRelative(driver.last_location_at)}` : ''}</p>
+                        <input className="fi" readOnly value={buildDriverAccessUrl(driver.access_token)} />
+                      </div>
+                      <div className="driver-actions">
+                        <button className={`btn ${driver.is_active ? 'ghost' : 'green'}`} onClick={() => void toggleDriverAvailability(driver)} disabled={actionLoading}>{driver.is_active ? 'Desactivar' : 'Activar'}</button>
+                        <a className="btn ghost" href={`https://wa.me/${normalizePhone(driver.phone).startsWith('52') ? normalizePhone(driver.phone) : `52${normalizePhone(driver.phone)}`}?text=${encodeURIComponent(`Hola ${driver.name}, este es tu acceso de repartidor para ArandaEats: ${buildDriverAccessUrl(driver.access_token)}`)}`} target="_blank" rel="noreferrer">Mandar acceso</a>
+                      </div>
+                    </article>
+                  ))}
+                  {restaurantDrivers.length === 0 && <div className="menu-empty">Todavía no has dado de alta repartidores. Crea el primero para comenzar a asignar pedidos.</div>}
+                </div>
+              </div>
+            )}
+
             {restaurantPanel === 'delivery' && (
               <div className="panel-placeholder">
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>🛵 Configuración de delivery</div>
@@ -2451,6 +2967,21 @@ export default function App() {
                         </div>
                         <div className="distance-box">📍 Distancia estimada: <strong>{distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'Sin coordenadas suficientes'}</strong></div>
 
+                        <div className="driver-assignment-box">
+                          <strong>Repartidor:</strong> {order.delivery_driver_name ?? 'Sin asignar'}
+                          <div className="driver-actions">
+                            <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
+                              <option value="">Sin asignar</option>
+                              {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
+                                <option key={driver.id} value={driver.id}>{driver.name}</option>
+                              ))}
+                            </select>
+                            {order.delivery_driver_id && restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) && (
+                              <a className="btn ghost" href={buildDriverDispatchWhatsAppUrl(restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) as DriverProfile, order) ?? '#'} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>
+                            )}
+                          </div>
+                        </div>
+
                         {order.client_lat != null && order.client_lng != null && (
                           <div className="mini-map-box">
                             <MapViewer lat={order.client_lat} lng={order.client_lng} title={`Pedido #${order.order_number} · Ubicación cliente`} />
@@ -2509,6 +3040,20 @@ export default function App() {
                         ))}
                       </ul>
                     </div>
+                    <div className="driver-assignment-box">
+                      <strong>Repartidor:</strong> {selectedOrder.delivery_driver_name ?? 'Sin asignar'}
+                      <div className="driver-actions">
+                        <select className="fi" value={selectedOrder.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(selectedOrder.status)} onChange={(e) => void assignDriverToOrder(selectedOrder, e.target.value)}>
+                          <option value="">Sin asignar</option>
+                          {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
+                            <option key={driver.id} value={driver.id}>{driver.name}</option>
+                          ))}
+                        </select>
+                        {selectedOrder.delivery_driver_id && restaurantDrivers.find((driver) => driver.id === selectedOrder.delivery_driver_id) && (
+                          <a className="btn ghost" href={buildDriverDispatchWhatsAppUrl(restaurantDrivers.find((driver) => driver.id === selectedOrder.delivery_driver_id) as DriverProfile, selectedOrder) ?? '#'} target="_blank" rel="noreferrer">Enviar acceso por WhatsApp</a>
+                        )}
+                      </div>
+                    </div>
                     {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
                       <div className="mini-map-box">
                         <MapViewer lat={selectedOrder.client_lat} lng={selectedOrder.client_lng} title={`Pedido #${selectedOrder.order_number} · Ubicación cliente`} />
@@ -2535,6 +3080,7 @@ export default function App() {
                         <th>Cliente</th>
                         <th>Total</th>
                         <th>Ubicación</th>
+                        <th>Repartidor</th>
                         <th>Estatus</th>
                         <th>Acción</th>
                       </tr>
@@ -2547,9 +3093,20 @@ export default function App() {
                           <td>{order.client_name ?? 'Sin nombre'}</td>
                           <td>{formatPrice(Number(order.total))}</td>
                           <td>{order.client_location_note ?? 'Sin referencia'}</td>
+                          <td>
+                            <div className="table-actions table-actions-stack">
+                              <span className="status-chip">{order.delivery_driver_name ?? 'Sin asignar'}</span>
+                              <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
+                                <option value="">Sin asignar</option>
+                                {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
+                                  <option key={driver.id} value={driver.id}>{driver.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </td>
                           <td><span className="status-chip">{statusLabel(order.status)}</span></td>
                           <td>
-                            <div className="table-actions">
+                            <div className="table-actions table-actions-stack">
                               <select
                                 className="fi"
                                 disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
@@ -2564,14 +3121,19 @@ export default function App() {
                                   <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
                                 ))}
                               </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
+                              <div className="table-actions">
+                                {order.delivery_driver_id && restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) && (
+                                  <a className="btn ghost" href={buildDriverDispatchWhatsAppUrl(restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) as DriverProfile, order) ?? '#'} target="_blank" rel="noreferrer">WhatsApp repartidor</a>
+                                )}
+                                <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
+                              </div>
                             </div>
                           </td>
                         </tr>
                       ))}
                       {filteredRestaurantOrders.length === 0 && (
                         <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
+                          <td colSpan={8}>No hay pedidos para los filtros seleccionados.</td>
                         </tr>
                       )}
                     </tbody>

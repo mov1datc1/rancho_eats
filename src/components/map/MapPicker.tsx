@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildStaticMapUrl, hasMapboxToken } from '../../lib/mapbox';
+import { buildGoogleMapsEmbedUrl, buildGoogleStaticMapUrl, hasGoogleMapsApiKey } from '../../lib/googleMaps';
 import {
   clampZoom,
   getSuggestionSubtitle,
@@ -18,6 +19,11 @@ type MapPickerProps = {
   onChange: (next: { lat: number; lng: number }) => void;
 };
 
+const buildOsmStaticMapUrl = (lat: number, lng: number, zoom: number) => {
+  const clampedZoom = Math.min(18, Math.max(12, Math.round(zoom)));
+  return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=${clampedZoom}&size=800x360&markers=${lat},${lng},red-pushpin`;
+};
+
 export default function MapPicker({ lat, lng, addressText, onAddressTextChange, onChange }: MapPickerProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -25,18 +31,16 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
   const [searchingAddress, setSearchingAddress] = useState(false);
   const [addressOptions, setAddressOptions] = useState<AddressSuggestion[]>([]);
+  const [osmFallbackFailed, setOsmFallbackFailed] = useState(false);
 
   const staticMapUrl = useMemo(() => buildStaticMapUrl(lat, lng, zoom), [lat, lng, zoom]);
   const canUseMapbox = hasMapboxToken();
-  const openStreetMapEmbedUrl = useMemo(() => {
-    const delta = Math.max(0.02, 0.18 / Math.max(1, zoom - 8));
-    const left = lng - delta;
-    const right = lng + delta;
-    const top = lat + delta;
-    const bottom = lat - delta;
-
-    return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${lat}%2C${lng}`;
-  }, [lat, lng, zoom]);
+  const googleMapsStaticUrl = useMemo(() => buildGoogleStaticMapUrl({ center: { lat, lng }, zoom, markers: [{ lat, lng, color: 'red', label: 'P' }] }), [lat, lng, zoom]);
+  const osmStaticUrl = useMemo(() => buildOsmStaticMapUrl(lat, lng, zoom), [lat, lng, zoom]);
+  const googleMapsEmbedUrl = useMemo(() => buildGoogleMapsEmbedUrl(lat, lng, zoom), [lat, lng, zoom]);
+  const mapFallbackNote = import.meta.env.DEV
+    ? 'Mapa de respaldo activo. Para una vista más estable en todos los dispositivos, configura Google Static Maps en el entorno local.'
+    : 'Mapa de respaldo activo. Puedes mover el pin o usar GPS para afinar tu punto de entrega.';
 
   useEffect(() => {
     if (addressText.trim().length < 3) {
@@ -109,7 +113,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
           lat: Number(position.coords.latitude.toFixed(6)),
           lng: Number(position.coords.longitude.toFixed(6))
         });
-        setZoom(16);
+        setZoom(17);
       },
       () => {
         // intentionally silent: UI already has manual controls
@@ -144,7 +148,7 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
                 onChange({ lat: Number(option.lat), lng: Number(option.lon) });
                 onAddressTextChange(getSuggestionTitleWithQuery(option, addressText));
                 setAddressOptions([]);
-                setZoom(15);
+                setZoom(17);
               }}
             >
               <span className="address-option-title">{getSuggestionTitleWithQuery(option, addressText)}</span>
@@ -216,15 +220,36 @@ export default function MapPicker({ lat, lng, addressText, onAddressTextChange, 
             className="loc-preview"
             onError={() => setMapLoadFailed(true)}
           />
+        ) : hasGoogleMapsApiKey() && googleMapsStaticUrl ? (
+          <>
+            <img
+              src={googleMapsStaticUrl}
+              alt="Mapa de respaldo"
+              className="loc-preview loc-preview-fallback"
+              loading="lazy"
+            />
+            <small className="map-fallback-note">Usando Google Static Maps como respaldo para que la ubicación siga visible en todos los dispositivos.</small>
+          </>
+        ) : !osmFallbackFailed ? (
+          <>
+            <img
+              src={osmStaticUrl}
+              alt="Mapa de respaldo"
+              className="loc-preview loc-preview-fallback"
+              loading="lazy"
+              onError={() => setOsmFallbackFailed(true)}
+            />
+            <small className="map-fallback-note">{mapFallbackNote}</small>
+          </>
         ) : (
           <>
             <iframe
               title="Mapa de respaldo"
-              src={openStreetMapEmbedUrl}
+              src={googleMapsEmbedUrl}
               className="loc-preview loc-preview-fallback"
               loading="lazy"
             />
-            <small className="map-fallback-note">Usando mapa de respaldo de OpenStreetMap para asegurar compatibilidad en todos los dispositivos.</small>
+            <small className="map-fallback-note">{mapFallbackNote}</small>
           </>
         )}
         <div className="map-pin" title="Arrastra el pin">📍</div>
