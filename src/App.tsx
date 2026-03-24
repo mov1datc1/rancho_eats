@@ -90,6 +90,7 @@ const isDeliveryActiveStatus = (status: string) => ['ACCEPTED', 'ON_THE_WAY'].in
 const normalizePhone = (value: string | null | undefined) => (value ?? '').replace(/\D/g, '');
 const buildGoogleMapsUrl = (lat: number, lng: number) => `https://maps.google.com/?q=${lat},${lng}`;
 const buildGoogleMapsDirectionsUrl = (lat: number, lng: number) => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+const buildGoogleMapsWebDirectionsUrl = (lat: number, lng: number) => `https://maps.google.com/maps?daddr=${lat},${lng}&dirflg=d`;
 const buildDriverAccessUrl = (accessToken: string) => {
   if (typeof window === 'undefined') return `/repartidor?token=${accessToken}`;
   return `${window.location.origin}/repartidor?token=${accessToken}`;
@@ -1840,6 +1841,27 @@ export default function App() {
     await loadDriverOrders(driverAccessToken);
   };
 
+  const openDriverRoute = async (order: Order) => {
+    if (!driverAccessToken) {
+      setDriverAccessError('El enlace del repartidor no contiene token.');
+      return;
+    }
+
+    if (driverWatchIdRef.current == null || driverActiveOrderId !== order.id) {
+      await startDriverLocationSharing(order);
+    }
+
+    const routeUrl = buildGoogleMapsWebDirectionsUrl(order.client_lat, order.client_lng);
+    const isIOSBrowser = mobileInstallContext.isiOS && !isStandalone;
+    if (isIOSBrowser) {
+      setDriverGpsStatus('⚠️ iPhone puede pausar el GPS si sales de Safari. Usa “Agregar a pantalla de inicio” y regresa a esta pantalla para confirmar envío en tiempo real.');
+    }
+
+    if (typeof window !== 'undefined') {
+      window.open(routeUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const startDriverLocationSharing = async (order: Order) => {
     if (!driverAccessToken) {
       setDriverAccessError('El enlace del repartidor no contiene token.');
@@ -2445,7 +2467,7 @@ export default function App() {
                       <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                       <div className="driver-actions">
                         <button className="btn ghost" onClick={() => setDriverActiveOrderId(order.id)}>Ver este pedido</button>
-                        <a className="btn ghost" href={buildGoogleMapsDirectionsUrl(order.client_lat, order.client_lng)} target="_blank" rel="noreferrer">Abrir ruta</a>
+                        <button className="btn ghost" type="button" onClick={() => void openDriverRoute(order)}>Abrir ruta</button>
                         <button className="btn green" onClick={() => void startDriverLocationSharing(order)}>{driverActiveOrderId === order.id ? 'Seguir compartiendo GPS' : order.status === 'ACCEPTED' ? 'Tomar pedido y salir' : 'Compartir ubicación'}</button>
                       </div>
                     </article>
@@ -2461,6 +2483,7 @@ export default function App() {
                       <strong>Pedido activo #{selectedDriverOrder.order_number}</strong>
                       <p>{selectedDriverOrder.status === 'ON_THE_WAY' ? 'Tu ubicación ya puede verse por el cliente en tiempo real.' : 'Cuando tomes el pedido, el sistema lo pondrá en camino.'}</p>
                       <p><strong>GPS:</strong> {driverGpsStatus || 'Presiona “Compartir ubicación” para iniciar.'}</p>
+                      <small className="driver-location-meta">Si abres Google Maps y sales de Safari, iPhone puede pausar la ubicación en segundo plano. Revisa este panel al volver.</small>
                       <div className="driver-actions">
                         <button className="btn ghost" onClick={() => stopDriverLocationSharing()}>Pausar GPS</button>
                         <a className="btn ghost" href={buildGoogleMapsUrl(selectedDriverOrder.client_lat, selectedDriverOrder.client_lng)} target="_blank" rel="noreferrer">Ver cliente</a>
