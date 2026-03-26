@@ -3,14 +3,14 @@ var config = {
     theme: {
         extend: {
             colors: {
-                brand: '#C8410B',
-                'brand-dark': '#8B2D07',
-                'brand-light': '#F4A261',
-                earth: '#6B4226',
-                cream: '#FDF6EC',
-                dark: '#1A0D06',
-                mid: '#3D2314',
-                muted: '#8C6A5A',
+                brand: '#2D8B7A',
+                'brand-dark': '#1E6B5A',
+                'brand-light': '#7EC8BB',
+                earth: '#4A7C6F',
+                cream: '#F2FAF7',
+                dark: '#0F2F28',
+                mid: '#1B4A3F',
+                muted: '#6B918A',
                 green: '#2D6A4F',
                 amber: '#E07B30'
             },

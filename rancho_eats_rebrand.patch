@@ -1,0 +1,443 @@
+diff --git a/index.html b/index.html
+index c56229a..0ffd5e9 100644
+--- a/index.html
++++ b/index.html
+@@ -3,9 +3,9 @@
+   <head>
+     <meta charset="UTF-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <meta name="theme-color" content="#C8410B" />
++    <meta name="theme-color" content="#2D8B7A" />
+     <link rel="manifest" href="/manifest.json" />
+-    <title>ArandaEats</title>
++    <title>Pide ya</title>
+   </head>
+   <body>
+     <div id="root"></div>
+diff --git a/public/manifest.json b/public/manifest.json
+index 69eedd8..b739f41 100644
+--- a/public/manifest.json
++++ b/public/manifest.json
+@@ -1,9 +1,9 @@
+ {
+-  "name": "ArandaEats",
+-  "short_name": "ArandaEats",
+-  "description": "Comida a domicilio en Aranda de Arandas y sus ranchos",
+-  "theme_color": "#C8410B",
+-  "background_color": "#FDF6EC",
++  "name": "Pide ya",
++  "short_name": "Pide ya",
++  "description": "Comida a domicilio en Los Altos de Jalisco y sus ranchos",
++  "theme_color": "#2D8B7A",
++  "background_color": "#F2FAF7",
+   "display": "standalone",
+   "start_url": "/",
+   "icons": [
+diff --git a/src/App.tsx b/src/App.tsx
+index 7d537e0..cecc64d 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -25,7 +25,7 @@ import type {
+ type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
+ type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'config';
+ type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
+-type MenuDraftOption = { label: string; price: string; imageUrl: string };
++type MenuDraftOption = { label: string; price: string; imageUrl: string; optionType: 'size' | 'extra' };
+ 
+ type DriverSession = {
+   driver_id: string;
+@@ -208,7 +208,7 @@ export default function App() {
+     category: 'Especialidades',
+     imageUrl: ''
+   });
+-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
++  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '', optionType: 'size' as const }]);
+   const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
+   const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
+   const [dashboardDateFrom, setDashboardDateFrom] = useState('');
+@@ -1701,8 +1701,8 @@ export default function App() {
+     const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
+ 
+     const message = order
+-      ? `Hola ${order.client_name ?? ''}, te escribimos de ${selectedRestaurant?.name ?? 'tu restaurante'}. Ya revisamos tu pedido #${order.order_number} por ${formatPrice(Number(order.total))}. Estatus actual: ${statusLabel(order.status)}. Puedes darle seguimiento en ArandaEats con tu número de pedido #${order.order_number}.`
+-      : 'Hola, te escribimos de ArandaEats para dar seguimiento a tu pedido.';
++      ? `Hola ${order.client_name ?? ''}, te escribimos de ${selectedRestaurant?.name ?? 'tu restaurante'}. Ya revisamos tu pedido #${order.order_number} por ${formatPrice(Number(order.total))}. Estatus actual: ${statusLabel(order.status)}. Puedes darle seguimiento en Pide ya con tu número de pedido #${order.order_number}.`
++      : 'Hola, te escribimos de Pide ya para dar seguimiento a tu pedido.';
+ 
+     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message.trim())}`;
+   };
+@@ -1713,7 +1713,7 @@ export default function App() {
+     const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
+     const accessUrl = buildDriverAccessUrl(driver.access_token);
+     const mapsUrl = buildGoogleMapsDirectionsUrl(order.client_lat, order.client_lng);
+-    const message = `Hola ${driver.name}, te asignaron el pedido #${order.order_number} de ${selectedRestaurant?.name ?? 'ArandaEats'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
++    const message = `Hola ${driver.name}, te asignaron el pedido #${order.order_number} de ${selectedRestaurant?.name ?? 'Pide ya'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
+     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`;
+   };
+ 
+@@ -1942,7 +1942,8 @@ export default function App() {
+         label: option.label.trim(),
+         price: option.price.trim(),
+         image_url: option.imageUrl.trim() || null,
+-        sort_order: index
++        sort_order: index,
++        option_type: option.optionType
+       }))
+       .filter((option) => option.label && option.price)
+       .map((option) => ({
+@@ -1950,6 +1951,7 @@ export default function App() {
+         price: Number(option.price),
+         image_url: option.image_url,
+         sort_order: option.sort_order,
++        option_type: option.option_type,
+         available: true
+       }))
+       .filter((option) => Number.isFinite(option.price) && option.price > 0);
+@@ -2007,7 +2009,7 @@ export default function App() {
+       }
+ 
+       setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category, imageUrl: '' });
+-      setMenuDraftOptions([{ label: '', price: '', imageUrl: '' }]);
++      setMenuDraftOptions([{ label: '', price: '', imageUrl: '', optionType: 'size' as const }]);
+       await loadRestaurantData(selectedRestaurant.id);
+     } catch (error) {
+       console.error(error);
+@@ -2070,6 +2072,8 @@ export default function App() {
+ 
+       if (menuOptionsEnabled && item.menu_item_options && item.menu_item_options.length > 0) {
+         for (const option of item.menu_item_options) {
++          const nextOptionType = window.prompt(`Tipo para opción "${option.label}" (size = tamaño, extra = complemento)`, option.option_type ?? 'size');
++          if (nextOptionType === null) continue;
+           const nextOptionPriceRaw = window.prompt(`Precio para opción "${option.label}"`, String(option.price));
+           if (nextOptionPriceRaw === null) continue;
+           const nextOptionLabel = window.prompt(`Nombre para opción "${option.label}"`, option.label);
+@@ -2080,12 +2084,14 @@ export default function App() {
+           const parsedOptionPrice = Number(nextOptionPriceRaw);
+           if (!Number.isFinite(parsedOptionPrice) || parsedOptionPrice <= 0) continue;
+ 
++          const validOptionType = (nextOptionType === 'extra' ? 'extra' : 'size') as 'size' | 'extra';
+           const { error: optionUpdateError } = await supabase
+             .from('menu_item_options')
+             .update({
+               label: nextOptionLabel.trim() || option.label,
+               price: parsedOptionPrice,
+-              image_url: nextOptionImageUrl.trim() || null
++              image_url: nextOptionImageUrl.trim() || null,
++              option_type: validOptionType
+             })
+             .eq('id', option.id);
+ 
+@@ -2384,7 +2390,7 @@ export default function App() {
+   return (
+     <div>
+       <nav className="ae-nav">
+-        <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Aranda<span>Eats</span></div>
++        <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Pide<span> ya</span></div>
+         {!isDriverRoute && (
+           <>
+             <ul className="nav-links">
+@@ -2425,7 +2431,7 @@ export default function App() {
+       {!isAdminRoute && !isRestaurantsRoute && !isDriverRoute && showPwaBanner && !isStandalone && (
+         <div className="pwa-banner pwa-banner-top">
+           <div>
+-            <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
++            <p>📲 Instala Pide ya para pedir y dar seguimiento más rápido desde tu celular.</p>
+             {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
+           </div>
+           <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
+@@ -2440,7 +2446,7 @@ export default function App() {
+             <div className="driver-hero">
+               <div>
+                 <div className="hero-badge">🧑‍✈️ Modo repartidor móvil</div>
+-                <h1>{driverSession?.driver_name ?? 'Repartidor'}<br /><em>{driverSession?.restaurant_name ?? 'ArandaEats'}</em></h1>
++                <h1>{driverSession?.driver_name ?? 'Repartidor'}<br /><em>{driverSession?.restaurant_name ?? 'Pide ya'}</em></h1>
+                 <p>Desde aquí solo ves tus pedidos asignados, puedes abrir la ruta del cliente y compartir tu GPS en tiempo real.</p>
+               </div>
+               <div className="driver-hero-status">
+@@ -2512,9 +2518,9 @@ export default function App() {
+         <div className="page active">
+           <div className="hero">
+             <div className="hero-inner">
+-              <div className="hero-badge">📍 Aranda de Arandas, Jalisco — y todos sus ranchos</div>
++              <div className="hero-badge">📍 Los Altos de Jalisco — y todos sus ranchos</div>
+               <h1>Tu comida favorita<br />hasta tu <em>rancho</em></h1>
+-              <p>Sin registro, sin complicaciones. Pon tu ubicación en el mapa y los restaurantes de Aranda te llevan lo que quieras — aunque sea camino de tierra.</p>
++              <p>Sin registro, sin complicaciones. Pon tu ubicación en el mapa y los restaurantes te llevan lo que quieras — aunque sea camino de tierra.</p>
+             </div>
+           </div>
+ 
+@@ -2523,7 +2529,7 @@ export default function App() {
+             <div className="rest-grid">
+               {restaurants.map((restaurant) => (
+                 <div key={restaurant.id} className="rcard" onClick={() => openMenu(restaurant)}>
+-                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
++                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>
+                     {restaurant.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(restaurant.photo_url)) && (
+                       <img
+                         src={sanitizeImageUrl(restaurant.photo_url)}
+@@ -2547,7 +2553,7 @@ export default function App() {
+           {showPwaBanner && !isStandalone && !isDriverRoute && (
+             <div className="pwa-banner pwa-banner-footer">
+               <div>
+-                <p>📲 ¿Te vas? También puedes instalar ArandaEats desde aquí.</p>
++                <p>📲 ¿Te vas? También puedes instalar Pide ya desde aquí.</p>
+                 {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
+               </div>
+               <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
+@@ -2801,7 +2807,7 @@ export default function App() {
+                   {[
+                     { label: 'Aceptados', value: dashboardMetrics.accepted, color: '#2D6A4F' },
+                     { label: 'Rechazados', value: dashboardMetrics.rejected, color: '#B42318' },
+-                    { label: 'Entregados', value: dashboardMetrics.delivered, color: '#C8410B' },
++                    { label: 'Entregados', value: dashboardMetrics.delivered, color: '#2D8B7A' },
+                     { label: 'Pendientes', value: dashboardMetrics.pending, color: '#8B5E3C' }
+                   ].map((item) => {
+                     const max = Math.max(1, dashboardMetrics.total);
+@@ -2844,7 +2850,7 @@ export default function App() {
+                       </div>
+                       <div className="driver-actions">
+                         <button className={`btn ${driver.is_active ? 'ghost' : 'green'}`} onClick={() => void toggleDriverAvailability(driver)} disabled={actionLoading}>{driver.is_active ? 'Desactivar' : 'Activar'}</button>
+-                        <a className="btn ghost" href={`https://wa.me/${normalizePhone(driver.phone).startsWith('52') ? normalizePhone(driver.phone) : `52${normalizePhone(driver.phone)}`}?text=${encodeURIComponent(`Hola ${driver.name}, este es tu acceso de repartidor para ArandaEats: ${buildDriverAccessUrl(driver.access_token)}`)}`} target="_blank" rel="noreferrer">Mandar acceso</a>
++                        <a className="btn ghost" href={`https://wa.me/${normalizePhone(driver.phone).startsWith('52') ? normalizePhone(driver.phone) : `52${normalizePhone(driver.phone)}`}?text=${encodeURIComponent(`Hola ${driver.name}, este es tu acceso de repartidor para Pide ya: ${buildDriverAccessUrl(driver.access_token)}`)}`} target="_blank" rel="noreferrer">Mandar acceso</a>
+                       </div>
+                     </article>
+                   ))}
+@@ -3169,15 +3175,19 @@ export default function App() {
+                   <div className="fg menu-create-full"><label>Descripción</label><textarea className="fta" placeholder="Describe ingredientes o promoción" value={menuDraft.description} onChange={(e) => setMenuDraft((prev) => ({ ...prev, description: e.target.value }))} /></div>
+                   <div className="fg menu-create-full">
+                     <label>Opciones del platillo (opcional)</label>
+-                    <p className="field-hint">Ejemplo: pizza Pequeña, Mediana y Grande, cada una con su precio.</p>
++                    <p className="field-hint">Usa tipo <strong>Tamaño</strong> para variantes excluyentes (ej. Pequeña, Mediana, Grande) y <strong>Extra</strong> para complementos adicionales (ej. queso extra, tocino).</p>
+                     {!menuOptionsEnabled ? (
+                       <div className="menu-empty">Esta función estará disponible cuando se ejecute la migración <code>007_menu_item_options.sql</code>.</div>
+                     ) : (
+                       <div className="menu-options-editor">
+                         {menuDraftOptions.map((option, index) => (
+                           <div key={`draft-option-${index}`} className="menu-option-row">
+-                            <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
+-                            <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
++                            <select className="fs" value={option.optionType} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, optionType: e.target.value as 'size' | 'extra' } : item))} style={{ maxWidth: '120px' }}>
++                              <option value="size">Tamaño</option>
++                              <option value="extra">Extra</option>
++                            </select>
++                            <input className="fi" placeholder={option.optionType === 'size' ? 'Nombre tamaño (ej. Mediana)' : 'Nombre extra (ej. Queso extra)'} value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
++                            <input className="fi" type="number" min="1" step="1" placeholder={option.optionType === 'size' ? 'Precio completo' : 'Precio extra'} value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                             <input className="fi" placeholder="Imagen opción (URL/base64)" value={option.imageUrl} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: e.target.value } : item))} />
+                             <input className="fi" type="file" accept="image/*" onChange={async (e) => {
+                               const file = e.target.files?.[0];
+@@ -3194,7 +3204,7 @@ export default function App() {
+                             )}
+                           </div>
+                         ))}
+-                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
++                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '', optionType: 'size' as const }])}>+ Agregar opción</button>
+                       </div>
+                     )}
+                   </div>
+@@ -3210,7 +3220,7 @@ export default function App() {
+                         {item.menu_item_options && item.menu_item_options.length > 0 ? (
+                           <div className="menu-card-options">
+                             {item.menu_item_options.filter((option) => option.available).map((option) => (
+-                              <div key={option.id} className="menu-card-option"><span>{option.label}</span><strong>{formatPrice(option.price)}</strong></div>
++                              <div key={option.id} className="menu-card-option"><span>{option.option_type === 'extra' ? '➕' : '📏'} {option.label}</span><strong>{option.option_type === 'extra' ? '+' : ''}{formatPrice(option.price)}</strong></div>
+                             ))}
+                           </div>
+                         ) : (
+@@ -3315,7 +3325,7 @@ export default function App() {
+ 
+             <section className="admin-main">
+               <div className="admin-top">
+-                <h2>Panel de Administración — ArandaEats</h2>
++                <h2>Panel de Administración — Pide ya</h2>
+                 <span>{new Date().toLocaleDateString('es-MX', { weekday: 'short', day: '2-digit', month: 'short' })} · {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} hrs</span>
+               </div>
+ 
+@@ -3560,7 +3570,7 @@ export default function App() {
+ 
+       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
+         <div className="modal" onClick={(e) => e.stopPropagation()}>
+-          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
++          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>
+             {selectedRestaurant?.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(selectedRestaurant.photo_url)) && (
+               <img
+                 src={sanitizeImageUrl(selectedRestaurant.photo_url)}
+diff --git a/src/index.css b/src/index.css
+index f0265fa..4970e13 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -3,17 +3,17 @@
+ @tailwind components;
+ @tailwind utilities;
+ 
+-:root{--brand:#C8410B;--brand-dark:#8B2D07;--brand-light:#F4A261;--earth:#6B4226;--cream:#FDF6EC;--dark:#1A0D06;--mid:#3D2314;--text:#2D1810;--muted:#8C6A5A;--green:#2D6A4F;--amber:#E07B30;--shadow:0 4px 24px rgba(26,13,6,.10);--shadow-lg:0 16px 48px rgba(26,13,6,.18)}
++:root{--brand:#2D8B7A;--brand-dark:#1E6B5A;--brand-light:#7EC8BB;--earth:#4A7C6F;--cream:#F2FAF7;--dark:#0F2F28;--mid:#1B4A3F;--text:#1A3530;--muted:#6B918A;--green:#2D6A4F;--amber:#E07B30;--shadow:0 4px 24px rgba(15,47,40,.10);--shadow-lg:0 16px 48px rgba(15,47,40,.18)}
+ *{margin:0;padding:0;box-sizing:border-box}
+ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);overflow-x:hidden}
+-.ae-nav{position:fixed;top:0;left:0;right:0;z-index:999;background:rgba(253,246,236,.96);backdrop-filter:blur(14px);border-bottom:1px solid rgba(200,65,11,.12);display:flex;align-items:center;justify-content:space-between;padding:0 2rem;height:62px}
++.ae-nav{position:fixed;top:0;left:0;right:0;z-index:999;background:rgba(242,250,247,.96);backdrop-filter:blur(14px);border-bottom:1px solid rgba(45,139,122,.12);display:flex;align-items:center;justify-content:space-between;padding:0 2rem;height:62px}
+ .logo{font-family:'Playfair Display',serif;font-size:1.5rem;font-weight:900;color:var(--brand)}
+ .logo span{color:var(--earth)}
+ .nav-links{display:flex;gap:1.8rem;list-style:none}.nav-links a{text-decoration:none;color:var(--mid);font-size:.88rem;font-weight:600}
+ .nav-cta{background:var(--brand);color:#fff;border:none;padding:.5rem 1.3rem;border-radius:100px;font-size:.88rem;font-weight:700;cursor:pointer}
+ .tabs{position:fixed;top:62px;left:0;right:0;z-index:998;background:var(--dark);display:flex}
+ .tab{flex:1;padding:.62rem .4rem;border:none;background:transparent;color:rgba(255,255,255,.42);font-size:.74rem;font-weight:600;cursor:pointer;border-bottom:3px solid transparent}
+-.tab.active{color:var(--brand-light);border-bottom-color:var(--brand-light);background:rgba(244,162,97,.06)}
++.tab.active{color:var(--brand-light);border-bottom-color:var(--brand-light);background:rgba(126,200,187,.06)}
+ .page{padding-top:108px;min-height:100vh}
+ .btn{background:var(--brand);color:#fff;border:none;padding:.7rem 1.1rem;border-radius:10px;font-size:.95rem;font-weight:700;cursor:pointer}
+ .btn.ghost{background:transparent;color:var(--muted);border:1.5px solid #DDD}
+@@ -29,7 +29,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
+ .pwa-install{background:#fff;color:var(--green);border:none;padding:.32rem .85rem;border-radius:100px;font-size:.77rem;font-weight:700;cursor:pointer}
+ .hero{background:linear-gradient(135deg,var(--dark),var(--mid) 55%,var(--brand-dark));padding:4.5rem 2rem 3rem}
+ .hero-inner{max-width:860px;margin:0 auto;text-align:center}
+-.hero-badge{display:inline-block;background:rgba(200,65,11,.2);color:var(--brand-light);padding:.3rem .9rem;border-radius:100px;font-size:.75rem;margin-bottom:1rem}
++.hero-badge{display:inline-block;background:rgba(45,139,122,.2);color:var(--brand-light);padding:.3rem .9rem;border-radius:100px;font-size:.75rem;margin-bottom:1rem}
+ .hero h1{font-family:'Playfair Display',serif;font-size:clamp(2.2rem,5.5vw,4rem);font-weight:900;color:#fff;line-height:1.1;margin-bottom:.9rem}
+ .hero h1 em{color:var(--brand-light);font-style:normal}
+ .hero p{color:rgba(255,255,255,.62);font-size:1.05rem;max-width:560px;margin:0 auto 1.4rem;line-height:1.7}
+@@ -74,7 +74,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
+ .restaurant-sidebar{display:flex;flex-direction:column}
+ .restaurant-sidebar h3{color:var(--brand-light);font-family:'Playfair Display',serif;font-size:2rem;padding:0 1rem 1rem}
+ .restaurant-sidebar ul{list-style:none}.restaurant-sidebar button{width:100%;text-align:left;padding:.9rem 1rem;background:transparent;border:0;color:rgba(255,255,255,.6);font-weight:700;font-size:1.05rem;cursor:pointer}
+-.restaurant-sidebar button.active,.restaurant-sidebar button:hover{background:rgba(200,65,11,.2);color:var(--brand-light);border-left:4px solid var(--brand-light)}
++.restaurant-sidebar button.active,.restaurant-sidebar button:hover{background:rgba(45,139,122,.2);color:var(--brand-light);border-left:4px solid var(--brand-light)}
+ .restaurant-sidebar-footer{margin-top:auto;padding-top:.5rem}
+ .restaurant-main{padding:1.4rem}
+ .restaurant-header-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.restaurant-header-row h2{font-family:'Playfair Display',serif;font-size:2.9rem}.restaurant-header-row p{font-size:1.4rem;color:var(--muted)}.restaurant-header-row p span{color:var(--green);font-weight:700}
+@@ -110,7 +110,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
+ .status-pill.pendiente{background:#fff4e5;color:#b26a00}.status-pill.aprobado{background:#ecfff4;color:#1a7f45}.status-pill.rechazado{background:#ffefef;color:#c53030}
+ 
+ 
+-.regpage{background:linear-gradient(135deg,#FDF6EC 0%,#F7EEE3 100%);min-height:calc(100vh - 108px);display:flex;align-items:center;justify-content:center;padding:2rem}
++.regpage{background:linear-gradient(135deg,#F2FAF7 0%,#E8F5F1 100%);min-height:calc(100vh - 108px);display:flex;align-items:center;justify-content:center;padding:2rem}
+ .regcard{background:#fff;border-radius:22px;box-shadow:var(--shadow-lg);width:100%;max-width:640px;overflow:hidden}
+ .reghead{background:linear-gradient(135deg,var(--dark),var(--mid));padding:1.8rem;text-align:center}
+ .reghead h2{font-family:'Playfair Display',serif;color:#fff;font-size:2rem;font-weight:700;margin-bottom:.25rem}
+@@ -154,7 +154,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
+ .product-price{font-size:1.35rem;font-weight:900;color:var(--brand)}
+ .mitem{display:flex;gap:.88rem;align-items:center;padding:.72rem 0;border-bottom:1px solid #F5EDE4}.mimg{width:64px;height:64px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.85rem;background:var(--cream)}
+ .minfo{flex:1}.mname{font-weight:700;font-size:1.2rem}.mdesc{font-size:.95rem;color:var(--muted)}.mprice{font-size:2rem;font-weight:700;color:var(--brand)}.madd{background:var(--brand);color:#fff;border:none;width:45px;height:45px;border-radius:50%;font-size:1.6rem;cursor:pointer}
+-.client-form{background:#FDF6EC;border:1.5px solid #E8D5C5;border-radius:13px;padding:1rem 1.1rem;margin:1rem 0}.client-form-title{font-size:1.4rem;font-weight:700;color:var(--brand);margin-bottom:.75rem;text-transform:uppercase}.client-form-title span{font-size:1rem;color:var(--muted);text-transform:none}
++.client-form{background:#F2FAF7;border:1.5px solid #E8D5C5;border-radius:13px;padding:1rem 1.1rem;margin:1rem 0}.client-form-title{font-size:1.4rem;font-weight:700;color:var(--brand);margin-bottom:.75rem;text-transform:uppercase}.client-form-title span{font-size:1rem;color:var(--muted);text-transform:none}
+ .cf-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:.65rem}.cfl{display:block;font-size:.9rem;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:.28rem}.cfi,.cfta{width:100%;padding:.6rem .82rem;border:1.5px solid #E0CABB;border-radius:8px;font-size:1rem;color:var(--text);background:#fff}.cfta{height:80px;resize:none}.cf-hint{font-size:.95rem;color:var(--muted);margin-top:.35rem;line-height:1.5}
+ .loc-box{background:#F0F7F4;border:1.5px solid #C3E6D8;border-radius:13px;padding:.95rem 1.1rem;margin-top:.95rem}.loc-box h4{font-size:1.1rem;color:var(--green);margin-bottom:.4rem}
+ 
+@@ -213,8 +213,8 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
+ .admin-sidebar h3{font-family:'Playfair Display',serif;color:var(--brand-light);padding:0 1rem 1rem}
+ .admin-sidebar ul{list-style:none}
+ .admin-sidebar li{padding:.8rem 1rem;color:rgba(255,255,255,.65);font-weight:600;border-left:3px solid transparent}
+-.admin-sidebar li.active,.admin-sidebar li:hover{background:rgba(200,65,11,.18);color:var(--brand-light);border-left-color:var(--brand-light)}
+-.admin-main{padding:1.6rem;background:#F7F0E8}
++.admin-sidebar li.active,.admin-sidebar li:hover{background:rgba(45,139,122,.18);color:var(--brand-light);border-left-color:var(--brand-light)}
++.admin-main{padding:1.6rem;background:#EDF7F4}
+ .admin-top{display:flex;justify-content:space-between;gap:1rem;align-items:center;margin-bottom:.9rem}
+ .admin-top h2{font-family:'Playfair Display',serif;font-size:2rem}
+ .admin-top span{color:var(--muted);font-weight:600}
+@@ -301,7 +301,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
+ .menu-create-full{grid-column:1/-1}
+ .field-hint{font-size:.82rem;color:var(--muted);margin:.3rem 0 .45rem}
+ .menu-options-editor{display:grid;gap:.45rem}
+-.menu-option-row{display:grid;grid-template-columns:1.2fr .7fr 1.1fr .8fr auto;gap:.45rem;align-items:center}
++.menu-option-row{display:grid;grid-template-columns:.6fr 1.2fr .7fr 1.1fr .8fr auto;gap:.45rem;align-items:center}
+ .menu-option-row-image{grid-template-columns:1fr .7fr}
+ .menu-card-options{display:grid;gap:.2rem;margin:.3rem 0}
+ .menu-card-option{display:flex;justify-content:space-between;gap:.45rem;font-size:.9rem;color:var(--mid)}
+@@ -319,7 +319,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
+ .orders-table{width:100%;border-collapse:collapse;min-width:980px}
+ .orders-table th,.orders-table td{padding:.7rem .6rem;text-align:left;border-bottom:1px solid #efe2d6;font-size:.92rem;vertical-align:top}
+ .orders-table th{font-size:.79rem;color:var(--muted);text-transform:uppercase;letter-spacing:.45px}
+-.status-chip{display:inline-flex;padding:.2rem .55rem;border-radius:999px;background:#f7e6da;color:#8B2D07;font-weight:700;font-size:.8rem}
++.status-chip{display:inline-flex;padding:.2rem .55rem;border-radius:999px;background:#daf7ef;color:#1E6B5A;font-weight:700;font-size:.8rem}
+ .table-actions{display:flex;gap:.45rem;align-items:center}
+ .table-actions .fi{min-width:170px}
+ .selected-order-card{margin-top:1rem}
+diff --git a/src/types/index.ts b/src/types/index.ts
+index dc2f197..7feb6ae 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -39,6 +39,8 @@ export interface MenuItem {
+   menu_item_options?: MenuItemOption[];
+ }
+ 
++export type MenuOptionType = 'size' | 'extra';
++
+ export interface MenuItemOption {
+   id: string;
+   menu_item_id: string;
+@@ -47,6 +49,7 @@ export interface MenuItemOption {
+   image_url?: string | null;
+   available: boolean;
+   sort_order: number;
++  option_type?: MenuOptionType;
+ }
+ 
+ export interface CartItem {
+diff --git a/supabase/migrations/017_menu_item_option_type.sql b/supabase/migrations/017_menu_item_option_type.sql
+new file mode 100644
+index 0000000..fd12b87
+--- /dev/null
++++ b/supabase/migrations/017_menu_item_option_type.sql
+@@ -0,0 +1,9 @@
++-- Add option_type column to distinguish between size variants and extras
++-- 'size' = mutually exclusive variant (e.g. Pequeña, Mediana, Grande) — price replaces base price
++-- 'extra' = additive complement (e.g. queso extra, tocino) — price adds to base/size price
++
++ALTER TABLE menu_item_options
++  ADD COLUMN IF NOT EXISTS option_type TEXT NOT NULL DEFAULT 'size'
++  CHECK (option_type IN ('size', 'extra'));
++
++COMMENT ON COLUMN menu_item_options.option_type IS 'size = exclusive variant (radio), extra = additive complement (checkbox)';
+diff --git a/tailwind.config.js b/tailwind.config.js
+index ec727f7..4324d58 100644
+--- a/tailwind.config.js
++++ b/tailwind.config.js
+@@ -3,14 +3,14 @@ var config = {
+     theme: {
+         extend: {
+             colors: {
+-                brand: '#C8410B',
+-                'brand-dark': '#8B2D07',
+-                'brand-light': '#F4A261',
+-                earth: '#6B4226',
+-                cream: '#FDF6EC',
+-                dark: '#1A0D06',
+-                mid: '#3D2314',
+-                muted: '#8C6A5A',
++                brand: '#2D8B7A',
++                'brand-dark': '#1E6B5A',
++                'brand-light': '#7EC8BB',
++                earth: '#4A7C6F',
++                cream: '#F2FAF7',
++                dark: '#0F2F28',
++                mid: '#1B4A3F',
++                muted: '#6B918A',
+                 green: '#2D6A4F',
+                 amber: '#E07B30'
+             },
+diff --git a/tailwind.config.ts b/tailwind.config.ts
+index 038a4f7..e4b67d0 100644
+--- a/tailwind.config.ts
++++ b/tailwind.config.ts
+@@ -5,14 +5,14 @@ const config: Config = {
+   theme: {
+     extend: {
+       colors: {
+-        brand: '#C8410B',
+-        'brand-dark': '#8B2D07',
+-        'brand-light': '#F4A261',
+-        earth: '#6B4226',
+-        cream: '#FDF6EC',
+-        dark: '#1A0D06',
+-        mid: '#3D2314',
+-        muted: '#8C6A5A',
++        brand: '#2D8B7A',
++        'brand-dark': '#1E6B5A',
++        'brand-light': '#7EC8BB',
++        earth: '#4A7C6F',
++        cream: '#F2FAF7',
++        dark: '#0F2F28',
++        mid: '#1B4A3F',
++        muted: '#6B918A',
+         green: '#2D6A4F',
+         amber: '#E07B30'
+       },

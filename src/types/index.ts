@@ -42,6 +42,7 @@ export interface MenuItemOption {
   image_url?: string | null;
   available: boolean;
   sort_order: number;
+  option_type?: 'size' | 'extra';
 }
 
 export interface CartItem {

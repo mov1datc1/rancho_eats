@@ -1,9 +1,9 @@
 {
-  "name": "ArandaEats",
-  "short_name": "ArandaEats",
-  "description": "Comida a domicilio en Aranda de Arandas y sus ranchos",
-  "theme_color": "#C8410B",
-  "background_color": "#FDF6EC",
+  "name": "Pide ya",
+  "short_name": "Pide ya",
+  "description": "Comida a domicilio en Los Altos de Jalisco y sus ranchos",
+  "theme_color": "#2D8B7A",
+  "background_color": "#F2FAF7",
   "display": "standalone",
   "start_url": "/",
   "icons": [
