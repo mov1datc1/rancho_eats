@@ -176,13 +176,9 @@ export default function App() {
     reader.readAsDataURL(file);
   });
 
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([
     { label: '', price: '', imageUrl: '' }
   ]);
-  const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
-  const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
-
-  const fileToDataUrl = (file: File) =>
+  
     new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result ?? ''));
