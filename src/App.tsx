@@ -25,7 +25,7 @@ import type {
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'config';
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
-type MenuDraftOption = { label: string; price: string; imageUrl: string };
+type MenuDraftOption = { label: string; price: string; imageUrl: string; optionType: 'size' | 'extra' };
 
 type DriverSession = {
   driver_id: string;
@@ -208,7 +208,7 @@ export default function App() {
     category: 'Especialidades',
     imageUrl: ''
   });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '', optionType: 'size' as const }]);
   const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
   const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
   const [dashboardDateFrom, setDashboardDateFrom] = useState('');
@@ -1701,8 +1701,8 @@ export default function App() {
     const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
 
     const message = order
-      ? `Hola ${order.client_name ?? ''}, te escribimos de ${selectedRestaurant?.name ?? 'tu restaurante'}. Ya revisamos tu pedido #${order.order_number} por ${formatPrice(Number(order.total))}. Estatus actual: ${statusLabel(order.status)}. Puedes darle seguimiento en ArandaEats con tu número de pedido #${order.order_number}.`
-      : 'Hola, te escribimos de ArandaEats para dar seguimiento a tu pedido.';
+      ? `Hola ${order.client_name ?? ''}, te escribimos de ${selectedRestaurant?.name ?? 'tu restaurante'}. Ya revisamos tu pedido #${order.order_number} por ${formatPrice(Number(order.total))}. Estatus actual: ${statusLabel(order.status)}. Puedes darle seguimiento en Pide ya con tu número de pedido #${order.order_number}.`
+      : 'Hola, te escribimos de Pide ya para dar seguimiento a tu pedido.';
 
     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message.trim())}`;
   };
@@ -1713,7 +1713,7 @@ export default function App() {
     const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
     const accessUrl = buildDriverAccessUrl(driver.access_token);
     const mapsUrl = buildGoogleMapsDirectionsUrl(order.client_lat, order.client_lng);
-    const message = `Hola ${driver.name}, te asignaron el pedido #${order.order_number} de ${selectedRestaurant?.name ?? 'ArandaEats'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
+    const message = `Hola ${driver.name}, te asignaron el pedido #${order.order_number} de ${selectedRestaurant?.name ?? 'Pide ya'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`;
   };
 
@@ -1942,7 +1942,8 @@ export default function App() {
         label: option.label.trim(),
         price: option.price.trim(),
         image_url: option.imageUrl.trim() || null,
-        sort_order: index
+        sort_order: index,
+        option_type: option.optionType
       }))
       .filter((option) => option.label && option.price)
       .map((option) => ({
@@ -1950,6 +1951,7 @@ export default function App() {
         price: Number(option.price),
         image_url: option.image_url,
         sort_order: option.sort_order,
+        option_type: option.option_type,
         available: true
       }))
       .filter((option) => Number.isFinite(option.price) && option.price > 0);
@@ -2007,7 +2009,7 @@ export default function App() {
       }
 
       setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category, imageUrl: '' });
-      setMenuDraftOptions([{ label: '', price: '', imageUrl: '' }]);
+      setMenuDraftOptions([{ label: '', price: '', imageUrl: '', optionType: 'size' as const }]);
       await loadRestaurantData(selectedRestaurant.id);
     } catch (error) {
       console.error(error);
@@ -2384,7 +2386,7 @@ export default function App() {
   return (
     <div>
       <nav className="ae-nav">
-        <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Aranda<span>Eats</span></div>
+        <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Pide<span> ya</span></div>
         {!isDriverRoute && (
           <>
             <ul className="nav-links">
@@ -2425,7 +2427,7 @@ export default function App() {
       {!isAdminRoute && !isRestaurantsRoute && !isDriverRoute && showPwaBanner && !isStandalone && (
         <div className="pwa-banner pwa-banner-top">
           <div>
-            <p>📲 Instala ArandaEats para pedir y dar seguimiento más rápido desde tu celular.</p>
+            <p>📲 Instala Pide ya para pedir y dar seguimiento más rápido desde tu celular.</p>
             {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
           </div>
           <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
@@ -2440,7 +2442,7 @@ export default function App() {
             <div className="driver-hero">
               <div>
                 <div className="hero-badge">🧑‍✈️ Modo repartidor móvil</div>
-                <h1>{driverSession?.driver_name ?? 'Repartidor'}<br /><em>{driverSession?.restaurant_name ?? 'ArandaEats'}</em></h1>
+                <h1>{driverSession?.driver_name ?? 'Repartidor'}<br /><em>{driverSession?.restaurant_name ?? 'Pide ya'}</em></h1>
                 <p>Desde aquí solo ves tus pedidos asignados, puedes abrir la ruta del cliente y compartir tu GPS en tiempo real.</p>
               </div>
               <div className="driver-hero-status">
@@ -2512,9 +2514,9 @@ export default function App() {
         <div className="page active">
           <div className="hero">
             <div className="hero-inner">
-              <div className="hero-badge">📍 Aranda de Arandas, Jalisco — y todos sus ranchos</div>
+              <div className="hero-badge">📍 Los Altos de Jalisco — y todos sus ranchos</div>
               <h1>Tu comida favorita<br />hasta tu <em>rancho</em></h1>
-              <p>Sin registro, sin complicaciones. Pon tu ubicación en el mapa y los restaurantes de Aranda te llevan lo que quieras — aunque sea camino de tierra.</p>
+              <p>Sin registro, sin complicaciones. Pon tu ubicación en el mapa y los restaurantes te llevan lo que quieras — aunque sea camino de tierra.</p>
             </div>
           </div>
 
@@ -2523,7 +2525,7 @@ export default function App() {
             <div className="rest-grid">
               {restaurants.map((restaurant) => (
                 <div key={restaurant.id} className="rcard" onClick={() => openMenu(restaurant)}>
-                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
+                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>
                     {restaurant.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(restaurant.photo_url)) && (
                       <img
                         src={sanitizeImageUrl(restaurant.photo_url)}
@@ -2547,7 +2549,7 @@ export default function App() {
           {showPwaBanner && !isStandalone && !isDriverRoute && (
             <div className="pwa-banner pwa-banner-footer">
               <div>
-                <p>📲 ¿Te vas? También puedes instalar ArandaEats desde aquí.</p>
+                <p>📲 ¿Te vas? También puedes instalar Pide ya desde aquí.</p>
                 {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
               </div>
               <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
@@ -2801,7 +2803,7 @@ export default function App() {
                   {[
                     { label: 'Aceptados', value: dashboardMetrics.accepted, color: '#2D6A4F' },
                     { label: 'Rechazados', value: dashboardMetrics.rejected, color: '#B42318' },
-                    { label: 'Entregados', value: dashboardMetrics.delivered, color: '#C8410B' },
+                    { label: 'Entregados', value: dashboardMetrics.delivered, color: '#2D8B7A' },
                     { label: 'Pendientes', value: dashboardMetrics.pending, color: '#8B5E3C' }
                   ].map((item) => {
                     const max = Math.max(1, dashboardMetrics.total);
@@ -2844,7 +2846,7 @@ export default function App() {
                       </div>
                       <div className="driver-actions">
                         <button className={`btn ${driver.is_active ? 'ghost' : 'green'}`} onClick={() => void toggleDriverAvailability(driver)} disabled={actionLoading}>{driver.is_active ? 'Desactivar' : 'Activar'}</button>
-                        <a className="btn ghost" href={`https://wa.me/${normalizePhone(driver.phone).startsWith('52') ? normalizePhone(driver.phone) : `52${normalizePhone(driver.phone)}`}?text=${encodeURIComponent(`Hola ${driver.name}, este es tu acceso de repartidor para ArandaEats: ${buildDriverAccessUrl(driver.access_token)}`)}`} target="_blank" rel="noreferrer">Mandar acceso</a>
+                        <a className="btn ghost" href={`https://wa.me/${normalizePhone(driver.phone).startsWith('52') ? normalizePhone(driver.phone) : `52${normalizePhone(driver.phone)}`}?text=${encodeURIComponent(`Hola ${driver.name}, este es tu acceso de repartidor para Pide ya: ${buildDriverAccessUrl(driver.access_token)}`)}`} target="_blank" rel="noreferrer">Mandar acceso</a>
                       </div>
                     </article>
                   ))}
@@ -3169,15 +3171,19 @@ export default function App() {
                   <div className="fg menu-create-full"><label>Descripción</label><textarea className="fta" placeholder="Describe ingredientes o promoción" value={menuDraft.description} onChange={(e) => setMenuDraft((prev) => ({ ...prev, description: e.target.value }))} /></div>
                   <div className="fg menu-create-full">
                     <label>Opciones del platillo (opcional)</label>
-                    <p className="field-hint">Ejemplo: pizza Pequeña, Mediana y Grande, cada una con su precio.</p>
+                    <p className="field-hint">Usa tipo <strong>Tamaño</strong> para variantes excluyentes (ej. Pequeña, Mediana, Grande) y <strong>Extra</strong> para complementos adicionales (ej. queso extra, tocino).</p>
                     {!menuOptionsEnabled ? (
                       <div className="menu-empty">Esta función estará disponible cuando se ejecute la migración <code>007_menu_item_options.sql</code>.</div>
                     ) : (
                       <div className="menu-options-editor">
                         {menuDraftOptions.map((option, index) => (
                           <div key={`draft-option-${index}`} className="menu-option-row">
-                            <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
-                            <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                            <select className="fs" value={option.optionType} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, optionType: e.target.value as 'size' | 'extra' } : item))} style={{ maxWidth: '120px' }}>
+                              <option value="size">Tamaño</option>
+                              <option value="extra">Extra</option>
+                            </select>
+                            <input className="fi" placeholder={option.optionType === 'size' ? 'Nombre tamaño (ej. Mediana)' : 'Nombre extra (ej. Queso extra)'} value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
+                            <input className="fi" type="number" min="1" step="1" placeholder={option.optionType === 'size' ? 'Precio completo' : 'Precio extra'} value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
                             <input className="fi" placeholder="Imagen opción (URL/base64)" value={option.imageUrl} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: e.target.value } : item))} />
                             <input className="fi" type="file" accept="image/*" onChange={async (e) => {
                               const file = e.target.files?.[0];
@@ -3194,7 +3200,7 @@ export default function App() {
                             )}
                           </div>
                         ))}
-                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '', optionType: 'size' as const }])}>+ Agregar opción</button>
                       </div>
                     )}
                   </div>
@@ -3210,7 +3216,7 @@ export default function App() {
                         {item.menu_item_options && item.menu_item_options.length > 0 ? (
                           <div className="menu-card-options">
                             {item.menu_item_options.filter((option) => option.available).map((option) => (
-                              <div key={option.id} className="menu-card-option"><span>{option.label}</span><strong>{formatPrice(option.price)}</strong></div>
+                              <div key={option.id} className="menu-card-option"><span>{option.option_type === 'extra' ? '➕' : '📏'} {option.label}</span><strong>{option.option_type === 'extra' ? '+' : ''}{formatPrice(option.price)}</strong></div>
                             ))}
                           </div>
                         ) : (
@@ -3315,7 +3321,7 @@ export default function App() {
 
             <section className="admin-main">
               <div className="admin-top">
-                <h2>Panel de Administración — ArandaEats</h2>
+                <h2>Panel de Administración — Pide ya</h2>
                 <span>{new Date().toLocaleDateString('es-MX', { weekday: 'short', day: '2-digit', month: 'short' })} · {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} hrs</span>
               </div>
 
@@ -3560,7 +3566,7 @@ export default function App() {
 
       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#8B2D07,#C8410B)' }}>
+          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>
             {selectedRestaurant?.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(selectedRestaurant.photo_url)) && (
               <img
                 src={sanitizeImageUrl(selectedRestaurant.photo_url)}
