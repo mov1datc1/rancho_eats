@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
@@ -14,6 +15,7 @@ import type {
   AdminRestaurantOverview,
   AdminSummary,
   CartItem,
+  DriverProfile,
   MenuItem,
   MenuItemOption,
   Order,
@@ -21,10 +23,27 @@ import type {
 } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
-type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'menu' | 'config';
-type AdminPanelKey = 'dashboard' | 'restaurantes' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
-type MenuDraftOption = { label: string; price: string; imageUrl: string };
+type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'config';
+type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
+type MenuDraftOption = { label: string; price: string; imageUrl: string; optionType: 'size' | 'extra' };
 
+type DriverSession = {
+  driver_id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  driver_name: string;
+  driver_phone: string;
+  vehicle_label?: string | null;
+  is_active: boolean;
+  last_location_at?: string | null;
+};
+
+const DRIVER_LOCATION_MIN_DISTANCE_KM = 0.05;
+const DRIVER_LOCATION_MIN_INTERVAL_MS = 15000;
+
+const RESTAURANT_IMAGE_RECOMMENDED = { width: 1200, height: 675 };
+const sanitizeImageUrl = (value: string) => value.replace(/\s+/g, '').trim();
+const isValidRestaurantImageUrl = (value: string) => /^(https?:\/\/|data:image\/)/i.test(value);
 
 
 const statusClassByRestaurant = {
@@ -56,6 +75,35 @@ const formatRelative = (value: string) => {
   if (diffHr < 24) return `hace ${diffHr} hr`;
   const diffDay = Math.floor(diffHr / 24);
   return `hace ${diffDay} día${diffDay > 1 ? 's' : ''}`;
+};
+
+const getOrderCommission = (order: Pick<Order, 'commission_amount'>) => Math.max(0, Number(order.commission_amount ?? 0));
+const getOrderSubtotal = (order: Pick<Order, 'subtotal' | 'total' | 'commission_amount' | 'delivery_amount'>) => {
+  const directSubtotal = Number(order.subtotal ?? NaN);
+  if (Number.isFinite(directSubtotal)) return Math.max(0, directSubtotal);
+  const fallback = Number(order.total) - getOrderCommission(order) - getOrderDelivery(order);
+  return Math.max(0, fallback);
+};
+
+const getOrderDelivery = (order: Pick<Order, 'delivery_amount'>) => Math.max(0, Number(order.delivery_amount ?? 0));
+const isDeliveryActiveStatus = (status: string) => ['ACCEPTED', 'ON_THE_WAY'].includes(status);
+const normalizePhone = (value: string | null | undefined) => (value ?? '').replace(/\D/g, '');
+const buildGoogleMapsUrl = (lat: number, lng: number) => `https://maps.google.com/?q=${lat},${lng}`;
+const buildGoogleMapsDirectionsUrl = (lat: number, lng: number) => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+const buildGoogleMapsWebDirectionsUrl = (lat: number, lng: number) => `https://maps.google.com/maps?daddr=${lat},${lng}&dirflg=d`;
+const buildDriverAccessUrl = (accessToken: string) => {
+  if (typeof window === 'undefined') return `/repartidor?token=${accessToken}`;
+  return `${window.location.origin}/repartidor?token=${accessToken}`;
+};
+
+const getRestaurantDeliveryFeeByDistance = (restaurant: Restaurant | null, distanceKm: number | null) => {
+  if (!restaurant || !Number.isFinite(Number(distanceKm)) || distanceKm == null) return 0;
+  const d = Number(distanceKm);
+  if (d <= 10) return Math.max(0, Number(restaurant.delivery_fee_0_10 ?? 0));
+  if (d <= 15) return Math.max(0, Number(restaurant.delivery_fee_10_15 ?? 0));
+  if (d <= 20) return Math.max(0, Number(restaurant.delivery_fee_15_20 ?? 0));
+  if (d <= 30) return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
+  return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
 };
 
 const isRpcMissingError = (error: unknown) => {
@@ -114,6 +162,7 @@ const baseForm = {
   password: '',
   type: 'OTRO',
   description: '',
+  address: '',
   radius: '10',
   openTime: '09:00',
   closeTime: '21:00'
@@ -131,6 +180,7 @@ export default function App() {
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [restaurantOrders, setRestaurantOrders] = useState<Order[]>([]);
+  const [restaurantDrivers, setRestaurantDrivers] = useState<DriverProfile[]>([]);
   const [orderSearchTerm, setOrderSearchTerm] = useState('');
   const [orderDateFrom, setOrderDateFrom] = useState('');
   const [orderDateTo, setOrderDateTo] = useState('');
@@ -142,6 +192,7 @@ export default function App() {
   const [searchedOrder, setSearchedOrder] = useState<Order | null>(null);
 
   const [clientPoint, setClientPoint] = useState({ lat: 21.0419, lng: -102.3425 });
+  const [registerPoint, setRegisterPoint] = useState({ lat: 21.0419, lng: -102.3425 });
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
@@ -157,7 +208,7 @@ export default function App() {
     category: 'Especialidades',
     imageUrl: ''
   });
-  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '' }]);
+  const [menuDraftOptions, setMenuDraftOptions] = useState<MenuDraftOption[]>([{ label: '', price: '', imageUrl: '', optionType: 'size' as const }]);
   const [menuOptionsEnabled, setMenuOptionsEnabled] = useState(true);
   const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
   const [dashboardDateFrom, setDashboardDateFrom] = useState('');
@@ -165,9 +216,24 @@ export default function App() {
   const [configDraft, setConfigDraft] = useState({
     openTime: '09:00',
     closeTime: '21:00',
-    restaurantImageUrl: ''
+    restaurantImageUrl: '',
+    address: '',
+    lat: '',
+    lng: '',
+    deliveryFee0_10: '0',
+    deliveryFee10_15: '0',
+    deliveryFee15_20: '0',
+    deliveryFee20_30: '0'
   });
   const [configPassword, setConfigPassword] = useState('');
+  const [driverDraft, setDriverDraft] = useState({
+    name: '',
+    phone: '',
+    vehicleLabel: '',
+    notes: ''
+  });
+  const [restaurantImageMeta, setRestaurantImageMeta] = useState<{ width: number; height: number } | null>(null);
+  const [restaurantImageNotice, setRestaurantImageNotice] = useState('');
 
   const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -176,15 +242,6 @@ export default function App() {
     reader.readAsDataURL(file);
   });
 
-    { label: '', price: '', imageUrl: '' }
-  ]);
-  
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
-      reader.readAsDataURL(file);
-    });
 
   const [adminSummary, setAdminSummary] = useState<AdminSummary>({
     active_restaurants: 0,
@@ -199,6 +256,8 @@ export default function App() {
   const [adminOrdersChart, setAdminOrdersChart] = useState<AdminOrdersByRestaurant[]>([]);
   const [adminOrders, setAdminOrders] = useState<AdminOrderFeedItem[]>([]);
   const [adminMapPoints, setAdminMapPoints] = useState<AdminMapPoint[]>([]);
+  const [commissionAmount, setCommissionAmount] = useState(0);
+  const [commissionDraft, setCommissionDraft] = useState('0');
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -227,18 +286,39 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [pwaHelpText, setPwaHelpText] = useState(() => mobileInstallContext.isiOS ? 'En iPhone/iPad: toca Compartir y luego “Agregar a pantalla de inicio”.' : mobileInstallContext.isMobile ? 'Si no aparece el popup automático, abre el menú del navegador y toca “Instalar app”.' : '');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => (typeof Notification !== 'undefined' ? Notification.permission : 'default'));
+  const [driverSession, setDriverSession] = useState<DriverSession | null>(null);
+  const [driverOrders, setDriverOrders] = useState<Order[]>([]);
+  const [driverLoading, setDriverLoading] = useState(false);
+  const [driverGpsStatus, setDriverGpsStatus] = useState('');
+  const [driverActiveOrderId, setDriverActiveOrderId] = useState<string | null>(null);
+  const [driverAccessError, setDriverAccessError] = useState('');
   const searchedOrderStatusRef = useRef<string | null>(null);
+  const restaurantImageInputRef = useRef<HTMLInputElement | null>(null);
+  const driverWatchIdRef = useRef<number | null>(null);
+  const driverLastSentRef = useRef<{ lat: number; lng: number; sentAt: number; orderId: string } | null>(null);
+  const driverLocationSendingRef = useRef(false);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const isAdminRoute = location.pathname === '/administrador';
   const isRestaurantsRoute = location.pathname === '/restaurantes';
   const isTestRoute = location.pathname === '/pruebas';
-  const restaurantsMode = new URLSearchParams(location.search).get('mode') === 'login' ? 'login' : 'register';
+  const isDriverRoute = location.pathname === '/repartidor';
+  const routeParams = new URLSearchParams(location.search);
+  const restaurantsMode = routeParams.get('mode') === 'login' ? 'login' : 'register';
+  const driverAccessToken = routeParams.get('token')?.trim() ?? '';
   const isStandalone = mobileInstallContext.isStandalone;
 
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
-  const cartTotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const cartSubtotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
+  const estimatedDeliveryDistanceKm = useMemo(() => {
+    if (!selectedRestaurant) return null;
+    if (!Number.isFinite(Number(selectedRestaurant.lat)) || !Number.isFinite(Number(selectedRestaurant.lng))) return null;
+    return haversineKm(Number(selectedRestaurant.lat), Number(selectedRestaurant.lng), clientPoint.lat, clientPoint.lng);
+  }, [selectedRestaurant, clientPoint.lat, clientPoint.lng]);
+  const cartDelivery = useMemo(() => (cartCount > 0 && orderWizardStep === 3 ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, orderWizardStep, selectedRestaurant, estimatedDeliveryDistanceKm]);
+  const cartCommission = useMemo(() => (cartCount > 0 ? Math.max(0, commissionAmount) : 0), [cartCount, commissionAmount]);
+  const cartTotal = useMemo(() => cartSubtotal + cartCommission + cartDelivery, [cartSubtotal, cartCommission, cartDelivery]);
   const groupedMenuItems = useMemo(() => {
     const source = menuItems.filter((item) => item.available);
     return source.reduce<Record<string, MenuItem[]>>((acc, item) => {
@@ -265,6 +345,11 @@ export default function App() {
     () => restaurantOrders.find((order) => order.id === selectedOrderId) ?? null,
     [restaurantOrders, selectedOrderId]
   );
+
+  const restaurantImagePreviewSrc = useMemo(() => {
+    const cleaned = sanitizeImageUrl(configDraft.restaurantImageUrl);
+    return cleaned && isValidRestaurantImageUrl(cleaned) ? cleaned : '';
+  }, [configDraft.restaurantImageUrl]);
 
   const selectedOrderDisplayItems = useMemo(() => {
     if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
@@ -316,6 +401,7 @@ export default function App() {
 
     return Array.from(grouped.values());
   }, [selectedOrder]);
+  const selectedDriverOrder = useMemo(() => driverOrders.find((order) => order.id === driverActiveOrderId) ?? driverOrders[0] ?? null, [driverActiveOrderId, driverOrders]);
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
   const dashboardOrders = useMemo(() => {
     const fromDate = dashboardDateFrom ? new Date(`${dashboardDateFrom}T00:00:00`) : null;
@@ -346,19 +432,45 @@ export default function App() {
       deliveredRevenue
     };
   }, [dashboardOrders]);
+  const dashboardTimeline = useMemo(() => {
+    const byDay = new Map<string, { accepted: number; rejected: number; delivered: number }>();
+
+    dashboardOrders.forEach((order) => {
+      const key = new Date(order.created_at).toISOString().slice(0, 10);
+      if (!byDay.has(key)) byDay.set(key, { accepted: 0, rejected: 0, delivered: 0 });
+      const entry = byDay.get(key);
+      if (!entry) return;
+
+      if (['ACCEPTED', 'ON_THE_WAY'].includes(order.status)) entry.accepted += 1;
+      if (order.status === 'REJECTED') entry.rejected += 1;
+      if (order.status === 'DELIVERED') entry.delivered += 1;
+    });
+
+    const points = Array.from(byDay.entries())
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+      .map(([date, values]) => ({ date, ...values }));
+
+    const maxValue = points.reduce((acc, item) => Math.max(acc, item.accepted, item.rejected, item.delivered), 1);
+    return { points, maxValue };
+  }, [dashboardOrders]);
 
   useEffect(() => {
     if (!selectedRestaurant) return;
     setConfigDraft({
       openTime: selectedRestaurant.open_time ?? '09:00',
       closeTime: selectedRestaurant.close_time ?? '21:00',
-      restaurantImageUrl: selectedRestaurant.photo_url ?? ''
+      restaurantImageUrl: selectedRestaurant.photo_url ?? '',
+      address: selectedRestaurant.address ?? '',
+      lat: selectedRestaurant.lat != null ? String(selectedRestaurant.lat) : '',
+      lng: selectedRestaurant.lng != null ? String(selectedRestaurant.lng) : '',
+      deliveryFee0_10: String(selectedRestaurant.delivery_fee_0_10 ?? 0),
+      deliveryFee10_15: String(selectedRestaurant.delivery_fee_10_15 ?? 0),
+      deliveryFee15_20: String(selectedRestaurant.delivery_fee_15_20 ?? 0),
+      deliveryFee20_30: String(selectedRestaurant.delivery_fee_20_30 ?? 0)
     });
+    setRestaurantImageMeta(null);
+    setRestaurantImageNotice('');
   }, [selectedRestaurant]);
-
-    return Array.from(grouped.values());
-  }, [selectedOrder]);
-  const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
 
   const playNewOrderSound = () => {
     try {
@@ -439,7 +551,8 @@ export default function App() {
         loadPendingRestaurants(rpcAvailable),
         loadAdminDashboardData(rpcAvailable),
         loadAdminOrders(rpcAvailable),
-        loadAdminMapPoints(rpcAvailable)
+        loadAdminMapPoints(rpcAvailable),
+        loadCommissionSettings()
       ]);
     };
 
@@ -453,7 +566,8 @@ export default function App() {
         loadPendingRestaurants(adminRpcEnabled),
         loadAdminDashboardData(adminRpcEnabled),
         loadAdminOrders(adminRpcEnabled),
-        loadAdminMapPoints(adminRpcEnabled)
+        loadAdminMapPoints(adminRpcEnabled),
+        loadCommissionSettings()
       ]);
     };
 
@@ -467,10 +581,11 @@ export default function App() {
   }, [activeTab, isAdmin, adminPanel]);
 
   useEffect(() => {
+    if (isDriverRoute) return;
     if (isAdminRoute) setActiveTab('admin');
     else if (isRestaurantsRoute && restaurantsMode === 'register') setActiveTab('registro');
     else if (isRestaurantsRoute && restaurantsMode === 'login' && activeTab !== 'restaurante') setActiveTab('registro');
-  }, [isAdminRoute, isRestaurantsRoute, restaurantsMode]);
+  }, [activeTab, isAdminRoute, isDriverRoute, isRestaurantsRoute, restaurantsMode]);
 
   useEffect(() => {
     if (!isTestRoute) return;
@@ -557,6 +672,66 @@ export default function App() {
   }, [searchedOrder?.id]);
 
   useEffect(() => {
+    if (!isDriverRoute) return;
+    if (!driverAccessToken) {
+      setDriverAccessError('Falta el token de acceso del repartidor.');
+      return;
+    }
+
+    const bootDriver = async () => {
+      try {
+        setDriverLoading(true);
+        setDriverAccessError('');
+        await loadDriverSession(driverAccessToken);
+        await loadDriverOrders(driverAccessToken);
+      } catch (error) {
+        console.error(error);
+        setDriverAccessError('No pudimos validar el acceso del repartidor.');
+      } finally {
+        setDriverLoading(false);
+      }
+    };
+
+    void bootDriver();
+  }, [driverAccessToken, isDriverRoute]);
+
+  useEffect(() => {
+    if (!isDriverRoute || !driverSession?.driver_id || !driverAccessToken) return;
+
+    const channel = supabase
+      .channel(`driver-orders-${driverSession.driver_id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `delivery_driver_id=eq.${driverSession.driver_id}`
+      }, () => {
+        void loadDriverOrders(driverAccessToken);
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [driverAccessToken, driverSession?.driver_id, isDriverRoute]);
+
+  useEffect(() => {
+    if (!driverActiveOrderId) return;
+    if (driverOrders.some((order) => order.id === driverActiveOrderId && isDeliveryActiveStatus(order.status))) return;
+    stopDriverLocationSharing('El pedido dejó de estar activo para este repartidor.');
+  }, [driverActiveOrderId, driverOrders]);
+
+  useEffect(() => () => {
+    stopDriverLocationSharing('Ubicación pausada.');
+  }, []);
+
+  useEffect(() => {
+    if (!driverOrders.length) return;
+    if (driverActiveOrderId && driverOrders.some((order) => order.id === driverActiveOrderId)) return;
+    setDriverActiveOrderId(driverOrders[0]?.id ?? null);
+  }, [driverActiveOrderId, driverOrders]);
+
+  useEffect(() => {
     searchedOrderStatusRef.current = searchedOrder?.status ?? null;
   }, [searchedOrder?.id]);
 
@@ -635,11 +810,31 @@ export default function App() {
       const parsedActive = (activeData ?? []) as Restaurant[];
       setRestaurants(parsedActive);
       setSelectedRestaurant(parsedActive[0] ?? null);
+      await loadCommissionSettings();
     } catch (error) {
       console.error(error);
       setErrorMessage('No se pudo cargar la información inicial. Revisa tu conexión con Supabase.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCommissionSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('commission_fee')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (error) throw error;
+      const nextCommission = Math.max(0, Number(data?.commission_fee ?? 0));
+      setCommissionAmount(nextCommission);
+      setCommissionDraft(nextCommission.toFixed(2));
+    } catch (error) {
+      console.error(error);
+      setCommissionAmount(0);
+      setCommissionDraft('0.00');
     }
   };
 
@@ -681,8 +876,7 @@ export default function App() {
         .eq('status', 'PENDING')
         .order('created_at', { ascending: false });
 
-      if (fallbackError) throw fallbackError;
-      if ((fallbackData ?? []).length > 0) {
+      if (!fallbackError) {
         setPendingRestaurants((fallbackData ?? []) as Restaurant[]);
         return;
       }
@@ -693,10 +887,10 @@ export default function App() {
         return;
       }
 
-      setPendingRestaurants([]);
+      throw fallbackError;
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003, CORS de Edge Functions y proyecto Supabase configurado.');
+      setErrorMessage('No se pudo cargar la bandeja de solicitudes pendientes del admin. Revisa migraciones 002/003 y la configuración del proyecto Supabase.');
     }
   };
 
@@ -939,6 +1133,17 @@ export default function App() {
     }
   };
 
+  const loadRestaurantDrivers = async (restaurantId: string) => {
+    const { data, error } = await supabase
+      .from('driver_profiles')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    setRestaurantDrivers((data ?? []) as DriverProfile[]);
+  };
+
   const loadRestaurantData = async (restaurantId: string) => {
     try {
       setMenuLoading(true);
@@ -978,11 +1183,14 @@ export default function App() {
 
       setMenuItems(normalizedMenu);
 
-      const { data: ordersData, error: ordersError } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('restaurant_id', restaurantId)
-        .order('created_at', { ascending: false });
+      const [{ data: ordersData, error: ordersError }] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('*')
+          .eq('restaurant_id', restaurantId)
+          .order('created_at', { ascending: false }),
+        loadRestaurantDrivers(restaurantId)
+      ]);
 
       if (ordersError) throw ordersError;
       setRestaurantOrders((ordersData ?? []) as Order[]);
@@ -1082,7 +1290,9 @@ export default function App() {
       setErrorMessage('');
       const payload: Record<string, unknown> = {
         status: nextStatus,
-        rejection_reason: nextStatus === 'REJECTED' ? (reason ?? 'No podemos cubrir esta distancia por ahora.') : null
+        rejection_reason: nextStatus === 'REJECTED' ? (reason ?? 'No podemos cubrir esta distancia por ahora.') : null,
+        delivery_started_at: nextStatus === 'ON_THE_WAY' ? new Date().toISOString() : order.delivery_started_at ?? null,
+        delivered_at: nextStatus === 'DELIVERED' ? new Date().toISOString() : null
       };
 
       const { error } = await supabase
@@ -1165,6 +1375,9 @@ export default function App() {
           client_lat: clientPoint.lat,
           client_lng: clientPoint.lng,
           items: cartItems,
+          subtotal: cartSubtotal,
+          commission_amount: cartCommission,
+          delivery_amount: cartDelivery,
           total: cartTotal,
           status: 'PENDING'
         })
@@ -1241,7 +1454,14 @@ export default function App() {
         phone: registerForm.whatsapp,
         email: registerForm.email,
         type: registerForm.type,
+        address: registerForm.address || null,
+        lat: registerPoint.lat,
+        lng: registerPoint.lng,
         delivery_radius_km: Number(registerForm.radius),
+        delivery_fee_0_10: 0,
+        delivery_fee_10_15: 0,
+        delivery_fee_15_20: 0,
+        delivery_fee_20_30: 0,
         zones: selectedZones,
         open_time: registerForm.openTime,
         close_time: registerForm.closeTime,
@@ -1253,6 +1473,7 @@ export default function App() {
 
       setRegisterMessage('✅ Tu solicitud fue enviada. El admin la revisará para activarte.');
       setRegisterForm(baseForm);
+      setRegisterPoint({ lat: 21.0419, lng: -102.3425 });
       setSelectedZones(['Aranda centro']);
       await loadInitialData();
     } catch (error) {
@@ -1365,16 +1586,74 @@ export default function App() {
     reportWindow.print();
   };
 
+  const onRestaurantImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setErrorMessage('');
+      setRestaurantImageNotice('');
+      const dataUrl = await fileToDataUrl(file);
+      const safeDataUrl = sanitizeImageUrl(dataUrl);
+
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => reject(new Error('No se pudo leer la imagen seleccionada.'));
+        img.src = safeDataUrl;
+      });
+
+      setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: safeDataUrl }));
+      setRestaurantImageMeta(dimensions);
+
+      if (dimensions.width < RESTAURANT_IMAGE_RECOMMENDED.width || dimensions.height < RESTAURANT_IMAGE_RECOMMENDED.height) {
+        setRestaurantImageNotice(`⚠️ Imagen pequeña (${dimensions.width}x${dimensions.height}px). Recomendado: ${RESTAURANT_IMAGE_RECOMMENDED.width}x${RESTAURANT_IMAGE_RECOMMENDED.height}px o mayor.`);
+      } else {
+        setRestaurantImageNotice(`✅ Imagen lista (${dimensions.width}x${dimensions.height}px).`);
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo procesar la imagen. Prueba con JPG/PNG/WebP.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const updateRestaurantSettings = async () => {
     if (!selectedRestaurant) return;
     try {
       setActionLoading(true);
       setErrorMessage('');
 
+      const cleanedImageUrl = sanitizeImageUrl(configDraft.restaurantImageUrl);
+      if (cleanedImageUrl && !isValidRestaurantImageUrl(cleanedImageUrl)) {
+        setErrorMessage('La imagen debe ser URL (http/https) o base64 válido (data:image/...).');
+        return;
+      }
+
+      const parsedLat = Number(configDraft.lat);
+      const parsedLng = Number(configDraft.lng);
+      const fee0_10 = Math.max(0, Number(configDraft.deliveryFee0_10 || 0));
+      const fee10_15 = Math.max(0, Number(configDraft.deliveryFee10_15 || 0));
+      const fee15_20 = Math.max(0, Number(configDraft.deliveryFee15_20 || 0));
+      const fee20_30 = Math.max(0, Number(configDraft.deliveryFee20_30 || 0));
+
+      if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+        setErrorMessage('Configura coordenadas válidas del restaurante para calcular envío por kilometraje.');
+        return;
+      }
+
       const payload = {
         open_time: configDraft.openTime,
         close_time: configDraft.closeTime,
-        photo_url: configDraft.restaurantImageUrl.trim() || null
+        photo_url: cleanedImageUrl || null,
+        address: configDraft.address || null,
+        lat: parsedLat,
+        lng: parsedLng,
+        delivery_fee_0_10: fee0_10,
+        delivery_fee_10_15: fee10_15,
+        delivery_fee_15_20: fee15_20,
+        delivery_fee_20_30: fee20_30
       };
 
       const { data, error } = await supabase
@@ -1428,6 +1707,230 @@ export default function App() {
     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message.trim())}`;
   };
 
+  const buildDriverDispatchWhatsAppUrl = (driver: DriverProfile, order: Order) => {
+    const clean = normalizePhone(driver.phone);
+    if (!clean) return null;
+    const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
+    const accessUrl = buildDriverAccessUrl(driver.access_token);
+    const mapsUrl = buildGoogleMapsDirectionsUrl(order.client_lat, order.client_lng);
+    const message = `Hola ${driver.name}, te asignaron el pedido #${order.order_number} de ${selectedRestaurant?.name ?? 'Pide ya'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
+    return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`;
+  };
+
+  const createDriverProfile = async () => {
+    if (!selectedRestaurant) return;
+    if (!driverDraft.name.trim() || !driverDraft.phone.trim()) {
+      setErrorMessage('Captura nombre y WhatsApp del repartidor.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase.from('driver_profiles').insert({
+        restaurant_id: selectedRestaurant.id,
+        name: driverDraft.name.trim(),
+        phone: driverDraft.phone.trim(),
+        vehicle_label: driverDraft.vehicleLabel.trim() || null,
+        notes: driverDraft.notes.trim() || null
+      });
+      if (error) throw error;
+      setDriverDraft({ name: '', phone: '', vehicleLabel: '', notes: '' });
+      await loadRestaurantData(selectedRestaurant.id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo guardar el repartidor.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const toggleDriverAvailability = async (driver: DriverProfile) => {
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const { error } = await supabase
+        .from('driver_profiles')
+        .update({ is_active: !driver.is_active })
+        .eq('id', driver.id)
+        .eq('restaurant_id', driver.restaurant_id);
+      if (error) throw error;
+      await loadRestaurantData(driver.restaurant_id);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo actualizar el repartidor.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const assignDriverToOrder = async (order: Order, driverId: string) => {
+    if (!selectedRestaurant) return;
+    const driver = restaurantDrivers.find((item) => item.id === driverId) ?? null;
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+      const payload = driver
+        ? {
+            delivery_driver_id: driver.id,
+            delivery_driver_name: driver.name,
+            delivery_driver_phone: driver.phone,
+            delivery_assigned_at: new Date().toISOString()
+          }
+        : {
+            delivery_driver_id: null,
+            delivery_driver_name: null,
+            delivery_driver_phone: null,
+            delivery_assigned_at: null,
+            delivery_started_at: null,
+            driver_last_lat: null,
+            driver_last_lng: null,
+            driver_location_accuracy_m: null,
+            driver_location_updated_at: null
+          };
+
+      const { error } = await supabase
+        .from('orders')
+        .update(payload)
+        .eq('id', order.id)
+        .eq('restaurant_id', selectedRestaurant.id);
+
+      if (error) throw error;
+      await loadRestaurantData(selectedRestaurant.id);
+      if (searchedOrder?.id === order.id) {
+        const { data } = await supabase.from('orders').select('*').eq('id', order.id).maybeSingle();
+        if (data) setSearchedOrder(data as Order);
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo asignar el repartidor al pedido.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const loadDriverSession = async (token: string) => {
+    const { data, error } = await supabase.rpc('driver_get_session', { p_access_token: token });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : null;
+    setDriverSession((row as DriverSession | undefined) ?? null);
+    if (!row) throw new Error('No encontramos un acceso válido para repartidor.');
+  };
+
+  const loadDriverOrders = async (token: string) => {
+    const { data, error } = await supabase.rpc('driver_get_assigned_orders', { p_access_token: token });
+    if (error) throw error;
+    setDriverOrders((data ?? []) as Order[]);
+  };
+
+  const stopDriverLocationSharing = (nextMessage = 'Ubicación pausada.') => {
+    if (driverWatchIdRef.current != null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(driverWatchIdRef.current);
+    }
+    driverWatchIdRef.current = null;
+    driverLocationSendingRef.current = false;
+    driverLastSentRef.current = null;
+    setDriverGpsStatus(nextMessage);
+    setDriverActiveOrderId(null);
+  };
+
+  const driverTakeOrder = async (orderId: string) => {
+    const { error } = await supabase.rpc('driver_take_order', { p_access_token: driverAccessToken, p_order_id: orderId });
+    if (error) throw error;
+    await loadDriverOrders(driverAccessToken);
+  };
+
+  const openDriverRoute = async (order: Order) => {
+    if (!driverAccessToken) {
+      setDriverAccessError('El enlace del repartidor no contiene token.');
+      return;
+    }
+
+    if (driverWatchIdRef.current == null || driverActiveOrderId !== order.id) {
+      await startDriverLocationSharing(order);
+    }
+
+    const routeUrl = buildGoogleMapsWebDirectionsUrl(order.client_lat, order.client_lng);
+    const isIOSBrowser = mobileInstallContext.isiOS && !isStandalone;
+    if (isIOSBrowser) {
+      setDriverGpsStatus('⚠️ iPhone puede pausar el GPS si sales de Safari. Usa “Agregar a pantalla de inicio” y regresa a esta pantalla para confirmar envío en tiempo real.');
+    }
+
+    if (typeof window !== 'undefined') {
+      window.open(routeUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const startDriverLocationSharing = async (order: Order) => {
+    if (!driverAccessToken) {
+      setDriverAccessError('El enlace del repartidor no contiene token.');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setDriverGpsStatus('Tu teléfono no permite compartir ubicación desde este navegador.');
+      return;
+    }
+
+    try {
+      setDriverGpsStatus('Activando ubicación del repartidor…');
+      if (order.status === 'ACCEPTED') {
+        await driverTakeOrder(order.id);
+      }
+      setDriverActiveOrderId(order.id);
+      if (driverWatchIdRef.current != null) {
+        navigator.geolocation.clearWatch(driverWatchIdRef.current);
+      }
+
+      driverWatchIdRef.current = navigator.geolocation.watchPosition(
+        (position) => {
+          const nextLat = Number(position.coords.latitude.toFixed(6));
+          const nextLng = Number(position.coords.longitude.toFixed(6));
+          const now = Date.now();
+          const previous = driverLastSentRef.current;
+          const movedEnough = !previous || previous.orderId !== order.id || haversineKm(previous.lat, previous.lng, nextLat, nextLng) >= DRIVER_LOCATION_MIN_DISTANCE_KM;
+          const waitedEnough = !previous || previous.orderId !== order.id || (now - previous.sentAt) >= DRIVER_LOCATION_MIN_INTERVAL_MS;
+
+          if ((!movedEnough && !waitedEnough) || driverLocationSendingRef.current) {
+            return;
+          }
+
+          driverLocationSendingRef.current = true;
+          void (async () => {
+            try {
+              const { error } = await supabase.rpc('driver_update_location', {
+                p_access_token: driverAccessToken,
+                p_order_id: order.id,
+                p_lat: nextLat,
+                p_lng: nextLng,
+                p_accuracy_m: position.coords.accuracy ?? null,
+                p_heading: position.coords.heading ?? null,
+                p_speed_mps: position.coords.speed ?? null
+              });
+              if (error) throw error;
+              driverLastSentRef.current = { lat: nextLat, lng: nextLng, sentAt: now, orderId: order.id };
+              setDriverGpsStatus(`Ubicación enviada ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}.`);
+              await loadDriverOrders(driverAccessToken);
+            } catch (error) {
+              console.error(error);
+              setDriverGpsStatus('No se pudo actualizar la ubicación.');
+            } finally {
+              driverLocationSendingRef.current = false;
+            }
+          })();
+        },
+        (error) => {
+          console.error(error);
+          setDriverGpsStatus('Activa el permiso de ubicación/GPS para compartir tu ruta.');
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+    } catch (error) {
+      console.error(error);
+      setDriverGpsStatus('No se pudo activar el tracking del repartidor.');
+    }
+  };
+
   const createMenuItem = async () => {
     if (!selectedRestaurant) {
       setErrorMessage('No hay restaurante activo para crear platillos.');
@@ -1439,7 +1942,8 @@ export default function App() {
         label: option.label.trim(),
         price: option.price.trim(),
         image_url: option.imageUrl.trim() || null,
-        sort_order: index
+        sort_order: index,
+        option_type: option.optionType
       }))
       .filter((option) => option.label && option.price)
       .map((option) => ({
@@ -1447,6 +1951,7 @@ export default function App() {
         price: Number(option.price),
         image_url: option.image_url,
         sort_order: option.sort_order,
+        option_type: option.option_type,
         available: true
       }))
       .filter((option) => Number.isFinite(option.price) && option.price > 0);
@@ -1504,7 +2009,7 @@ export default function App() {
       }
 
       setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category, imageUrl: '' });
-      setMenuDraftOptions([{ label: '', price: '', imageUrl: '' }]);
+      setMenuDraftOptions([{ label: '', price: '', imageUrl: '', optionType: 'size' as const }]);
       await loadRestaurantData(selectedRestaurant.id);
     } catch (error) {
       console.error(error);
@@ -1567,6 +2072,8 @@ export default function App() {
 
       if (menuOptionsEnabled && item.menu_item_options && item.menu_item_options.length > 0) {
         for (const option of item.menu_item_options) {
+          const nextOptionType = window.prompt(`Tipo para opción "${option.label}" (size = tamaño, extra = complemento)`, option.option_type ?? 'size');
+          if (nextOptionType === null) continue;
           const nextOptionPriceRaw = window.prompt(`Precio para opción "${option.label}"`, String(option.price));
           if (nextOptionPriceRaw === null) continue;
           const nextOptionLabel = window.prompt(`Nombre para opción "${option.label}"`, option.label);
@@ -1577,12 +2084,14 @@ export default function App() {
           const parsedOptionPrice = Number(nextOptionPriceRaw);
           if (!Number.isFinite(parsedOptionPrice) || parsedOptionPrice <= 0) continue;
 
+          const validOptionType = (nextOptionType === 'extra' ? 'extra' : 'size') as 'size' | 'extra';
           const { error: optionUpdateError } = await supabase
             .from('menu_item_options')
             .update({
               label: nextOptionLabel.trim() || option.label,
               price: parsedOptionPrice,
-              image_url: nextOptionImageUrl.trim() || null
+              image_url: nextOptionImageUrl.trim() || null,
+              option_type: validOptionType
             })
             .eq('id', option.id);
 
@@ -1647,7 +2156,11 @@ export default function App() {
     }
   };
 
-  const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+  const updateRestaurantStatus = async (
+    restaurantId: string,
+    status: 'ACTIVE' | 'SUSPENDED',
+    previousStatus?: 'PENDING' | 'ACTIVE' | 'SUSPENDED'
+  ) => {
     if (!isAdmin) {
       setErrorMessage('Solo usuarios admin pueden aprobar o rechazar restaurantes.');
       return;
@@ -1665,11 +2178,16 @@ export default function App() {
       }
 
       if (!adminRpcEnabled || (rpcError && isRpcMissingError(rpcError))) {
-        const { error: fallbackError } = await supabase
+        let fallbackQuery = supabase
           .from('restaurants')
           .update({ status })
-          .eq('id', restaurantId)
-          .eq('status', 'PENDING');
+          .eq('id', restaurantId);
+
+        if (previousStatus) {
+          fallbackQuery = fallbackQuery.eq('status', previousStatus);
+        }
+
+        const { error: fallbackError } = await fallbackQuery;
 
         if (fallbackError) {
           if (!adminFunctionEnabled) throw fallbackError;
@@ -1694,6 +2212,76 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setErrorMessage('No pudimos actualizar el estado del restaurante.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const updatePendingRestaurant = async (restaurantId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+    await updateRestaurantStatus(restaurantId, status, 'PENDING');
+  };
+
+  const resetRestaurantPassword = async (restaurantId: string, restaurantName: string) => {
+    if (!isAdmin) {
+      setErrorMessage('Solo usuarios admin pueden resetear claves de restaurantes.');
+      return;
+    }
+
+    const nextPassword = window.prompt(`Nueva contraseña para ${restaurantName}:`, '');
+    if (nextPassword === null) return;
+    if (nextPassword.trim().length < 8) {
+      setErrorMessage('La nueva contraseña del restaurante debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const { error } = await supabase.rpc('admin_reset_restaurant_password', {
+        p_restaurant_id: restaurantId,
+        p_password: nextPassword.trim()
+      });
+
+      if (error) throw error;
+
+      window.alert(`✅ Contraseña actualizada para ${restaurantName}. Comparte la nueva clave con el restaurante.`);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos resetear la contraseña del restaurante. Ejecuta las migraciones 013 y 014 en Supabase para habilitar el reset sin Edge Function.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const saveCommissionSettings = async () => {
+    if (!isAdmin) {
+      setErrorMessage('Solo usuarios admin pueden actualizar comisiones.');
+      return;
+    }
+
+    const parsed = Number(commissionDraft);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setErrorMessage('Ingresa una comisión válida (número mayor o igual a 0).');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const normalized = Number(parsed.toFixed(2));
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ id: 1, commission_fee: normalized }, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      setCommissionAmount(normalized);
+      setCommissionDraft(normalized.toFixed(2));
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No pudimos guardar la comisión global de la app.');
     } finally {
       setActionLoading(false);
     }
@@ -1794,34 +2382,40 @@ export default function App() {
     { key: 'dashboard', label: '📈 Dashboard' },
     { key: 'resumen', label: '📊 Resumen' },
     { key: 'pedidos', label: '📦 Pedidos activos' },
+    { key: 'drivers', label: '🧑‍✈️ Repartidores' },
     { key: 'menu', label: '📋 Mi menú' },
-    { key: 'config', label: '⚙️ Configuración' }
+    { key: 'delivery', label: '🛵 Delivery' }
   ];
 
   return (
     <div>
       <nav className="ae-nav">
         <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Pide<span> ya</span></div>
-        <ul className="nav-links">
-          <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
-          <li><a href="#">¿Cómo funciona?</a></li>
-          <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/pruebas'); }}>Pruebas</a></li>
-          <li style={{ position: 'relative' }}>
-            <a href="#" onClick={(e) => { e.preventDefault(); setRestaurantsMenuOpen((prev) => !prev); }}>Para restaurantes</a>
-            {restaurantsMenuOpen && (
-              <div style={{ position: 'absolute', top: '2rem', right: 0, background: '#fff', border: '1px solid #ecd8c7', borderRadius: '10px', boxShadow: 'var(--shadow)', minWidth: '180px', zIndex: 1200 }}>
-                <button className="btn ghost" style={{ width: '100%', border: 0, borderBottom: '1px solid #f0e4d8', borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=register'); setRestaurantsMenuOpen(false); }}>Registrarse</button>
-                <button className="btn ghost" style={{ width: '100%', border: 0, borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=login'); setRestaurantsMenuOpen(false); }}>Ingresar</button>
-              </div>
+        {!isDriverRoute && (
+          <>
+            <ul className="nav-links">
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
+              <li><a href="#">¿Cómo funciona?</a></li>
+              <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/pruebas'); }}>Pruebas</a></li>
+              <li style={{ position: 'relative' }}>
+                <a href="#" onClick={(e) => { e.preventDefault(); setRestaurantsMenuOpen((prev) => !prev); }}>Para restaurantes</a>
+                {restaurantsMenuOpen && (
+                  <div style={{ position: 'absolute', top: '2rem', right: 0, background: '#fff', border: '1px solid #ecd8c7', borderRadius: '10px', boxShadow: 'var(--shadow)', minWidth: '180px', zIndex: 1200 }}>
+                    <button className="btn ghost" style={{ width: '100%', border: 0, borderBottom: '1px solid #f0e4d8', borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=register'); setRestaurantsMenuOpen(false); }}>Registrarse</button>
+                    <button className="btn ghost" style={{ width: '100%', border: 0, borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=login'); setRestaurantsMenuOpen(false); }}>Ingresar</button>
+                  </div>
+                )}
+              </li>
+            </ul>
+            {!isAdminRoute && (
+              <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrar Restaurante</button>
             )}
-          </li>
-        </ul>
-        {!isAdminRoute && (
-          <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrar Restaurante</button>
+          </>
         )}
+        {isDriverRoute && <span className="status-chip">Modo repartidor</span>}
       </nav>
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && (
         <div className="tabs">
           {[
             { key: 'cliente', label: '👤 Cliente' },
@@ -1834,7 +2428,7 @@ export default function App() {
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && showPwaBanner && !isStandalone && (
+      {!isAdminRoute && !isRestaurantsRoute && !isDriverRoute && showPwaBanner && !isStandalone && (
         <div className="pwa-banner pwa-banner-top">
           <div>
             <p>📲 Instala Pide ya para pedir y dar seguimiento más rápido desde tu celular.</p>
@@ -1846,7 +2440,81 @@ export default function App() {
       {errorMessage && <div className="global-error">{errorMessage}</div>}
       {loading && <div className="global-loading">Cargando datos de la plataforma…</div>}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && activeTab === 'cliente' && (
+      {isDriverRoute && (
+        <div className="page active">
+          <div className="driver-shell">
+            <div className="driver-hero">
+              <div>
+                <div className="hero-badge">🧑‍✈️ Modo repartidor móvil</div>
+                <h1>{driverSession?.driver_name ?? 'Repartidor'}<br /><em>{driverSession?.restaurant_name ?? 'Pide ya'}</em></h1>
+                <p>Desde aquí solo ves tus pedidos asignados, puedes abrir la ruta del cliente y compartir tu GPS en tiempo real.</p>
+              </div>
+              <div className="driver-hero-status">
+                <strong>{driverLoading ? 'Validando acceso…' : driverSession?.is_active ? 'Acceso activo' : 'Acceso restringido'}</strong>
+                <span>{driverSession?.vehicle_label ?? 'Sin vehículo capturado'}</span>
+                {driverSession?.last_location_at && <small>Última ubicación: {formatRelative(driverSession.last_location_at)}</small>}
+              </div>
+            </div>
+
+            {driverAccessError && <div className="global-error">{driverAccessError}</div>}
+
+            <div className="driver-grid">
+              <section className="driver-panel">
+                <h3>Pedidos asignados</h3>
+                {driverOrders.length === 0 && !driverLoading && (
+                  <div className="menu-empty">Aún no tienes pedidos activos asignados. Cuando el restaurante te asigne uno, aparecerá aquí.</div>
+                )}
+                <div className="driver-orders">
+                  {driverOrders.map((order) => (
+                    <article key={order.id} className={`incoming-order ${driverActiveOrderId === order.id ? 'selected-driver-order' : ''}`}>
+                      <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
+                      <p><strong>Cliente:</strong> {order.client_name ?? 'Sin nombre'} · {order.client_phone ?? 'Sin teléfono'}</p>
+                      <p><strong>Referencia:</strong> {order.client_location_note ?? 'Sin referencia'}</p>
+                      <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                      <div className="driver-actions">
+                        <button className="btn ghost" onClick={() => setDriverActiveOrderId(order.id)}>Ver este pedido</button>
+                        <button className="btn ghost" type="button" onClick={() => void openDriverRoute(order)}>Abrir ruta</button>
+                        <button className="btn green" onClick={() => void startDriverLocationSharing(order)}>{driverActiveOrderId === order.id ? 'Seguir compartiendo GPS' : order.status === 'ACCEPTED' ? 'Tomar pedido y salir' : 'Compartir ubicación'}</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <aside className="driver-panel">
+                <h3>Tracking en tiempo real</h3>
+                {selectedDriverOrder ? (
+                  <>
+                    <div className="driver-status-box">
+                      <strong>Pedido activo #{selectedDriverOrder.order_number}</strong>
+                      <p>{selectedDriverOrder.status === 'ON_THE_WAY' ? 'Tu ubicación ya puede verse por el cliente en tiempo real.' : 'Cuando tomes el pedido, el sistema lo pondrá en camino.'}</p>
+                      <p><strong>GPS:</strong> {driverGpsStatus || 'Presiona “Compartir ubicación” para iniciar.'}</p>
+                      <small className="driver-location-meta">Si abres Google Maps y sales de Safari, iPhone puede pausar la ubicación en segundo plano. Revisa este panel al volver.</small>
+                      <div className="driver-actions">
+                        <button className="btn ghost" onClick={() => stopDriverLocationSharing()}>Pausar GPS</button>
+                        <a className="btn ghost" href={buildGoogleMapsUrl(selectedDriverOrder.client_lat, selectedDriverOrder.client_lng)} target="_blank" rel="noreferrer">Ver cliente</a>
+                      </div>
+                    </div>
+                    <div className="mini-map-box">
+                      <MapViewer lat={selectedDriverOrder.client_lat} lng={selectedDriverOrder.client_lng} title={`Destino pedido #${selectedDriverOrder.order_number}`} />
+                    </div>
+                    {selectedDriverOrder.driver_last_lat != null && selectedDriverOrder.driver_last_lng != null && (
+                      <div className="mini-map-box">
+                        <MapViewer lat={selectedDriverOrder.driver_last_lat} lng={selectedDriverOrder.driver_last_lng} title={`Tu última ubicación enviada · pedido #${selectedDriverOrder.order_number}`} />
+                        <small className="driver-location-meta">Última actualización: {selectedDriverOrder.driver_location_updated_at ? formatRelative(selectedDriverOrder.driver_location_updated_at) : 'recién capturada'}.</small>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="menu-empty">Selecciona un pedido para activar la navegación y el GPS.</div>
+                )}
+              </aside>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && activeTab === 'cliente' && (
         <div className="page active">
           <div className="hero">
             <div className="hero-inner">
@@ -1861,7 +2529,18 @@ export default function App() {
             <div className="rest-grid">
               {restaurants.map((restaurant) => (
                 <div key={restaurant.id} className="rcard" onClick={() => openMenu(restaurant)}>
-                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>🍽️<div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div></div>
+                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>
+                    {restaurant.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(restaurant.photo_url)) && (
+                      <img
+                        src={sanitizeImageUrl(restaurant.photo_url)}
+                        alt={`Banner ${restaurant.name}`}
+                        className="restaurant-banner-photo"
+                        onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                      />
+                    )}
+                    <span className="banner-fallback">🍽️</span>
+                    <div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div>
+                  </div>
                   <div className="rcard-body">
                     <div className="rname">{restaurant.name}</div>
                     <div className="rmeta"><span>📦 {restaurant.type}</span><span>📍 {restaurant.delivery_radius_km} km</span></div>
@@ -1871,7 +2550,7 @@ export default function App() {
             </div>
           </div>
 
-          {showPwaBanner && !isStandalone && (
+          {showPwaBanner && !isStandalone && !isDriverRoute && (
             <div className="pwa-banner pwa-banner-footer">
               <div>
                 <p>📲 ¿Te vas? También puedes instalar Pide ya desde aquí.</p>
@@ -1883,7 +2562,7 @@ export default function App() {
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && activeTab === 'seguimiento' && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && activeTab === 'seguimiento' && (
         <div className="page active">
           <div className="track-wrap">
             <div className="track-lookup">
@@ -1907,6 +2586,61 @@ export default function App() {
                     <div key={`${item.menu_item_id}-${item.qty}`}>• {item.qty}x {item.name} · {formatPrice(item.subtotal)}</div>
                   ))}
                   <div className="summary-foot"><strong>Total: {formatPrice(Number(searchedOrder.total))}</strong> · Pago en efectivo<br />📌 Estatus actual: <strong>{statusLabel(searchedOrder.status)}</strong>{searchedOrder.status === 'REJECTED' && searchedOrder.rejection_reason ? ` · Motivo: ${searchedOrder.rejection_reason}` : ''}<br />📍 {searchedOrder.client_location_note ?? 'Sin referencia'}<br />👤 {searchedOrder.client_name ?? 'Sin nombre'} · 📱 {searchedOrder.client_phone ?? 'Sin teléfono'}<br /><span style={{ color: 'var(--muted)' }}>Esta vista se actualiza automáticamente cuando el restaurante cambia el estatus.</span></div>
+
+                  {searchedOrder.delivery_driver_id && (
+                    <div className="tracking-live-card">
+                      <h4>🛵 Seguimiento de reparto</h4>
+                      <p><strong>Repartidor:</strong> {searchedOrder.delivery_driver_name ?? 'Asignado'}{searchedOrder.delivery_driver_phone ? ` · ${searchedOrder.delivery_driver_phone}` : ''}</p>
+                      <p><strong>Estado del reparto:</strong> {statusLabel(searchedOrder.status)}</p>
+                      <p>{searchedOrder.status === 'ON_THE_WAY' ? 'Tu pedido va en camino y la ubicación del repartidor se actualiza en tiempo real.' : 'El restaurante ya asignó un repartidor. En cuanto salga, verás su movimiento aquí.'}</p>
+
+                      <div className="tracking-map-grid tracking-map-grid-single">
+                        <div className="mini-map-box">
+                          <MapViewer
+                            lat={searchedOrder.driver_last_lat ?? searchedOrder.client_lat}
+                            lng={searchedOrder.driver_last_lng ?? searchedOrder.client_lng}
+                            title="Mapa del pedido en camino"
+                            markers={[
+                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, color: 'red', label: 'C', size: 'mid' },
+                              ...(searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, color: 'blue', label: 'R', size: 'mid' } as const]
+                                : [])
+                            ]}
+                            overlays={[
+                              { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng, icon: '🏠', tone: 'home' },
+                              ...(searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                                ? [{ lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng, icon: '🛵', tone: 'driver' } as const]
+                                : [])
+                            ]}
+                            showBaseMarkers={false}
+                            paths={searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null
+                              ? [{
+                                  color: '0x2f3640cc',
+                                  weight: 5,
+                                  points: [
+                                    { lat: searchedOrder.driver_last_lat, lng: searchedOrder.driver_last_lng },
+                                    { lat: searchedOrder.client_lat, lng: searchedOrder.client_lng }
+                                  ]
+                                }]
+                              : []}
+                          />
+                          <div className="tracking-map-legend">
+                            <span>🏠 Cliente</span>
+                            <span>🛵 Repartidor</span>
+                            {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null && (
+                              <span>📏 Distancia aprox: {haversineKm(searchedOrder.driver_last_lat, searchedOrder.driver_last_lng, searchedOrder.client_lat, searchedOrder.client_lng).toFixed(1)} km</span>
+                            )}
+                          </div>
+                          {searchedOrder.driver_last_lat != null && searchedOrder.driver_last_lng != null ? (
+                            <small className="driver-location-meta">Última actualización del repartidor: {searchedOrder.driver_location_updated_at ? formatRelative(searchedOrder.driver_location_updated_at) : 'recién enviada'}.</small>
+                          ) : (
+                            <small className="driver-location-meta">El repartidor ya fue asignado. La moto aparecerá en cuanto comparta GPS desde su celular.</small>
+                          )}
+                          <a className="map-link" href={buildGoogleMapsUrl(searchedOrder.client_lat, searchedOrder.client_lng)} target="_blank" rel="noreferrer">Abrir mi ubicación</a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -2007,6 +2741,9 @@ export default function App() {
                 <li key={panel.key}><button className={restaurantPanel === panel.key ? 'active' : ''} onClick={() => setRestaurantPanel(panel.key)}>{panel.label}</button></li>
               ))}
             </ul>
+            <div className="restaurant-sidebar-footer">
+              <button className={restaurantPanel === 'config' ? 'active' : ''} onClick={() => setRestaurantPanel('config')}>⚙️ Configuración</button>
+            </div>
           </aside>
 
           <section className="restaurant-main">
@@ -2048,6 +2785,24 @@ export default function App() {
                   <article className="stat-card"><p>INGRESOS</p><strong>{formatPrice(dashboardMetrics.deliveredRevenue)}</strong></article>
                 </div>
 
+                <div className="dashboard-timeline-card">
+                  <h4>Pedidos por día (aceptados / rechazados / entregados)</h4>
+                  {dashboardTimeline.points.length === 0 ? (
+                    <p>No hay información para el rango seleccionado.</p>
+                  ) : (
+                    <div className="dashboard-timeline-grid">
+                      {dashboardTimeline.points.map((point) => (
+                        <article key={point.date} className="dashboard-day-card">
+                          <strong>{new Date(`${point.date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</strong>
+                          <span>Aceptados: {point.accepted}</span>
+                          <span>Rechazados: {point.rejected}</span>
+                          <span>Entregados: {point.delivered}</span>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="bars" style={{ background: '#fff', border: '1px solid #ecd8c7', borderRadius: '12px', padding: '.8rem' }}>
                   {[
                     { label: 'Aceptados', value: dashboardMetrics.accepted, color: '#2D6A4F' },
@@ -2069,9 +2824,77 @@ export default function App() {
               </div>
             )}
 
+            {restaurantPanel === 'drivers' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>🧑‍✈️ Repartidores del restaurante</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Cada repartidor recibe un enlace privado por WhatsApp para abrir un panel móvil con solo sus pedidos asignados y compartir GPS.</p>
+
+                <div className="frow">
+                  <div className="fg"><label>Nombre</label><input className="fi" value={driverDraft.name} onChange={(e) => setDriverDraft((prev) => ({ ...prev, name: e.target.value }))} placeholder="Ej. José Martínez" /></div>
+                  <div className="fg"><label>WhatsApp</label><input className="fi" value={driverDraft.phone} onChange={(e) => setDriverDraft((prev) => ({ ...prev, phone: e.target.value }))} placeholder="3441234567" /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Vehículo</label><input className="fi" value={driverDraft.vehicleLabel} onChange={(e) => setDriverDraft((prev) => ({ ...prev, vehicleLabel: e.target.value }))} placeholder="Moto roja / Nissan estaquitas" /></div>
+                  <div className="fg"><label>Notas</label><input className="fi" value={driverDraft.notes} onChange={(e) => setDriverDraft((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Horario, zona o turno" /></div>
+                </div>
+                <button className="btn" onClick={createDriverProfile} disabled={actionLoading || !selectedRestaurant}>Guardar repartidor</button>
+
+                <div className="driver-roster">
+                  {restaurantDrivers.map((driver) => (
+                    <article key={driver.id} className="driver-card">
+                      <div>
+                        <h4>{driver.name}</h4>
+                        <p>{driver.phone} · {driver.vehicle_label ?? 'Vehículo sin capturar'}</p>
+                        <p style={{ color: 'var(--muted)' }}>{driver.notes ?? 'Sin notas'}{driver.last_location_at ? ` · Última ubicación ${formatRelative(driver.last_location_at)}` : ''}</p>
+                        <input className="fi" readOnly value={buildDriverAccessUrl(driver.access_token)} />
+                      </div>
+                      <div className="driver-actions">
+                        <button className={`btn ${driver.is_active ? 'ghost' : 'green'}`} onClick={() => void toggleDriverAvailability(driver)} disabled={actionLoading}>{driver.is_active ? 'Desactivar' : 'Activar'}</button>
+                        <a className="btn ghost" href={`https://wa.me/${normalizePhone(driver.phone).startsWith('52') ? normalizePhone(driver.phone) : `52${normalizePhone(driver.phone)}`}?text=${encodeURIComponent(`Hola ${driver.name}, este es tu acceso de repartidor para Pide ya: ${buildDriverAccessUrl(driver.access_token)}`)}`} target="_blank" rel="noreferrer">Mandar acceso</a>
+                      </div>
+                    </article>
+                  ))}
+                  {restaurantDrivers.length === 0 && <div className="menu-empty">Todavía no has dado de alta repartidores. Crea el primero para comenzar a asignar pedidos.</div>}
+                </div>
+              </div>
+            )}
+
+            {restaurantPanel === 'delivery' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>🛵 Configuración de delivery</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Configura la ubicación base del restaurante y la tarifa por rango de distancia.</p>
+
+                <div className="frow">
+                  <div className="fg"><label>Dirección del restaurante</label><input className="fi" value={configDraft.address} onChange={(e) => setConfigDraft((prev) => ({ ...prev, address: e.target.value }))} placeholder="Ej. Calle Morelos 123, Arandas" /></div>
+                  <div className="fg"><label>Tarifa 0 a 10 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee0_10} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee0_10: e.target.value }))} /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Tarifa 10 a 15 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee10_15} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee10_15: e.target.value }))} /></div>
+                  <div className="fg"><label>Tarifa 15 a 20 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee15_20} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee15_20: e.target.value }))} /></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label>Tarifa 20 a 30 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee20_30} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee20_30: e.target.value }))} /></div>
+                  <div className="fg"><label>Vista previa actual</label><input className="fi" readOnly value={estimatedDeliveryDistanceKm == null ? 'Falta coordenada de restaurante o cliente para estimar.' : `${estimatedDeliveryDistanceKm.toFixed(1)} km → ${formatPrice(cartDelivery)}`} /></div>
+                </div>
+
+                <div className="fg">
+                  <label>Ubicación en mapa del restaurante</label>
+                  <MapPicker
+                    lat={Number(configDraft.lat || selectedRestaurant?.lat || 21.0419)}
+                    lng={Number(configDraft.lng || selectedRestaurant?.lng || -102.3425)}
+                    addressText={configDraft.address}
+                    onAddressTextChange={(value) => setConfigDraft((prev) => ({ ...prev, address: value }))}
+                    onChange={(point) => setConfigDraft((prev) => ({ ...prev, lat: String(point.lat), lng: String(point.lng) }))}
+                  />
+                </div>
+                <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración de delivery</button>
+              </div>
+            )}
+
             {restaurantPanel === 'config' && (
               <div className="panel-placeholder">
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>⚙️ Configuración del restaurante</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Este panel conserva el mismo correo de registro del restaurante.</p>
                 <div className="frow">
                   <div className="fg"><label>Correo de acceso</label><input className="fi" value={selectedRestaurant?.email ?? ''} readOnly /></div>
                   <div className="fg"><label>Nueva contraseña</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" value={configPassword} onChange={(e) => setConfigPassword(e.target.value)} /></div>
@@ -2082,7 +2905,37 @@ export default function App() {
                   <div className="fg"><label>Hora de apertura</label><input className="fi" type="time" value={configDraft.openTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, openTime: e.target.value }))} /></div>
                   <div className="fg"><label>Hora de cierre</label><input className="fi" type="time" value={configDraft.closeTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, closeTime: e.target.value }))} /></div>
                 </div>
-                <div className="fg"><label>Imagen del restaurante (opcional)</label><input className="fi" placeholder="URL/base64" value={configDraft.restaurantImageUrl} onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: e.target.value }))} /></div>
+                <div className="fg">
+                  <label>Imagen del restaurante (opcional)</label>
+                  <p className="input-help">Tamaño recomendado: {RESTAURANT_IMAGE_RECOMMENDED.width} x {RESTAURANT_IMAGE_RECOMMENDED.height}px (16:9), formato JPG/PNG/WebP.</p>
+                  <div className="image-picker-row">
+                    <button type="button" className="btn ghost" onClick={() => restaurantImageInputRef.current?.click()}>Seleccionar imagen</button>
+                    <input
+                      ref={restaurantImageInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(event) => void onRestaurantImageFileChange(event)}
+                    />
+                    {restaurantImageMeta && <span className="input-help">{restaurantImageMeta.width} x {restaurantImageMeta.height}px</span>}
+                  </div>
+                  {restaurantImageNotice && <p className="input-help">{restaurantImageNotice}</p>}
+                  <input
+                    className="fi"
+                    placeholder="https://... o data:image/..."
+                    value={configDraft.restaurantImageUrl}
+                    onChange={(e) => setConfigDraft((prev) => ({ ...prev, restaurantImageUrl: sanitizeImageUrl(e.target.value) }))}
+                  />
+                  {restaurantImagePreviewSrc && (
+                    <div className="restaurant-image-preview">
+                      <img
+                        src={restaurantImagePreviewSrc}
+                        alt="Vista previa restaurante"
+                        onError={() => setRestaurantImageNotice('⚠️ La imagen no se pudo previsualizar. Revisa que sea URL/data:image válida.')}
+                      />
+                    </div>
+                  )}
+                </div>
                 <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración</button>
               </div>
             )}
@@ -2105,7 +2958,7 @@ export default function App() {
                     return (
                       <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
                         <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
-                        <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                        <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(order))} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                         <div className="client-box">
                           👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
                           {buildWhatsAppUrl(order.client_phone, order) && (
@@ -2119,6 +2972,21 @@ export default function App() {
                           <br />📝 {order.client_location_note ?? 'Sin referencia de ubicación'}
                         </div>
                         <div className="distance-box">📍 Distancia estimada: <strong>{distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'Sin coordenadas suficientes'}</strong></div>
+
+                        <div className="driver-assignment-box">
+                          <strong>Repartidor:</strong> {order.delivery_driver_name ?? 'Sin asignar'}
+                          <div className="driver-actions">
+                            <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
+                              <option value="">Sin asignar</option>
+                              {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
+                                <option key={driver.id} value={driver.id}>{driver.name}</option>
+                              ))}
+                            </select>
+                            {order.delivery_driver_id && restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) && (
+                              <a className="btn ghost" href={buildDriverDispatchWhatsAppUrl(restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) as DriverProfile, order) ?? '#'} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>
+                            )}
+                          </div>
+                        </div>
 
                         {order.client_lat != null && order.client_lng != null && (
                           <div className="mini-map-box">
@@ -2148,26 +3016,16 @@ export default function App() {
                   })}
                 </div>
 
-                      </article>
-                    );
-                  })}
-                </div>
+              </>
+            )}
 
-                      </article>
-                    );
-                  })}
-                </div>
-
-                      </article>
-                    );
-                  })}
-                </div>
-
+            {restaurantPanel === 'pedidos' && (
+              <>
                 {selectedOrder && (
-                  <article className="incoming-order selected-order-card">
+                  <article className="incoming-order selected-order-card" style={{ marginBottom: '.9rem' }}>
                     <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
                     <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
-                    <p><strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
+                    <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(selectedOrder))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(selectedOrder))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(selectedOrder))} · <strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
                     <div className="client-box">
                       👤 {selectedOrder.client_name ?? 'Sin nombre'} · 📱 {selectedOrder.client_phone ?? 'Sin teléfono'}
                       {buildWhatsAppUrl(selectedOrder.client_phone, selectedOrder) && (
@@ -2183,10 +3041,24 @@ export default function App() {
                     <div className="detail-items">
                       <h5>Detalle de productos</h5>
                       <ul>
-                        {selectedOrder.items?.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
+                        {selectedOrderDisplayItems.map((item) => (
+                          <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? 'base'}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
                         ))}
                       </ul>
+                    </div>
+                    <div className="driver-assignment-box">
+                      <strong>Repartidor:</strong> {selectedOrder.delivery_driver_name ?? 'Sin asignar'}
+                      <div className="driver-actions">
+                        <select className="fi" value={selectedOrder.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(selectedOrder.status)} onChange={(e) => void assignDriverToOrder(selectedOrder, e.target.value)}>
+                          <option value="">Sin asignar</option>
+                          {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
+                            <option key={driver.id} value={driver.id}>{driver.name}</option>
+                          ))}
+                        </select>
+                        {selectedOrder.delivery_driver_id && restaurantDrivers.find((driver) => driver.id === selectedOrder.delivery_driver_id) && (
+                          <a className="btn ghost" href={buildDriverDispatchWhatsAppUrl(restaurantDrivers.find((driver) => driver.id === selectedOrder.delivery_driver_id) as DriverProfile, selectedOrder) ?? '#'} target="_blank" rel="noreferrer">Enviar acceso por WhatsApp</a>
+                        )}
+                      </div>
                     </div>
                     {selectedOrder.client_lat != null && selectedOrder.client_lng != null && (
                       <div className="mini-map-box">
@@ -2196,49 +3068,8 @@ export default function App() {
                     )}
                   </article>
                 )}
-              </>
-            )}
-
-
-            {restaurantPanel === 'pedidos' && (
-              <>
                 <div className="orders-grid-title">📦 Todos los pedidos</div>
                 <p className="orders-mode-note">Vista de pedidos activos: tabla con filtros y acciones.</p>
-
-            {(restaurantPanel === 'resumen' || restaurantPanel === 'menu') && (
-              <div className="menu-editor">
-                <div className="menu-editor-head"><h3>📋 Mi Menú</h3></div>
-                <div className="menu-create-grid">
-                  <div className="fg"><label>Nombre del platillo</label><input className="fi" placeholder="ej. Combo familiar" value={menuDraft.name} onChange={(e) => setMenuDraft((prev) => ({ ...prev, name: e.target.value }))} /></div>
-                  <div className="fg"><label>Precio base MXN</label><input className="fi" type="number" min="1" step="1" placeholder="150" value={menuDraft.price} onChange={(e) => setMenuDraft((prev) => ({ ...prev, price: e.target.value }))} /></div>
-                  <div className="fg"><label>Categoría</label><input className="fi" placeholder="Especialidades" value={menuDraft.category} onChange={(e) => setMenuDraft((prev) => ({ ...prev, category: e.target.value }))} /></div>
-                  <div className="fg menu-create-full">
-                    <label>Imagen principal del platillo</label>
-                    <p className="field-hint">Medida recomendada: <strong>1200x800 px</strong> (relación 3:2) en JPG/WebP.</p>
-                    <div className="menu-option-row menu-option-row-image">
-                      <input className="fi" placeholder="Pega URL de imagen o usa el botón para subir" value={menuDraft.imageUrl} onChange={(e) => setMenuDraft((prev) => ({ ...prev, imageUrl: e.target.value }))} />
-                      <input className="fi" type="file" accept="image/*" onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        try {
-                          const dataUrl = await fileToDataUrl(file);
-                          setMenuDraft((prev) => ({ ...prev, imageUrl: dataUrl }));
-                        } catch {
-                          setErrorMessage('No se pudo cargar la imagen del platillo.');
-                        }
-                      }} />
-                    </div>
-                    <div className="detail-items">
-                      <h5>Detalle de productos</h5>
-                      <ul>
-                        {selectedOrderDisplayItems.map((item) => (
-                          <li key={`${selectedOrder.id}-${item.menu_item_id}-${item.option_id ?? item.option_label ?? item.name}`}>{item.qty} × {item.name} · {formatPrice(item.subtotal)}</li>
-                        ))}
-                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
-                      </div>
-                    )}
-                  </article>
-                )}
 
                 <div className="orders-filters">
                   <input className="fi" placeholder="Buscar por # pedido" value={orderSearchTerm} onChange={(e) => setOrderSearchTerm(e.target.value)} />
@@ -2255,6 +3086,7 @@ export default function App() {
                         <th>Cliente</th>
                         <th>Total</th>
                         <th>Ubicación</th>
+                        <th>Repartidor</th>
                         <th>Estatus</th>
                         <th>Acción</th>
                       </tr>
@@ -2267,9 +3099,20 @@ export default function App() {
                           <td>{order.client_name ?? 'Sin nombre'}</td>
                           <td>{formatPrice(Number(order.total))}</td>
                           <td>{order.client_location_note ?? 'Sin referencia'}</td>
+                          <td>
+                            <div className="table-actions table-actions-stack">
+                              <span className="status-chip">{order.delivery_driver_name ?? 'Sin asignar'}</span>
+                              <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
+                                <option value="">Sin asignar</option>
+                                {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
+                                  <option key={driver.id} value={driver.id}>{driver.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </td>
                           <td><span className="status-chip">{statusLabel(order.status)}</span></td>
                           <td>
-                            <div className="table-actions">
+                            <div className="table-actions table-actions-stack">
                               <select
                                 className="fi"
                                 disabled={actionLoading || !nextStatusByOrderState[order.status]?.length}
@@ -2284,14 +3127,19 @@ export default function App() {
                                   <option key={nextStatus} value={nextStatus}>{statusLabel(nextStatus)}</option>
                                 ))}
                               </select>
-                              <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
+                              <div className="table-actions">
+                                {order.delivery_driver_id && restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) && (
+                                  <a className="btn ghost" href={buildDriverDispatchWhatsAppUrl(restaurantDrivers.find((driver) => driver.id === order.delivery_driver_id) as DriverProfile, order) ?? '#'} target="_blank" rel="noreferrer">WhatsApp repartidor</a>
+                                )}
+                                <button className="btn" onClick={() => setSelectedOrderId(order.id)}>Ver detalles</button>
+                              </div>
                             </div>
                           </td>
                         </tr>
                       ))}
                       {filteredRestaurantOrders.length === 0 && (
                         <tr>
-                          <td colSpan={7}>No hay pedidos para los filtros seleccionados.</td>
+                          <td colSpan={8}>No hay pedidos para los filtros seleccionados.</td>
                         </tr>
                       )}
                     </tbody>
@@ -2327,15 +3175,19 @@ export default function App() {
                   <div className="fg menu-create-full"><label>Descripción</label><textarea className="fta" placeholder="Describe ingredientes o promoción" value={menuDraft.description} onChange={(e) => setMenuDraft((prev) => ({ ...prev, description: e.target.value }))} /></div>
                   <div className="fg menu-create-full">
                     <label>Opciones del platillo (opcional)</label>
-                    <p className="field-hint">Ejemplo: pizza Pequeña, Mediana y Grande, cada una con su precio.</p>
+                    <p className="field-hint">Usa tipo <strong>Tamaño</strong> para variantes excluyentes (ej. Pequeña, Mediana, Grande) y <strong>Extra</strong> para complementos adicionales (ej. queso extra, tocino).</p>
                     {!menuOptionsEnabled ? (
                       <div className="menu-empty">Esta función estará disponible cuando se ejecute la migración <code>007_menu_item_options.sql</code>.</div>
                     ) : (
                       <div className="menu-options-editor">
                         {menuDraftOptions.map((option, index) => (
                           <div key={`draft-option-${index}`} className="menu-option-row">
-                            <input className="fi" placeholder="Nombre opción (ej. Mediana)" value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
-                            <input className="fi" type="number" min="1" step="1" placeholder="Precio" value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                            <select className="fs" value={option.optionType} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, optionType: e.target.value as 'size' | 'extra' } : item))} style={{ maxWidth: '120px' }}>
+                              <option value="size">Tamaño</option>
+                              <option value="extra">Extra</option>
+                            </select>
+                            <input className="fi" placeholder={option.optionType === 'size' ? 'Nombre tamaño (ej. Mediana)' : 'Nombre extra (ej. Queso extra)'} value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
+                            <input className="fi" type="number" min="1" step="1" placeholder={option.optionType === 'size' ? 'Precio completo' : 'Precio extra'} value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
                             <input className="fi" placeholder="Imagen opción (URL/base64)" value={option.imageUrl} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: e.target.value } : item))} />
                             <input className="fi" type="file" accept="image/*" onChange={async (e) => {
                               const file = e.target.files?.[0];
@@ -2352,7 +3204,7 @@ export default function App() {
                             )}
                           </div>
                         ))}
-                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '' }])}>+ Agregar opción</button>
+                        <button className="btn ghost" type="button" onClick={() => setMenuDraftOptions((prev) => [...prev, { label: '', price: '', imageUrl: '', optionType: 'size' as const }])}>+ Agregar opción</button>
                       </div>
                     )}
                   </div>
@@ -2368,7 +3220,7 @@ export default function App() {
                         {item.menu_item_options && item.menu_item_options.length > 0 ? (
                           <div className="menu-card-options">
                             {item.menu_item_options.filter((option) => option.available).map((option) => (
-                              <div key={option.id} className="menu-card-option"><span>{option.label}</span><strong>{formatPrice(option.price)}</strong></div>
+                              <div key={option.id} className="menu-card-option"><span>{option.option_type === 'extra' ? '➕' : '📏'} {option.label}</span><strong>{option.option_type === 'extra' ? '+' : ''}{formatPrice(option.price)}</strong></div>
                             ))}
                           </div>
                         ) : (
@@ -2411,6 +3263,8 @@ export default function App() {
                 </div>
                 <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" value={registerForm.description} onChange={(e) => setRegisterForm((p) => ({ ...p, description: e.target.value }))} /></div>
                 <div className="fg"><label>Radio de entrega máximo</label><select className="fs" value={registerForm.radius} onChange={(e) => setRegisterForm((p) => ({ ...p, radius: e.target.value }))}><option value="5">5 km</option><option value="10">10 km</option><option value="15">15 km</option><option value="20">20 km</option><option value="30">30 km</option></select></div>
+                <div className="fg"><label>Dirección base del restaurante</label><input className="fi" placeholder="Ej. Av. Hidalgo 120, Arandas" value={registerForm.address} onChange={(e) => setRegisterForm((p) => ({ ...p, address: e.target.value }))} /></div>
+                <div className="fg"><label>Ubicación en mapa del restaurante</label><MapPicker lat={registerPoint.lat} lng={registerPoint.lng} addressText={registerForm.address} onAddressTextChange={(value) => setRegisterForm((p) => ({ ...p, address: value }))} onChange={setRegisterPoint} /></div>
                 <div className="fg"><label>Zonas que cubre</label><div className="zchips">{['Aranda centro', 'Arandas', 'El Saucito', 'Las Flores', 'La Providencia', 'San José', 'El Llano', 'Ranchos varios'].map((zone) => (<button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>))}</div></div>
                 <div className="frow"><div className="fg"><label>Apertura</label><input className="fi" type="time" value={registerForm.openTime} onChange={(e) => setRegisterForm((p) => ({ ...p, openTime: e.target.value }))} /></div><div className="fg"><label>Cierre</label><input className="fi" type="time" value={registerForm.closeTime} onChange={(e) => setRegisterForm((p) => ({ ...p, closeTime: e.target.value }))} /></div></div>
                 <button className="btnreg" onClick={submitRegister} disabled={actionLoading}>Enviar registro →</button>
@@ -2451,6 +3305,7 @@ export default function App() {
                 {[
                   { key: 'dashboard', label: '📊 Dashboard' },
                   { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                  { key: 'comisiones', label: '💰 Comisiones' },
                   { key: 'pedidos', label: '📦 Pedidos' },
                   { key: 'antispam', label: '🚨 Anti-spam' },
                   { key: 'mapa', label: '📍 Mapa en vivo' },
@@ -2488,13 +3343,14 @@ export default function App() {
                 <>
                   <div className="admin-session">
                     <p>Sesión admin activa: <strong>{adminUser?.email}</strong></p>
-                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled)])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
+                    <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled), loadCommissionSettings()])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
                   </div>
 
                   <div className="admin-panel-tabs">
                     {[
                       { key: 'dashboard', label: '📊 Dashboard' },
                       { key: 'restaurantes', label: '🍽️ Restaurantes' },
+                      { key: 'comisiones', label: '💰 Comisiones' },
                       { key: 'pedidos', label: '📦 Pedidos' },
                       { key: 'antispam', label: '🚨 Anti-spam' },
                       { key: 'mapa', label: '📍 Mapa en vivo' },
@@ -2546,15 +3402,36 @@ export default function App() {
                   {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <article className="admin-card">
                       <h4>🍽️ Restaurantes</h4>
-                      {adminRestaurants.map((item) => (
-                        <div key={item.id} className="admin-restaurant-row">
-                          <div>
-                            <strong>{item.name}</strong>
-                            <p>{item.orders_today} pedidos hoy</p>
+                      {adminRestaurants.map((item) => {
+                        const nextStatus = item.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+                        const actionLabel = item.status === 'ACTIVE' ? 'Apagar' : 'Encender';
+
+                        return (
+                          <div key={item.id} className="admin-restaurant-row">
+                            <div>
+                              <strong>{item.name}</strong>
+                              <p>{item.orders_today} pedidos hoy</p>
+                            </div>
+                            <div className="admin-restaurant-actions">
+                              <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
+                              <button
+                                className="btn ghost"
+                                onClick={() => resetRestaurantPassword(item.id, item.name)}
+                                disabled={actionLoading}
+                              >
+                                Reset clave
+                              </button>
+                              <button
+                                className={`btn ${item.status === 'ACTIVE' ? 'ghost' : 'green'}`}
+                                onClick={() => updateRestaurantStatus(item.id, nextStatus, item.status)}
+                                disabled={actionLoading}
+                              >
+                                {actionLabel}
+                              </button>
+                            </div>
                           </div>
-                          <span className={`status-pill ${statusClassByRestaurant[item.status]}`}>{item.status}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </article>
                   )}
 
@@ -2643,6 +3520,36 @@ export default function App() {
                     </article>
                   )}
 
+                  {adminPanel === 'comisiones' && (
+                    <article className="admin-card">
+                      <h4>💰 Comisiones por uso de la app</h4>
+                      <p style={{ color: 'var(--muted)' }}>Define una comisión fija global por pedido. Se sumará al subtotal de productos en todos los pedidos nuevos.</p>
+                      <div className="frow" style={{ marginTop: '.75rem' }}>
+                        <div className="fg">
+                          <label>Comisión fija por pedido (MXN)</label>
+                          <input
+                            className="fi"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={commissionDraft}
+                            onChange={(e) => setCommissionDraft(e.target.value)}
+                            placeholder="Ej. 12.00"
+                          />
+                        </div>
+                        <div className="fg">
+                          <label>Vista previa para cliente</label>
+                          <input className="fi" value={`Subtotal + Comisión = Total (${formatPrice(150)} + ${formatPrice(Math.max(0, Number(commissionDraft) || 0))} = ${formatPrice(150 + Math.max(0, Number(commissionDraft) || 0))})`} readOnly />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                        <button className="btn" onClick={saveCommissionSettings} disabled={actionLoading}>Guardar comisión</button>
+                        <button className="btn ghost" onClick={() => setCommissionDraft(commissionAmount.toFixed(2))} disabled={actionLoading}>Restablecer</button>
+                      </div>
+                      <p style={{ color: 'var(--muted)', marginTop: '.65rem' }}>Comisión activa actual: <strong>{formatPrice(commissionAmount)}</strong>.</p>
+                    </article>
+                  )}
+
                   {adminPanel === 'config' && (
                     <article className="admin-card">
                       <h4>⚙️ Configuración super admin</h4>
@@ -2663,7 +3570,18 @@ export default function App() {
 
       <div className={`overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>🥩<button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button></div>
+          <div className="modal-top" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>
+            {selectedRestaurant?.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(selectedRestaurant.photo_url)) && (
+              <img
+                src={sanitizeImageUrl(selectedRestaurant.photo_url)}
+                alt={`Banner ${selectedRestaurant.name}`}
+                className="modal-banner-photo"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            )}
+            <span className="banner-fallback">🥩</span>
+            <button className="modal-x" onClick={() => setMenuOpen(false)}>✕</button>
+          </div>
           <div className="modal-body">
             <div className="mtitle">{selectedRestaurant?.name ?? 'Menú del restaurante'}</div>
             <div className="mmeta">⭐ 4.8 · 📍 Hasta {Math.round(selectedRestaurant?.delivery_radius_km ?? 20)} km · ⏱️ ~45 min · 💵 Solo efectivo</div>
@@ -2764,7 +3682,9 @@ export default function App() {
             <div className="cash-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
 
             <div className="cart-bar" style={{ display: 'flex' }}>
-              <div className="cart-info">🛒 {cartCount} productos · Total: <strong>{formatPrice(cartTotal)}</strong></div>
+              <div className="cart-info">
+                🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong> + Delivery: <strong>{formatPrice(cartDelivery)}</strong> · Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
+              </div>
               <div className="wizard-actions">
                 {orderWizardStep > 1 && (
                   <button className="btn ghost" onClick={() => setOrderWizardStep((prev) => (prev === 3 ? 2 : 1))} disabled={actionLoading}>Atrás</button>
