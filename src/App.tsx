@@ -474,20 +474,43 @@ export default function App() {
 
   const playNewOrderSound = () => {
     try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
-      oscillator.connect(gain);
-      gain.connect(audioCtx.destination);
-      oscillator.start();
-      oscillator.stop(audioCtx.currentTime + 0.42);
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const t = ctx.currentTime;
+      const vol = 0.35;
+
+      const playTone = (freq: number, start: number, dur: number, type: OscillatorType = 'sine', endFreq?: number) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, t + start);
+        if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t + start + dur);
+        g.gain.setValueAtTime(0.001, t + start);
+        g.gain.exponentialRampToValueAtTime(vol, t + start + 0.02);
+        g.gain.setValueAtTime(vol, t + start + dur * 0.7);
+        g.gain.exponentialRampToValueAtTime(0.001, t + start + dur);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(t + start);
+        osc.stop(t + start + dur + 0.01);
+      };
+
+      // Part 1: Attention grab — two bright chimes
+      playTone(1047, 0, 0.12, 'sine');       // C6
+      playTone(1319, 0.13, 0.12, 'sine');    // E6
+
+      // Part 2: "PIIII-DE-YA" rhythm (3 notes rising)
+      playTone(784, 0.35, 0.45, 'triangle');  // G5 — "PIIII" (long)
+      playTone(988, 0.82, 0.15, 'triangle');  // B5 — "DE" (short)
+      playTone(1175, 0.99, 0.30, 'triangle'); // D6 — "YA!" (punch)
+
+      // Part 3: Celebratory whistle slide
+      playTone(1175, 1.45, 0.55, 'sine', 2093); // D6 → C7 slide up
+      playTone(2093, 2.02, 0.35, 'sine', 1568); // C7 → G6 slide down
+
+      // Auto-close context after sound finishes
+      setTimeout(() => { try { void ctx.close(); } catch {} }, 3000);
     } catch {
-      // no-op
+      // no-op — AudioContext not available
     }
   };
 

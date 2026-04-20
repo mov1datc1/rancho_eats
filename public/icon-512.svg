@@ -1,5 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#C8410B"/>
-  <circle cx="256" cy="256" r="160" fill="#FDF6EC" opacity="0.15"/>
-  <text x="256" y="292" text-anchor="middle" font-size="210" font-family="Outfit, Arial" fill="#FDF6EC">🍽️</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#2D8B7A"/>
+  <g transform="translate(256,295)" fill="#E8F5F0">
+    <!-- Agave leaves -->
+    <path d="M0,-175 C10,-120 32,-65 22,0 L0,-14 L-22,0 C-32,-65 -10,-120 0,-175Z" opacity=".95"/>
+    <path d="M-75,-148 C-48,-107 -22,-58 -10,0 L-32,5 L-54,-5 C-80,-58 -85,-112 -75,-148Z" opacity=".85" transform="rotate(-22)"/>
+    <path d="M75,-148 C48,-107 22,-58 10,0 L32,5 L54,-5 C80,-58 85,-112 75,-148Z" opacity=".85" transform="rotate(22)"/>
+    <path d="M-75,-120 C-48,-85 -22,-48 -10,0 L-27,5 L-48,-5 C-75,-48 -80,-90 -75,-120Z" opacity=".75" transform="rotate(-42)"/>
+    <path d="M75,-120 C48,-85 22,-48 10,0 L27,5 L48,-5 C75,-48 80,-90 75,-120Z" opacity=".75" transform="rotate(42)"/>
+  </g>
 </svg>
