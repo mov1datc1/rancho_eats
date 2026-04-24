@@ -64,6 +64,7 @@ export interface CartItem {
 export interface Order {
   id: string;
   order_number: number;
+  reference_code?: string; // PY-XXXXXX unique identifier
   restaurant_id: string;
   client_name: string | null;
   client_phone: string | null;
@@ -144,6 +145,7 @@ export interface AdminOrdersByRestaurant {
 export interface AdminOrderFeedItem {
   id: string;
   order_number: number;
+  reference_code?: string;
   restaurant_name: string;
   status: string;
   total: number;

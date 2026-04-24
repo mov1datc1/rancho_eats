@@ -953,7 +953,7 @@ export default function App() {
       {
         const [restaurantsDataRes, ordersDataRes, blockedDataRes] = await Promise.all([
           supabase.from('restaurants').select('id,name,status,created_at'),
-          supabase.from('orders').select('id,restaurant_id,status,total,created_at,order_number,client_name,client_location_note,client_ip,cancelled_at,updated_at').gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
+          supabase.from('orders').select('id,restaurant_id,status,total,created_at,order_number,reference_code,client_name,client_location_note,client_ip,cancelled_at,updated_at').gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
           supabase.from('blocked_entities').select('id,value,reason,created_at')
         ]);
 
@@ -1077,7 +1077,7 @@ export default function App() {
 
       const { data: fallbackOrders, error: fallbackError } = await supabase
         .from('orders')
-        .select('id,order_number,status,total,client_name,client_phone,client_location_note,created_at,restaurant_id')
+        .select('id,order_number,reference_code,status,total,client_name,client_phone,client_location_note,created_at,restaurant_id')
         .order('created_at', { ascending: false })
         .limit(60);
       if (fallbackError) throw fallbackError;
@@ -1435,19 +1435,42 @@ export default function App() {
   const searchOrder = async () => {
     try {
       setActionLoading(true);
-      const cleanOrderNumber = Number(trackNumber.replace('#', '').trim());
-      if (!cleanOrderNumber) {
+      const searchTerm = trackNumber.replace('#', '').trim().toUpperCase();
+      if (!searchTerm) {
         setSearchedOrder(null);
         return;
       }
 
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('order_number', cleanOrderNumber)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      let data = null;
+      let error = null;
+
+      // If it looks like a reference code (starts with PY- or contains letters)
+      if (searchTerm.startsWith('PY-') || /[A-Z]/.test(searchTerm)) {
+        const refCode = searchTerm.startsWith('PY-') ? searchTerm : `PY-${searchTerm}`;
+        const result = await supabase
+          .from('orders')
+          .select('*')
+          .eq('reference_code', refCode)
+          .maybeSingle();
+        data = result.data;
+        error = result.error;
+      }
+
+      // Fallback: try by order_number
+      if (!data && !error) {
+        const cleanOrderNumber = Number(searchTerm);
+        if (cleanOrderNumber) {
+          const result = await supabase
+            .from('orders')
+            .select('*')
+            .eq('order_number', cleanOrderNumber)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          data = result.data;
+          error = result.error;
+        }
+      }
 
       if (error) throw error;
       setSearchedOrder((data as Order | null) ?? null);
@@ -1724,7 +1747,7 @@ export default function App() {
     const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
 
     const message = order
-      ? `Hola ${order.client_name ?? ''}, te escribimos de ${selectedRestaurant?.name ?? 'tu restaurante'}. Ya revisamos tu pedido #${order.order_number} por ${formatPrice(Number(order.total))}. Estatus actual: ${statusLabel(order.status)}. Puedes darle seguimiento en Pide ya con tu número de pedido #${order.order_number}.`
+      ? `Hola ${order.client_name ?? ''}, te escribimos de ${selectedRestaurant?.name ?? 'tu restaurante'}. Ya revisamos tu pedido ${order.reference_code ?? '#' + order.order_number} por ${formatPrice(Number(order.total))}. Estatus actual: ${statusLabel(order.status)}. Puedes darle seguimiento en Pide ya con tu código de pedido ${order.reference_code ?? '#' + order.order_number}.`
       : 'Hola, te escribimos de Pide ya para dar seguimiento a tu pedido.';
 
     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message.trim())}`;
@@ -1736,7 +1759,7 @@ export default function App() {
     const withCountry = clean.startsWith('52') ? clean : `52${clean}`;
     const accessUrl = buildDriverAccessUrl(driver.access_token);
     const mapsUrl = buildGoogleMapsDirectionsUrl(order.client_lat, order.client_lng);
-    const message = `Hola ${driver.name}, te asignaron el pedido #${order.order_number} de ${selectedRestaurant?.name ?? 'Pide ya'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
+    const message = `Hola ${driver.name}, te asignaron el pedido ${order.reference_code ?? '#' + order.order_number} de ${selectedRestaurant?.name ?? 'Pide ya'}. Cliente: ${order.client_name ?? 'Sin nombre'}. Referencia: ${order.client_location_note ?? 'Sin referencia'}. Abre tu panel de repartidor: ${accessUrl} . Ruta en Google Maps: ${mapsUrl}`;
     return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`;
   };
 
@@ -2486,7 +2509,7 @@ export default function App() {
                 <div className="driver-orders">
                   {driverOrders.map((order) => (
                     <article key={order.id} className={`incoming-order ${driverActiveOrderId === order.id ? 'selected-driver-order' : ''}`}>
-                      <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
+                      <div className="order-head"><h4>{order.reference_code ?? `#${order.order_number}`}</h4><span>{statusLabel(order.status)}</span></div>
                       <p><strong>Cliente:</strong> {order.client_name ?? 'Sin nombre'} · {order.client_phone ?? 'Sin teléfono'}</p>
                       <p><strong>Referencia:</strong> {order.client_location_note ?? 'Sin referencia'}</p>
                       <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
@@ -2587,7 +2610,7 @@ export default function App() {
             <div className="track-lookup">
               <h3>🔍 Buscar tu pedido</h3>
               <div className="track-input-row">
-                <input className="track-input" value={trackNumber} onChange={(e) => setTrackNumber(e.target.value)} placeholder="ej. 1043 o #1043" />
+                <input className="track-input" value={trackNumber} onChange={(e) => setTrackNumber(e.target.value)} placeholder="ej. PY-A3K8M2 o #6" />
                 <button className="btn" onClick={searchOrder} disabled={actionLoading}>Buscar</button>
               </div>
             </div>
@@ -2600,7 +2623,7 @@ export default function App() {
                   <div className="tr-time">{new Date(searchedOrder.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · Total: {formatPrice(Number(searchedOrder.total))}</div>
                 </div>
                 <div className="order-summary">
-                  <div className="confirm-pill">✅ Tu número de pedido es <strong>#{searchedOrder.order_number}</strong></div>
+                  <div className="confirm-pill">✅ Tu código de pedido es <strong>{searchedOrder.reference_code ?? `#${searchedOrder.order_number}`}</strong></div>
                   {(searchedOrder.items ?? []).map((item) => (
                     <div key={`${item.menu_item_id}-${item.qty}`}>• {item.qty}x {item.name} · {formatPrice(item.subtotal)}</div>
                   ))}
@@ -2976,7 +2999,7 @@ export default function App() {
 
                     return (
                       <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
-                        <div className="order-head"><h4>Pedido #{order.order_number}</h4><span>{statusLabel(order.status)}</span></div>
+                        <div className="order-head"><h4>{order.reference_code ?? `#${order.order_number}`} <small style={{fontWeight: 400, color: 'var(--muted)', fontSize: '.75em'}}>#{order.order_number}</small></h4><span>{statusLabel(order.status)}</span></div>
                         <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(order))} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                         <div className="client-box">
                           👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
@@ -3042,7 +3065,7 @@ export default function App() {
               <>
                 {selectedOrder && (
                   <article className="incoming-order selected-order-card" style={{ marginBottom: '.9rem' }}>
-                    <div className="order-head"><h4>Pedido #{selectedOrder.order_number}</h4><span>{statusLabel(selectedOrder.status)}</span></div>
+                    <div className="order-head"><h4>{selectedOrder.reference_code ?? `#${selectedOrder.order_number}`} <small style={{fontWeight: 400, color: 'var(--muted)', fontSize: '.75em'}}>#{selectedOrder.order_number}</small></h4><span>{statusLabel(selectedOrder.status)}</span></div>
                     <p><strong>Fecha:</strong> {new Date(selectedOrder.created_at).toLocaleString('es-MX')}</p>
                     <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(selectedOrder))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(selectedOrder))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(selectedOrder))} · <strong>Total:</strong> {formatPrice(Number(selectedOrder.total))}</p>
                     <div className="client-box">

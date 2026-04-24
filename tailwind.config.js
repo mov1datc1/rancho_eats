@@ -3,14 +3,14 @@ var config = {
     theme: {
         extend: {
             colors: {
-                brand: '#C8410B',
-                'brand-dark': '#8B2D07',
-                'brand-light': '#F4A261',
-                earth: '#6B4226',
-                cream: '#FDF6EC',
-                dark: '#1A0D06',
-                mid: '#3D2314',
-                muted: '#8C6A5A',
+                brand: '#2D8B7A',
+                'brand-dark': '#1F6B5C',
+                'brand-light': '#7DD4C0',
+                earth: '#1A5C4F',
+                cream: '#F0FAF7',
+                dark: '#0D2B26',
+                mid: '#1B4D44',
+                muted: '#6B8F88',
                 green: '#2D6A4F',
                 amber: '#E07B30'
             },
@@ -19,8 +19,8 @@ var config = {
                 body: ['Outfit', 'sans-serif']
             },
             boxShadow: {
-                card: '0 4px 24px rgba(26,13,6,.10)',
-                'card-lg': '0 16px 48px rgba(26,13,6,.18)'
+                card: '0 4px 24px rgba(13,43,38,.10)',
+                'card-lg': '0 16px 48px rgba(13,43,38,.18)'
             }
         }
     },
