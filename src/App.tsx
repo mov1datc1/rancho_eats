@@ -24,7 +24,20 @@ import type {
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'config';
-type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'config';
+type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config';
+
+type Promotion = {
+  id: string;
+  restaurant_id: string | null;
+  title: string;
+  body: string;
+  image_url: string | null;
+  scheduled_at: string;
+  sent_at: string | null;
+  status: 'SCHEDULED' | 'SENT' | 'CANCELLED';
+  tokens_sent: number;
+  created_at: string;
+};
 type MenuDraftOption = { label: string; price: string; imageUrl: string; optionType: 'size' | 'extra' };
 
 type DriverSession = {
@@ -258,6 +271,17 @@ export default function App() {
   const [adminMapPoints, setAdminMapPoints] = useState<AdminMapPoint[]>([]);
   const [commissionAmount, setCommissionAmount] = useState(0);
   const [commissionDraft, setCommissionDraft] = useState('0');
+
+  // Promotions state
+  const [adminPromos, setAdminPromos] = useState<Promotion[]>([]);
+  const [promoDraft, setPromoDraft] = useState({
+    restaurantId: '',
+    title: '',
+    body: '',
+    scheduledDate: '',
+    scheduledTime: '',
+  });
+  const [promoLoading, setPromoLoading] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -601,6 +625,10 @@ export default function App() {
     if (activeTab !== 'admin' || !isAdmin) return;
     if (adminPanel === 'pedidos') void loadAdminOrders();
     if (adminPanel === 'mapa') void loadAdminMapPoints();
+    if (adminPanel === 'promociones') {
+      supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50)
+        .then(({ data }) => setAdminPromos((data ?? []) as Promotion[]));
+    }
   }, [activeTab, isAdmin, adminPanel]);
 
   useEffect(() => {
@@ -3349,6 +3377,7 @@ export default function App() {
                   { key: 'restaurantes', label: '🍽️ Restaurantes' },
                   { key: 'comisiones', label: '💰 Comisiones' },
                   { key: 'pedidos', label: '📦 Pedidos' },
+                  { key: 'promociones', label: '📢 Promociones' },
                   { key: 'antispam', label: '🚨 Anti-spam' },
                   { key: 'mapa', label: '📍 Mapa en vivo' },
                   { key: 'reportes', label: '📈 Reportes' },
@@ -3394,6 +3423,7 @@ export default function App() {
                       { key: 'restaurantes', label: '🍽️ Restaurantes' },
                       { key: 'comisiones', label: '💰 Comisiones' },
                       { key: 'pedidos', label: '📦 Pedidos' },
+                      { key: 'promociones', label: '📢 Promociones' },
                       { key: 'antispam', label: '🚨 Anti-spam' },
                       { key: 'mapa', label: '📍 Mapa en vivo' },
                       { key: 'reportes', label: '📈 Reportes' },
@@ -3590,6 +3620,137 @@ export default function App() {
                       </div>
                       <p style={{ color: 'var(--muted)', marginTop: '.65rem' }}>Comisión activa actual: <strong>{formatPrice(commissionAmount)}</strong>.</p>
                     </article>
+                  )}
+
+                  {adminPanel === 'promociones' && (
+                    <>
+                      <article className="admin-card">
+                        <h4>📢 Crear nueva promoción push</h4>
+                        <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>Las promociones se envían como notificaciones push a todos los usuarios de la app PideYa.</p>
+                        <div className="frow">
+                          <div className="fg">
+                            <label>Restaurante que patrocina</label>
+                            <select className="fi" value={promoDraft.restaurantId} onChange={(e) => setPromoDraft(d => ({ ...d, restaurantId: e.target.value }))}>
+                              <option value="">— PideYa (general) —</option>
+                              {adminRestaurants.filter(r => r.status === 'ACTIVE').map(r => (
+                                <option key={r.id} value={r.id}>{r.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="frow">
+                          <div className="fg">
+                            <label>Título del push</label>
+                            <input className="fi" placeholder="Ej: Pide McTocino desde $69" value={promoDraft.title} onChange={(e) => setPromoDraft(d => ({ ...d, title: e.target.value }))} maxLength={100} />
+                          </div>
+                        </div>
+                        <div className="frow">
+                          <div className="fg">
+                            <label>Mensaje del push</label>
+                            <textarea className="fi" placeholder="Ej: ¡Antes te costaba $125! Si hoy quieres tu favorita, no te preocupes: pide ya." value={promoDraft.body} onChange={(e) => setPromoDraft(d => ({ ...d, body: e.target.value }))} rows={3} maxLength={300} style={{ resize: 'vertical', fontFamily: 'inherit' }} />
+                          </div>
+                        </div>
+                        <div className="frow">
+                          <div className="fg">
+                            <label>Fecha de envío (CDMX)</label>
+                            <input className="fi" type="date" value={promoDraft.scheduledDate} onChange={(e) => setPromoDraft(d => ({ ...d, scheduledDate: e.target.value }))} />
+                          </div>
+                          <div className="fg">
+                            <label>Hora de envío (CDMX)</label>
+                            <input className="fi" type="time" value={promoDraft.scheduledTime} onChange={(e) => setPromoDraft(d => ({ ...d, scheduledTime: e.target.value }))} />
+                          </div>
+                        </div>
+
+                        {/* Push Preview */}
+                        {promoDraft.title && (
+                          <div style={{ margin: '1rem 0', padding: '1rem', background: 'linear-gradient(135deg, #1a1a2e, #16213e)', borderRadius: '16px', color: '#fff' }}>
+                            <p style={{ fontSize: '.7rem', color: '#999', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Vista previa del push</p>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.75rem', background: 'rgba(255,255,255,0.12)', borderRadius: '12px', padding: '.75rem' }}>
+                              <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'linear-gradient(135deg, #2D8B7A, #1E6B5A)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '16px' }}>🍽️</div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ fontWeight: 700, fontSize: '.85rem', lineHeight: 1.3, marginBottom: '2px' }}>{promoDraft.title}</p>
+                                <p style={{ fontSize: '.78rem', color: '#ccc', lineHeight: 1.35 }}>{promoDraft.body || 'Toca para ver la promoción...'}</p>
+                              </div>
+                              <span style={{ fontSize: '.65rem', color: '#888', whiteSpace: 'nowrap' }}>ahora</span>
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '.75rem', marginTop: '.5rem' }}>
+                          <button className="btn" disabled={promoLoading || !promoDraft.title || !promoDraft.body} onClick={async () => {
+                            setPromoLoading(true);
+                            try {
+                              const scheduledAt = promoDraft.scheduledDate && promoDraft.scheduledTime
+                                ? new Date(`${promoDraft.scheduledDate}T${promoDraft.scheduledTime}:00-06:00`).toISOString()
+                                : new Date().toISOString();
+                              const { error } = await supabase.from('promotions').insert({
+                                restaurant_id: promoDraft.restaurantId || null,
+                                title: promoDraft.title,
+                                body: promoDraft.body,
+                                scheduled_at: scheduledAt,
+                                status: 'SCHEDULED',
+                                created_by: adminUser?.id,
+                              });
+                              if (error) throw error;
+                              setPromoDraft({ restaurantId: '', title: '', body: '', scheduledDate: '', scheduledTime: '' });
+                              // Reload promos
+                              const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
+                              setAdminPromos((data ?? []) as Promotion[]);
+                              alert(promoDraft.scheduledDate ? '✅ Promoción programada!' : '✅ Promoción enviada! Se procesará en menos de 1 minuto.');
+                            } catch (err: any) {
+                              alert('Error: ' + (err?.message ?? 'No se pudo crear la promoción'));
+                            } finally {
+                              setPromoLoading(false);
+                            }
+                          }}>
+                            {promoDraft.scheduledDate ? '📅 Programar envío' : '🚀 Enviar ahora'}
+                          </button>
+                        </div>
+                      </article>
+
+                      <article className="admin-card">
+                        <h4>📋 Historial de promociones</h4>
+                        <button className="btn ghost" style={{ marginBottom: '1rem' }} onClick={async () => {
+                          const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
+                          setAdminPromos((data ?? []) as Promotion[]);
+                        }}>Actualizar lista</button>
+                        {adminPromos.length === 0 ? (
+                          <p style={{ color: 'var(--muted)' }}>No hay promociones aún. Crea la primera arriba.</p>
+                        ) : (
+                          <table className="dtable">
+                            <thead><tr><th>Título</th><th>Estado</th><th>Programada</th><th>Enviada</th><th>Tokens</th><th>Acción</th></tr></thead>
+                            <tbody>
+                              {adminPromos.map(promo => (
+                                <tr key={promo.id}>
+                                  <td>
+                                    <strong>{promo.title}</strong>
+                                    <br /><span style={{ fontSize: '.75rem', color: 'var(--muted)' }}>{promo.body.slice(0, 60)}{promo.body.length > 60 ? '...' : ''}</span>
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${promo.status === 'SENT' ? 'aprobado' : promo.status === 'CANCELLED' ? 'rechazado' : 'pendiente'}`}>
+                                      {promo.status === 'SENT' ? '✅ Enviada' : promo.status === 'CANCELLED' ? '❌ Cancelada' : '⏰ Programada'}
+                                    </span>
+                                  </td>
+                                  <td style={{ fontSize: '.8rem' }}>{new Date(promo.scheduled_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'short', timeStyle: 'short' })}</td>
+                                  <td style={{ fontSize: '.8rem' }}>{promo.sent_at ? new Date(promo.sent_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                                  <td>{promo.tokens_sent}</td>
+                                  <td>
+                                    {promo.status === 'SCHEDULED' && (
+                                      <button className="btn ghost" style={{ fontSize: '.75rem', padding: '.25rem .5rem' }} onClick={async () => {
+                                        if (!confirm('¿Cancelar esta promoción?')) return;
+                                        await supabase.from('promotions').update({ status: 'CANCELLED' }).eq('id', promo.id);
+                                        const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
+                                        setAdminPromos((data ?? []) as Promotion[]);
+                                      }}>Cancelar</button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </article>
+                    </>
                   )}
 
                   {adminPanel === 'config' && (
