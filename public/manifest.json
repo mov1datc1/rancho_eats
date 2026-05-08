@@ -1,11 +1,14 @@
 {
-  "name": "Pide Ya",
+  "name": "Pide Ya — Panel Restaurante",
   "short_name": "Pide Ya",
-  "description": "Tu comida favorita a domicilio en Los Altos de Jalisco",
+  "description": "Panel de gestión de pedidos para restaurantes de la plataforma Pide Ya",
   "theme_color": "#2D8B7A",
-  "background_color": "#F0FAF7",
+  "background_color": "#0D2B26",
   "display": "standalone",
-  "start_url": "/",
+  "orientation": "any",
+  "start_url": "/restaurantes?mode=login",
+  "scope": "/",
+  "categories": ["food", "business"],
   "icons": [
     {
       "src": "/icon-192.svg",

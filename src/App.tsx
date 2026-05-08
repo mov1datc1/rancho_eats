@@ -23,8 +23,49 @@ import type {
 } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
-type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'config';
+type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'comisiones' | 'config';
 type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config';
+
+type CommissionTier = { up_to: number | null; fee: number };
+type CommissionConfig = { tiers: CommissionTier[]; cutoffFrom: string; cutoffTo: string };
+type CommissionPayment = {
+  id: string;
+  restaurant_id: string;
+  period_start: string;
+  period_end: string;
+  orders_count: number;
+  total_commission: number;
+  paid_at: string;
+  notes: string | null;
+};
+type RestaurantCommissionBalance = {
+  restaurant_id: string;
+  restaurant_name: string;
+  orders_count: number;
+  total_commission: number;
+};
+
+const DEFAULT_TIERS: CommissionTier[] = [
+  { up_to: 100, fee: 8 },
+  { up_to: 150, fee: 10 },
+  { up_to: 200, fee: 12 },
+  { up_to: 300, fee: 15 },
+  { up_to: 500, fee: 18 },
+  { up_to: null, fee: 20 }
+];
+
+const calculateCommission = (subtotal: number, tiers: CommissionTier[]): number => {
+  if (!tiers.length || subtotal <= 0) return 0;
+  const sorted = [...tiers].sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity));
+  for (const tier of sorted) {
+    if (tier.up_to === null || subtotal <= tier.up_to) return Math.round(tier.fee);
+  }
+  return Math.round(sorted[sorted.length - 1].fee);
+};
+
+const formatDateMX = (d: string) => {
+  try { return new Date(d + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return d; }
+};
 
 type Promotion = {
   id: string;
@@ -269,8 +310,15 @@ export default function App() {
   const [adminOrdersChart, setAdminOrdersChart] = useState<AdminOrdersByRestaurant[]>([]);
   const [adminOrders, setAdminOrders] = useState<AdminOrderFeedItem[]>([]);
   const [adminMapPoints, setAdminMapPoints] = useState<AdminMapPoint[]>([]);
-  const [commissionAmount, setCommissionAmount] = useState(0);
-  const [commissionDraft, setCommissionDraft] = useState('0');
+  const [commissionConfig, setCommissionConfig] = useState<CommissionConfig>({ tiers: DEFAULT_TIERS, cutoffFrom: '', cutoffTo: '' });
+  const [commissionTiersDraft, setCommissionTiersDraft] = useState<CommissionTier[]>(DEFAULT_TIERS);
+  const [commissionCutoffFromDraft, setCommissionCutoffFromDraft] = useState('');
+  const [commissionCutoffToDraft, setCommissionCutoffToDraft] = useState('');
+  const [adminCommissionBalances, setAdminCommissionBalances] = useState<RestaurantCommissionBalance[]>([]);
+  const [adminCommissionPayments, setAdminCommissionPayments] = useState<CommissionPayment[]>([]);
+  const [restaurantCommissionTotal, setRestaurantCommissionTotal] = useState(0);
+  const [restaurantCommissionOrders, setRestaurantCommissionOrders] = useState(0);
+  const [restaurantCommissionPayments, setRestaurantCommissionPayments] = useState<CommissionPayment[]>([]);
 
   // Promotions state
   const [adminPromos, setAdminPromos] = useState<Promotion[]>([]);
@@ -316,6 +364,8 @@ export default function App() {
   const [driverGpsStatus, setDriverGpsStatus] = useState('');
   const [driverActiveOrderId, setDriverActiveOrderId] = useState<string | null>(null);
   const [driverAccessError, setDriverAccessError] = useState('');
+  const [incomingToastOrder, setIncomingToastOrder] = useState<Order | null>(null);
+  const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const searchedOrderStatusRef = useRef<string | null>(null);
   const restaurantImageInputRef = useRef<HTMLInputElement | null>(null);
   const driverWatchIdRef = useRef<number | null>(null);
@@ -341,7 +391,7 @@ export default function App() {
     return haversineKm(Number(selectedRestaurant.lat), Number(selectedRestaurant.lng), clientPoint.lat, clientPoint.lng);
   }, [selectedRestaurant, clientPoint.lat, clientPoint.lng]);
   const cartDelivery = useMemo(() => (cartCount > 0 && orderWizardStep === 3 ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, orderWizardStep, selectedRestaurant, estimatedDeliveryDistanceKm]);
-  const cartCommission = useMemo(() => (cartCount > 0 ? Math.max(0, commissionAmount) : 0), [cartCount, commissionAmount]);
+  const cartCommission = useMemo(() => (cartCount > 0 ? calculateCommission(cartSubtotal, commissionConfig.tiers) : 0), [cartCount, cartSubtotal, commissionConfig.tiers]);
   const cartTotal = useMemo(() => cartSubtotal + cartCommission + cartDelivery, [cartSubtotal, cartCommission, cartDelivery]);
   const groupedMenuItems = useMemo(() => {
     const source = menuItems.filter((item) => item.available);
@@ -496,11 +546,11 @@ export default function App() {
     setRestaurantImageNotice('');
   }, [selectedRestaurant]);
 
-  const playNewOrderSound = () => {
+  const playNewOrderSoundOnce = () => {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const t = ctx.currentTime;
-      const vol = 0.35;
+      const vol = 1.0; // MAX VOLUME
 
       const playTone = (freq: number, start: number, dur: number, type: OscillatorType = 'sine', endFreq?: number) => {
         const osc = ctx.createOscillator();
@@ -538,6 +588,52 @@ export default function App() {
     }
   };
 
+  /** Play the PideYa jingle 2x at MAX volume + vibrate the device */
+  const playNewOrderSound = () => {
+    // Vibrate the tablet/phone if supported
+    if (navigator.vibrate) {
+      navigator.vibrate([400, 200, 400, 200, 400]);
+    }
+
+    // Play immediately (1st time)
+    playNewOrderSoundOnce();
+
+    // Play again after 3 seconds (2nd time)
+    const timeout = setTimeout(() => {
+      playNewOrderSoundOnce();
+      if (navigator.vibrate) navigator.vibrate([400, 200, 400]);
+    }, 3200);
+
+    return () => clearTimeout(timeout);
+  };
+
+  /** Dismiss the toast overlay and stop any repeating sounds */
+  const dismissToast = () => {
+    setIncomingToastOrder(null);
+    if (soundIntervalRef.current) {
+      clearInterval(soundIntervalRef.current);
+      soundIntervalRef.current = null;
+    }
+    if (navigator.vibrate) navigator.vibrate(0); // stop vibration
+  };
+
+  /** Show the toast and trigger the sound+notification */
+  const triggerNewOrderAlert = (order: Order) => {
+    setIncomingToastOrder(order);
+    playNewOrderSound();
+    void notifyUser(
+      '🍕 Nuevo pedido — Pide Ya',
+      `Pedido ${order.reference_code ?? '#' + order.order_number} · ${order.client_name ?? 'Cliente'} · ${formatPrice(Number(order.total))}`
+    );
+
+    // Auto-dismiss after 45 seconds
+    const autoDismiss = setTimeout(() => {
+      setIncomingToastOrder((current) => (current?.id === order.id ? null : current));
+    }, 45000);
+
+    return () => clearTimeout(autoDismiss);
+  };
+
   const requestNotificationPermission = async () => {
     if (typeof Notification === 'undefined') return 'denied' as NotificationPermission;
     if (Notification.permission === 'granted') {
@@ -553,7 +649,7 @@ export default function App() {
     if (typeof Notification === 'undefined') return;
     const permission = Notification.permission === 'granted' ? 'granted' : await requestNotificationPermission();
     if (permission === 'granted') {
-      new Notification(title, { body, icon: '/icon-192.svg' });
+      new Notification(title, { body, icon: '/icon-192.svg', tag: 'pideya-order', renotify: true } as NotificationOptions & { renotify: boolean });
     }
   };
 
@@ -666,8 +762,10 @@ export default function App() {
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, [isStandalone]);
 
+  // Realtime subscription — ALWAYS ACTIVE when restaurant is selected (not dependent on activeTab)
+  // This ensures alerts fire even if the user navigated to another section of the app
   useEffect(() => {
-    if (!selectedRestaurant?.id || activeTab !== 'restaurante') return;
+    if (!selectedRestaurant?.id) return;
 
     const channel = supabase
       .channel(`restaurant-orders-${selectedRestaurant.id}`)
@@ -681,8 +779,7 @@ export default function App() {
 
         const next = payload.new as Order;
         if (payload.eventType === 'INSERT' && next?.status === 'PENDING') {
-          void notifyUser('Nuevo pedido entrante', `Pedido #${next.order_number} listo para revisar en tu panel.`);
-          playNewOrderSound();
+          triggerNewOrderAlert(next);
         }
       })
       .subscribe();
@@ -690,7 +787,7 @@ export default function App() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [selectedRestaurant?.id, activeTab]);
+  }, [selectedRestaurant?.id]);
 
   useEffect(() => {
     if (!searchedOrder?.id) return;
@@ -874,18 +971,95 @@ export default function App() {
     try {
       const { data, error } = await supabase
         .from('app_settings')
-        .select('commission_fee')
+        .select('commission_fee, commission_tiers, cutoff_from, cutoff_to')
         .eq('id', 1)
         .maybeSingle();
 
       if (error) throw error;
-      const nextCommission = Math.max(0, Number(data?.commission_fee ?? 0));
-      setCommissionAmount(nextCommission);
-      setCommissionDraft(nextCommission.toFixed(2));
+
+      const tiers: CommissionTier[] = Array.isArray(data?.commission_tiers) ? data.commission_tiers : DEFAULT_TIERS;
+      const cutoffFrom = data?.cutoff_from ?? '';
+      const cutoffTo = data?.cutoff_to ?? '';
+
+      setCommissionConfig({ tiers, cutoffFrom, cutoffTo });
+      setCommissionTiersDraft(tiers);
+      setCommissionCutoffFromDraft(cutoffFrom);
+      setCommissionCutoffToDraft(cutoffTo);
     } catch (error) {
       console.error(error);
-      setCommissionAmount(0);
-      setCommissionDraft('0.00');
+      setCommissionConfig({ tiers: DEFAULT_TIERS, cutoffFrom: '', cutoffTo: '' });
+      setCommissionTiersDraft(DEFAULT_TIERS);
+    }
+  };
+
+  const loadAdminCommissionBalances = async () => {
+    try {
+      const { cutoffFrom, cutoffTo } = commissionConfig;
+      if (!cutoffFrom || !cutoffTo) return;
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select('restaurant_id, commission_amount, restaurants!inner(name)')
+        .eq('status', 'DELIVERED')
+        .gte('created_at', `${cutoffFrom}T00:00:00`)
+        .lte('created_at', `${cutoffTo}T23:59:59`);
+
+      if (error) throw error;
+
+      const byRestaurant = new Map<string, RestaurantCommissionBalance>();
+      (data ?? []).forEach((row: any) => {
+        const rid = row.restaurant_id;
+        const name = row.restaurants?.name ?? 'Sin nombre';
+        const existing = byRestaurant.get(rid) ?? { restaurant_id: rid, restaurant_name: name, orders_count: 0, total_commission: 0 };
+        existing.orders_count += 1;
+        existing.total_commission += Math.max(0, Number(row.commission_amount ?? 0));
+        byRestaurant.set(rid, existing);
+      });
+
+      setAdminCommissionBalances(Array.from(byRestaurant.values()).sort((a, b) => b.total_commission - a.total_commission));
+
+      // Load payment history
+      const { data: payments } = await supabase
+        .from('commission_payments')
+        .select('*')
+        .order('paid_at', { ascending: false })
+        .limit(50);
+      setAdminCommissionPayments((payments ?? []) as CommissionPayment[]);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const loadRestaurantCommissions = async () => {
+    if (!selectedRestaurant?.id) return;
+    try {
+      const { cutoffFrom, cutoffTo } = commissionConfig;
+      if (!cutoffFrom || !cutoffTo) return;
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select('commission_amount')
+        .eq('restaurant_id', selectedRestaurant.id)
+        .eq('status', 'DELIVERED')
+        .gte('created_at', `${cutoffFrom}T00:00:00`)
+        .lte('created_at', `${cutoffTo}T23:59:59`);
+
+      if (error) throw error;
+
+      const total = (data ?? []).reduce((acc, row) => acc + Math.max(0, Number(row.commission_amount ?? 0)), 0);
+      setRestaurantCommissionTotal(total);
+      setRestaurantCommissionOrders((data ?? []).length);
+
+      // Load payments for this restaurant
+      const { data: payments } = await supabase
+        .from('commission_payments')
+        .select('*')
+        .eq('restaurant_id', selectedRestaurant.id)
+        .order('paid_at', { ascending: false })
+        .limit(20);
+      setRestaurantCommissionPayments((payments ?? []) as CommissionPayment[]);
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -2218,6 +2392,8 @@ export default function App() {
       if (!data.user) throw new Error('Sin usuario autenticado');
       setAdminUser(data.user);
       await loadOwnedRestaurant(data.user.id);
+      // Auto-request notification permission after successful restaurant login
+      void requestNotificationPermission();
     } catch (error) {
       console.error(error);
       setRegisterMessage('❌ No se pudo iniciar sesión. Verifica correo y contraseña.');
@@ -2330,9 +2506,10 @@ export default function App() {
       return;
     }
 
-    const parsed = Number(commissionDraft);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      setErrorMessage('Ingresa una comisión válida (número mayor o igual a 0).');
+    // Validate tiers
+    const validTiers = commissionTiersDraft.filter((t) => Number.isFinite(t.fee) && t.fee >= 0);
+    if (validTiers.length === 0) {
+      setErrorMessage('Debes definir al menos un escalón de comisión.');
       return;
     }
 
@@ -2340,21 +2517,119 @@ export default function App() {
       setActionLoading(true);
       setErrorMessage('');
 
-      const normalized = Number(parsed.toFixed(2));
       const { error } = await supabase
         .from('app_settings')
-        .upsert({ id: 1, commission_fee: normalized }, { onConflict: 'id' });
+        .upsert({
+          id: 1,
+          commission_tiers: validTiers,
+          cutoff_from: commissionCutoffFromDraft || null,
+          cutoff_to: commissionCutoffToDraft || null
+        }, { onConflict: 'id' });
 
       if (error) throw error;
 
-      setCommissionAmount(normalized);
-      setCommissionDraft(normalized.toFixed(2));
+      setCommissionConfig({ tiers: validTiers, cutoffFrom: commissionCutoffFromDraft, cutoffTo: commissionCutoffToDraft });
     } catch (error) {
       console.error(error);
-      setErrorMessage('No pudimos guardar la comisión global de la app.');
+      setErrorMessage('No pudimos guardar la configuración de comisiones.');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const markCommissionAsPaid = async (balance: RestaurantCommissionBalance) => {
+    if (!isAdmin) return;
+    const notes = window.prompt('Notas del pago (opcional):', `Pago de comisiones período ${formatDateMX(commissionConfig.cutoffFrom)} - ${formatDateMX(commissionConfig.cutoffTo)}`);
+    if (notes === null) return; // cancelled
+
+    try {
+      setActionLoading(true);
+      setErrorMessage('');
+
+      const { error } = await supabase.from('commission_payments').insert({
+        restaurant_id: balance.restaurant_id,
+        period_start: commissionConfig.cutoffFrom,
+        period_end: commissionConfig.cutoffTo,
+        orders_count: balance.orders_count,
+        total_commission: balance.total_commission,
+        paid_by: adminUser?.id,
+        notes: notes || null
+      });
+
+      if (error) throw error;
+      await loadAdminCommissionBalances();
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('No se pudo registrar el pago de comisión.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const generateCommissionReceipt = (balance: RestaurantCommissionBalance) => {
+    const w = window.open('', '_blank', 'width=800,height=600');
+    if (!w) { alert('No se pudo abrir la ventana. Permite las ventanas emergentes.'); return; }
+    const now = new Date();
+    w.document.write(`<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8">
+  <title>Recibo de Comisiones — Pide Ya</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',system-ui,sans-serif;padding:2.5rem;color:#1a2f2b;max-width:700px;margin:0 auto}
+    .header{text-align:center;border-bottom:3px solid #2D8B7A;padding-bottom:1.2rem;margin-bottom:1.5rem}
+    .header h1{font-size:1.8rem;color:#2D8B7A;margin-bottom:.25rem}
+    .header p{color:#6b8f88;font-size:.9rem}
+    .receipt-id{font-family:monospace;font-size:.8rem;color:#6b8f88;margin-top:.4rem}
+    .section{margin:1.2rem 0}
+    .section h3{font-size:1rem;color:#2D8B7A;border-bottom:1px solid #e0f2ee;padding-bottom:.3rem;margin-bottom:.6rem}
+    .row{display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid #f0faf7}
+    .row:last-child{border-bottom:none}
+    .row .label{color:#6b8f88;font-weight:600}
+    .row .value{font-weight:700;color:#1a2f2b}
+    .total-row{background:#f0faf7;border-radius:8px;padding:.8rem 1rem;margin-top:.8rem;display:flex;justify-content:space-between;font-size:1.15rem}
+    .total-row .label{color:#2D8B7A;font-weight:700}
+    .total-row .value{color:#1f6b5c;font-weight:800;font-size:1.3rem}
+    .footer{margin-top:2rem;text-align:center;color:#6b8f88;font-size:.8rem;border-top:1px solid #e0f2ee;padding-top:1rem}
+    .stamp{margin-top:1.5rem;text-align:center}
+    .stamp-badge{display:inline-block;background:#ecfff4;border:2px solid #b7e7cb;color:#1f6b46;padding:.5rem 1.5rem;border-radius:8px;font-weight:700;font-size:1rem}
+    @media print{body{padding:1.5rem}button{display:none!important}}
+    .print-btn{margin:1.5rem auto 0;display:block;background:#2D8B7A;color:#fff;border:none;padding:.7rem 2rem;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🍕 Pide Ya</h1>
+    <p>Recibo de comisiones por uso de la plataforma</p>
+    <div class="receipt-id">RCBO-${Date.now().toString(36).toUpperCase()}</div>
+  </div>
+  <div class="section">
+    <h3>Datos del restaurante</h3>
+    <div class="row"><span class="label">Restaurante</span><span class="value">${balance.restaurant_name}</span></div>
+    <div class="row"><span class="label">Período</span><span class="value">${formatDateMX(commissionConfig.cutoffFrom)} — ${formatDateMX(commissionConfig.cutoffTo)}</span></div>
+    <div class="row"><span class="label">Fecha de emisión</span><span class="value">${now.toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}</span></div>
+  </div>
+  <div class="section">
+    <h3>Detalle de comisiones</h3>
+    <div class="row"><span class="label">Pedidos entregados</span><span class="value">${balance.orders_count}</span></div>
+    <div class="row"><span class="label">Comisión acumulada</span><span class="value">$${balance.total_commission.toFixed(2)} MXN</span></div>
+  </div>
+  <div class="total-row">
+    <span class="label">TOTAL A PAGAR</span>
+    <span class="value">$${balance.total_commission.toFixed(2)} MXN</span>
+  </div>
+  <div class="stamp">
+    <div class="stamp-badge">✓ PAGADO</div>
+  </div>
+  <div class="footer">
+    <p>Este recibo es un comprobante de pago por comisiones de la plataforma Pide Ya.</p>
+    <p>Generado automáticamente el ${now.toLocaleString('es-MX')}</p>
+  </div>
+  <button class="print-btn" onclick="window.print()">🖨️ Imprimir / Descargar PDF</button>
+</body>
+</html>`);
+    w.document.close();
   };
 
   const signInAdmin = async () => {
@@ -2448,13 +2723,16 @@ export default function App() {
     }
   };
 
+  const pendingOrdersCount = useMemo(() => restaurantOrders.filter((o) => o.status === 'PENDING').length, [restaurantOrders]);
+
   const restaurantPanels: Array<{ key: RestaurantPanelKey; label: string }> = [
     { key: 'dashboard', label: '📈 Dashboard' },
-    { key: 'resumen', label: '📊 Resumen' },
-    { key: 'pedidos', label: '📦 Pedidos activos' },
+    { key: 'resumen', label: '📦 Pedidos entrantes' },
+    { key: 'pedidos', label: '📋 Historial' },
     { key: 'drivers', label: '🧑‍✈️ Repartidores' },
-    { key: 'menu', label: '📋 Mi menú' },
-    { key: 'delivery', label: '🛵 Delivery' }
+    { key: 'menu', label: '🍽️ Mi menú' },
+    { key: 'delivery', label: '🛵 Delivery' },
+    { key: 'comisiones', label: '💰 Comisiones' }
   ];
 
   return (
@@ -2808,7 +3086,14 @@ export default function App() {
             <h3>🍽️ Mi Restaurante</h3>
             <ul>
               {restaurantPanels.map((panel) => (
-                <li key={panel.key}><button className={restaurantPanel === panel.key ? 'active' : ''} onClick={() => setRestaurantPanel(panel.key)}>{panel.label}</button></li>
+                <li key={panel.key}>
+                  <button className={`${restaurantPanel === panel.key ? 'active' : ''} ${panel.key === 'resumen' && pendingOrdersCount > 0 ? 'sidebar-btn-with-badge' : ''}`} onClick={() => setRestaurantPanel(panel.key)}>
+                    {panel.label}
+                    {panel.key === 'resumen' && pendingOrdersCount > 0 && (
+                      <span className="sidebar-badge">{pendingOrdersCount}</span>
+                    )}
+                  </button>
+                </li>
               ))}
             </ul>
             <div className="restaurant-sidebar-footer">
@@ -2817,15 +3102,24 @@ export default function App() {
           </aside>
 
           <section className="restaurant-main">
+            {/* Notification permission banner */}
+            {notificationPermission !== 'granted' && (
+              <div className="notif-permission-bar">
+                <p>🔔 Activa las notificaciones para recibir alertas de pedidos nuevos en tu tablet.</p>
+                <button className="btn" onClick={() => void requestNotificationPermission()}>Activar alertas</button>
+              </div>
+            )}
+
             <div className="restaurant-header-row">
               <div>
                 <h2>{selectedRestaurant?.name ?? 'Sin restaurante activo'}</h2>
-                <p>{selectedRestaurant?.is_open ? '● Abierto' : '● Cerrado'} · {selectedRestaurant?.type ?? 'Sin tipo'}</p>
+                <p>{selectedRestaurant?.is_open ? '🟢 Abierto' : '🔴 Cerrado'} · {selectedRestaurant?.type ?? 'Sin tipo'}</p>
               </div>
               <button
                 className={`btn ${selectedRestaurant?.is_open ? 'ghost' : 'green'}`}
                 onClick={() => void toggleRestaurantOpenStatus()}
                 disabled={actionLoading || !selectedRestaurant}
+                style={{ minHeight: '52px', fontSize: '1.05rem' }}
               >
                 {selectedRestaurant?.is_open ? 'Cerrar restaurante' : 'Abrir restaurante'}
               </button>
@@ -2833,7 +3127,7 @@ export default function App() {
 
             <div className="stats-row">
               <article className="stat-card"><p>PEDIDOS</p><strong>{restaurantOrders.length}</strong><small>Últimos registros</small></article>
-              <article className="stat-card"><p>PENDIENTES</p><strong>{restaurantOrders.filter((o) => o.status === 'PENDING').length}</strong><small>Activos ahora</small></article>
+              <article className="stat-card" style={pendingOrdersCount > 0 ? { borderLeft: '4px solid #ef4444' } : undefined}><p>PENDIENTES</p><strong>{pendingOrdersCount}</strong><small>{pendingOrdersCount > 0 ? '¡Requieren atención!' : 'Todo al día'}</small></article>
               <article className="stat-card"><p>GANADO</p><strong>{formatPrice(restaurantOrders.filter((o) => o.status === 'DELIVERED').reduce((acc, item) => acc + Number(item.total), 0))}</strong><small>Entregados</small></article>
               <article className="stat-card"><p>MENÚ</p><strong>{menuItems.length}</strong><small>Platillos cargados</small></article>
             </div>
@@ -2958,6 +3252,67 @@ export default function App() {
                   />
                 </div>
                 <button className="btn" onClick={updateRestaurantSettings} disabled={actionLoading}>Guardar configuración de delivery</button>
+              </div>
+            )}
+            {restaurantPanel === 'comisiones' && (
+              <div className="panel-placeholder">
+                <div className="orders-grid-title" style={{ marginTop: 0 }}>💰 Comisiones PideYa</div>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Resumen de comisiones por uso de la plataforma PideYa en el período actual.</p>
+
+                {/* Period info */}
+                <div className="stats-row" style={{ marginBottom: '1rem' }}>
+                  <article className="stat-card">
+                    <p>PERÍODO ACTUAL</p>
+                    <strong style={{ fontSize: '1rem' }}>{commissionConfig.cutoffFrom ? formatDateMX(commissionConfig.cutoffFrom) : '—'} — {commissionConfig.cutoffTo ? formatDateMX(commissionConfig.cutoffTo) : '—'}</strong>
+                    <small>Fecha de corte configurada por admin</small>
+                  </article>
+                  <article className="stat-card" style={{ borderLeft: restaurantCommissionTotal > 0 ? '4px solid #ef4444' : undefined }}>
+                    <p>COMISIÓN ACUMULADA</p>
+                    <strong>{formatPrice(restaurantCommissionTotal)}</strong>
+                    <small>{restaurantCommissionOrders} pedidos entregados</small>
+                  </article>
+                </div>
+
+                {/* Tier table */}
+                <div className="admin-card" style={{ marginBottom: '1rem' }}>
+                  <h4 style={{ fontSize: '1rem' }}>📊 Tabla de comisiones vigente</h4>
+                  <p style={{ color: 'var(--muted)', fontSize: '.88rem', marginBottom: '.5rem' }}>La comisión se calcula según el subtotal del pedido:</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.35rem' }}>
+                    {commissionConfig.tiers.map((tier, idx) => (
+                      <div key={idx} style={{ background: 'var(--cream)', border: '1px solid rgba(45,139,122,.1)', borderRadius: '10px', padding: '.5rem .65rem', textAlign: 'center' }}>
+                        <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>
+                          {tier.up_to === null ? `Más de ${formatPrice(commissionConfig.tiers.filter((t) => t.up_to !== null).pop()?.up_to ?? 0)}` : `Hasta ${formatPrice(tier.up_to)}`}
+                        </div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brand)' }}>{formatPrice(tier.fee)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Load data button */}
+                <button className="btn ghost" onClick={() => void loadRestaurantCommissions()} disabled={actionLoading} style={{ marginBottom: '1rem' }}>🔄 Actualizar datos de comisiones</button>
+
+                {/* Payment history */}
+                {restaurantCommissionPayments.length > 0 && (
+                  <div className="admin-card">
+                    <h4 style={{ fontSize: '1rem' }}>📜 Historial de pagos registrados</h4>
+                    <div className="orders-table-wrap">
+                      <table className="orders-table" style={{ minWidth: '400px' }}>
+                        <thead><tr><th>Período</th><th>Pedidos</th><th>Monto</th><th>Fecha pago</th></tr></thead>
+                        <tbody>
+                          {restaurantCommissionPayments.map((p) => (
+                            <tr key={p.id}>
+                              <td>{formatDateMX(p.period_start)} — {formatDateMX(p.period_end)}</td>
+                              <td>{p.orders_count}</td>
+                              <td><strong>{formatPrice(p.total_commission)}</strong></td>
+                              <td>{new Date(p.paid_at).toLocaleDateString('es-MX')}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3593,33 +3948,135 @@ export default function App() {
                   )}
 
                   {adminPanel === 'comisiones' && (
-                    <article className="admin-card">
-                      <h4>💰 Comisiones por uso de la app</h4>
-                      <p style={{ color: 'var(--muted)' }}>Define una comisión fija global por pedido. Se sumará al subtotal de productos en todos los pedidos nuevos.</p>
-                      <div className="frow" style={{ marginTop: '.75rem' }}>
-                        <div className="fg">
-                          <label>Comisión fija por pedido (MXN)</label>
-                          <input
-                            className="fi"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={commissionDraft}
-                            onChange={(e) => setCommissionDraft(e.target.value)}
-                            placeholder="Ej. 12.00"
-                          />
+                    <>
+                      {/* ── Tier Editor ── */}
+                      <article className="admin-card">
+                        <h4>💰 Escalones de comisión por pedido</h4>
+                        <p style={{ color: 'var(--muted)', marginBottom: '.8rem' }}>Define los escalones de comisión según el subtotal del pedido. La comisión se cobra al cliente y se acumula para cobro al restaurante.</p>
+
+                        <div style={{ display: 'grid', gap: '.45rem', marginBottom: '.8rem' }}>
+                          {commissionTiersDraft.map((tier, idx) => (
+                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '.5rem', alignItems: 'center' }}>
+                              <div className="fg" style={{ marginBottom: 0 }}>
+                                <label>{idx === commissionTiersDraft.length - 1 && tier.up_to === null ? 'Sin límite (tope)' : `Hasta subtotal (MXN)`}</label>
+                                <input
+                                  className="fi"
+                                  type="number"
+                                  min="0"
+                                  placeholder={tier.up_to === null ? '∞ Sin límite' : 'Ej. 100'}
+                                  value={tier.up_to ?? ''}
+                                  onChange={(e) => {
+                                    const next = [...commissionTiersDraft];
+                                    next[idx] = { ...next[idx], up_to: e.target.value === '' ? null : Number(e.target.value) };
+                                    setCommissionTiersDraft(next);
+                                  }}
+                                  disabled={tier.up_to === null}
+                                />
+                              </div>
+                              <div className="fg" style={{ marginBottom: 0 }}>
+                                <label>Comisión (MXN)</label>
+                                <input
+                                  className="fi"
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  placeholder="Ej. 8"
+                                  value={tier.fee}
+                                  onChange={(e) => {
+                                    const next = [...commissionTiersDraft];
+                                    next[idx] = { ...next[idx], fee: Number(e.target.value) || 0 };
+                                    setCommissionTiersDraft(next);
+                                  }}
+                                />
+                              </div>
+                              <button className="btn ghost danger" style={{ marginTop: '1.2rem' }} onClick={() => setCommissionTiersDraft((prev) => prev.filter((_, i) => i !== idx))} disabled={commissionTiersDraft.length <= 1}>✕</button>
+                            </div>
+                          ))}
                         </div>
-                        <div className="fg">
-                          <label>Vista previa para cliente</label>
-                          <input className="fi" value={`Subtotal + Comisión = Total (${formatPrice(150)} + ${formatPrice(Math.max(0, Number(commissionDraft) || 0))} = ${formatPrice(150 + Math.max(0, Number(commissionDraft) || 0))})`} readOnly />
+                        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.8rem' }}>
+                          <button className="btn ghost" onClick={() => setCommissionTiersDraft((prev) => [...prev.filter((t) => t.up_to !== null), { up_to: (prev.filter((t) => t.up_to !== null).pop()?.up_to ?? 100) + 100, fee: (prev[prev.length - 1]?.fee ?? 8) + 2 }, ...prev.filter((t) => t.up_to === null)])}>+ Agregar escalón</button>
+                          <button className="btn ghost" onClick={() => setCommissionTiersDraft(DEFAULT_TIERS)}>Restablecer por defecto</button>
                         </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-                        <button className="btn" onClick={saveCommissionSettings} disabled={actionLoading}>Guardar comisión</button>
-                        <button className="btn ghost" onClick={() => setCommissionDraft(commissionAmount.toFixed(2))} disabled={actionLoading}>Restablecer</button>
-                      </div>
-                      <p style={{ color: 'var(--muted)', marginTop: '.65rem' }}>Comisión activa actual: <strong>{formatPrice(commissionAmount)}</strong>.</p>
-                    </article>
+
+                        {/* Simulation table */}
+                        <div style={{ marginBottom: '.8rem' }}>
+                          <strong style={{ fontSize: '.9rem', color: 'var(--mid)' }}>📊 Simulación de comisiones</strong>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.4rem', marginTop: '.4rem' }}>
+                            {[50, 80, 100, 120, 150, 200, 250, 300, 400, 500, 700].map((amt) => (
+                              <div key={amt} style={{ background: 'var(--cream)', border: '1px solid rgba(45,139,122,.1)', borderRadius: '10px', padding: '.45rem .6rem', textAlign: 'center' }}>
+                                <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Pedido {formatPrice(amt)}</div>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--brand)' }}>{formatPrice(calculateCommission(amt, commissionTiersDraft))}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </article>
+
+                      {/* ── Cutoff Dates ── */}
+                      <article className="admin-card">
+                        <h4>📅 Período de corte</h4>
+                        <p style={{ color: 'var(--muted)', marginBottom: '.6rem' }}>Define las fechas del período actual para calcular comisiones acumuladas.</p>
+                        <div className="frow">
+                          <div className="fg"><label>Fecha inicio</label><input className="fi" type="date" value={commissionCutoffFromDraft} onChange={(e) => setCommissionCutoffFromDraft(e.target.value)} /></div>
+                          <div className="fg"><label>Fecha fin (corte)</label><input className="fi" type="date" value={commissionCutoffToDraft} onChange={(e) => setCommissionCutoffToDraft(e.target.value)} /></div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                          <button className="btn" onClick={() => { void saveCommissionSettings(); }} disabled={actionLoading}>💾 Guardar configuración</button>
+                          <button className="btn ghost" onClick={() => { setCommissionTiersDraft(commissionConfig.tiers); setCommissionCutoffFromDraft(commissionConfig.cutoffFrom); setCommissionCutoffToDraft(commissionConfig.cutoffTo); }} disabled={actionLoading}>Restablecer</button>
+                          <button className="btn ghost" onClick={() => void loadAdminCommissionBalances()} disabled={actionLoading}>🔄 Actualizar balances</button>
+                        </div>
+                      </article>
+
+                      {/* ── Balance per restaurant ── */}
+                      <article className="admin-card">
+                        <h4>🏪 Balance de comisiones por restaurante</h4>
+                        <p style={{ color: 'var(--muted)', marginBottom: '.6rem' }}>
+                          Período: <strong>{commissionConfig.cutoffFrom ? formatDateMX(commissionConfig.cutoffFrom) : '—'}</strong> al <strong>{commissionConfig.cutoffTo ? formatDateMX(commissionConfig.cutoffTo) : '—'}</strong>
+                        </p>
+                        {adminCommissionBalances.length === 0 ? (
+                          <div className="menu-empty">No hay comisiones acumuladas en este período. Ajusta las fechas de corte y presiona "Actualizar balances".</div>
+                        ) : (
+                          <div style={{ display: 'grid', gap: '.6rem' }}>
+                            {adminCommissionBalances.map((balance) => (
+                              <div key={balance.restaurant_id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.8rem', alignItems: 'center', background: 'var(--cream)', border: '1px solid rgba(45,139,122,.1)', borderRadius: '14px', padding: '.85rem 1rem' }}>
+                                <div>
+                                  <strong style={{ fontSize: '1.1rem' }}>{balance.restaurant_name}</strong>
+                                  <div style={{ fontSize: '.9rem', color: 'var(--muted)' }}>{balance.orders_count} pedidos entregados · Comisión: <strong style={{ color: 'var(--brand)' }}>{formatPrice(balance.total_commission)}</strong></div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                                  <button className="btn green" style={{ fontSize: '.85rem', padding: '.5rem .8rem' }} onClick={() => void markCommissionAsPaid(balance)} disabled={actionLoading}>✓ Pagado</button>
+                                  <button className="btn ghost" style={{ fontSize: '.85rem', padding: '.5rem .8rem' }} onClick={() => generateCommissionReceipt(balance)}>🧾 Recibo PDF</button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </article>
+
+                      {/* ── Payment history ── */}
+                      {adminCommissionPayments.length > 0 && (
+                        <article className="admin-card">
+                          <h4>📜 Historial de pagos registrados</h4>
+                          <div className="orders-table-wrap">
+                            <table className="orders-table" style={{ minWidth: '600px' }}>
+                              <thead><tr><th>Restaurante</th><th>Período</th><th>Pedidos</th><th>Monto</th><th>Fecha pago</th><th>Notas</th></tr></thead>
+                              <tbody>
+                                {adminCommissionPayments.map((p) => (
+                                  <tr key={p.id}>
+                                    <td>{restaurants.find((r) => r.id === p.restaurant_id)?.name ?? p.restaurant_id.slice(0, 8)}</td>
+                                    <td>{formatDateMX(p.period_start)} — {formatDateMX(p.period_end)}</td>
+                                    <td>{p.orders_count}</td>
+                                    <td><strong>{formatPrice(p.total_commission)}</strong></td>
+                                    <td>{new Date(p.paid_at).toLocaleDateString('es-MX')}</td>
+                                    <td style={{ color: 'var(--muted)', fontSize: '.85rem' }}>{p.notes ?? '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </article>
+                      )}
+                    </>
                   )}
 
                   {adminPanel === 'promociones' && (
@@ -3904,6 +4361,61 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* ─── PUSH TOAST OVERLAY — Full-screen new order alert ─── */}
+      {incomingToastOrder && (
+        <div className="push-toast-overlay" onClick={dismissToast}>
+          <div className="push-toast-card" onClick={(e) => e.stopPropagation()}>
+            <div className="push-toast-header">
+              <div className="push-toast-ring">🍕</div>
+              <h3>¡Nuevo pedido entrante!</h3>
+              <p>Un cliente está esperando tu confirmación</p>
+            </div>
+            <div className="push-toast-body">
+              <div className="push-toast-order-preview">
+                <div className="push-toast-order-num">
+                  {incomingToastOrder.reference_code ?? `#${incomingToastOrder.order_number}`}
+                </div>
+                <div className="push-toast-order-client">
+                  👤 {incomingToastOrder.client_name ?? 'Sin nombre'} · 📱 {incomingToastOrder.client_phone ?? 'Sin teléfono'}
+                </div>
+                {Array.isArray(incomingToastOrder.items) && incomingToastOrder.items.length > 0 && (
+                  <div className="push-toast-order-items">
+                    {incomingToastOrder.items.slice(0, 5).map((item, idx) => (
+                      <span key={idx}>{item.qty} × {item.name}</span>
+                    ))}
+                    {incomingToastOrder.items.length > 5 && (
+                      <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>+{incomingToastOrder.items.length - 5} más…</span>
+                    )}
+                  </div>
+                )}
+                <div className="push-toast-order-total">
+                  <span>Total del pedido</span>
+                  <span>{formatPrice(Number(incomingToastOrder.total))}</span>
+                </div>
+              </div>
+              <div className="push-toast-actions">
+                <button
+                  className="push-toast-btn primary"
+                  onClick={() => {
+                    dismissToast();
+                    setRestaurantPanel('resumen');
+                    if (activeTab !== 'restaurante') setActiveTab('restaurante');
+                  }}
+                >
+                  📋 Ver pedido
+                  {pendingOrdersCount > 1 && (
+                    <span className="push-toast-pending-count">{pendingOrdersCount}</span>
+                  )}
+                </button>
+                <button className="push-toast-btn secondary" onClick={dismissToast}>
+                  🔇 Cerrar alerta
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

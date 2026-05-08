@@ -270,16 +270,67 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
   .cart-bar{flex-direction:column;align-items:stretch;gap:.6rem}.wizard-actions{justify-content:flex-end}
   .product-grid{grid-template-columns:1fr}.product-cover{height:92px}.product-price{font-size:1.2rem}
 }
-/* === TABLET (768-1200px) — Optimized for restaurant tablets === */
+/* === TABLET (768-1200px) — Optimized for restaurant tablets in kitchen === */
 @media (min-width:768px) and (max-width:1200px){
-  .restaurant-page{grid-template-columns:220px 1fr}
-  .restaurant-sidebar button{padding:.8rem .9rem;font-size:1rem;min-height:48px}
-  .stats-row{grid-template-columns:repeat(2,1fr)}
-  .orders-grid{grid-template-columns:1fr}
-  .incoming-order{padding:1.1rem}
-  .order-head h4{font-size:1.6rem}
-  .btn{min-height:48px;font-size:1rem}
-  .order-actions .btn{padding:.65rem .9rem}
+  /* Layout */
+  .restaurant-page{grid-template-columns:240px 1fr}
+  .restaurant-main{padding:1.2rem}
+  .restaurant-header-row{flex-wrap:wrap;gap:.6rem}
+  .restaurant-header-row h2{font-size:2.2rem}
+  .restaurant-header-row p{font-size:1.2rem}
+
+  /* Sidebar — large touch targets for busy hands */
+  .restaurant-sidebar{min-width:240px}
+  .restaurant-sidebar h3{font-size:1.7rem;padding:0 .8rem 1rem}
+  .restaurant-sidebar button{padding:1rem 1rem;font-size:1.08rem;min-height:56px;line-height:1.3}
+  .restaurant-sidebar-footer button{min-height:52px}
+  .sidebar-badge{min-width:26px;height:26px;font-size:.85rem}
+
+  /* Stat cards — 2 columns, bigger numbers for at-a-glance reading */
+  .stats-row{grid-template-columns:repeat(2,1fr);gap:.7rem}
+  .stat-card{padding:1rem}
+  .stat-card p{font-size:.9rem}
+  .stat-card strong{font-size:2.2rem}
+  .stat-card small{font-size:.95rem}
+
+  /* Incoming orders — single column, bigger cards */
+  .orders-grid{grid-template-columns:1fr;gap:.9rem}
+  .incoming-order{padding:1.2rem}
+  .order-head h4{font-size:1.8rem}
+  .order-head span{font-size:1.05rem}
+  .incoming-order p{font-size:1.05rem}
+  .client-box{font-size:1.05rem;padding:.8rem}
+  .distance-box{font-size:1.05rem}
+
+  /* Buttons — large touch targets for kitchen staff */
+  .btn{min-height:52px;font-size:1.05rem;padding:.75rem 1.1rem}
+  .order-actions{gap:.55rem}
+  .order-actions .btn{padding:.75rem 1rem;font-size:1.02rem;min-height:52px;flex:1}
+
+  /* Orders table */
+  .orders-filters{grid-template-columns:1fr 1fr;gap:.55rem}
+  .orders-table th,.orders-table td{padding:.65rem .5rem;font-size:.9rem}
+
+  /* Driver assignment */
+  .driver-assignment-box{padding:.85rem}
+  .driver-actions .fi{min-height:48px;font-size:1rem}
+
+  /* Menu editor */
+  .menu-cards{grid-template-columns:repeat(2,1fr)}
+
+  /* Login page for tablet */
+  .regcard{max-width:520px}
+  .reghead h2{font-size:1.85rem}
+  .btnreg{min-height:56px;font-size:1.08rem}
+  .fi,.fs,.fta{min-height:48px;font-size:1rem}
+
+  /* Dashboard */
+  .dashboard-timeline-grid{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+
+  /* Notification permission bar */
+  .notif-permission-bar{padding:.85rem 1.1rem}
+  .notif-permission-bar p{font-size:.95rem}
+  .notif-permission-bar .btn{min-height:46px}
 }
 
 /* === ADMIN DASHBOARD === */
@@ -417,3 +468,42 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 /* === ORDER NOTIFICATION PULSE === */
 @keyframes order-pulse{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
 .order-notification-active{animation:order-pulse .5s ease-in-out}
+
+/* === PUSH TOAST OVERLAY — New Order Alert === */
+.push-toast-overlay{position:fixed;inset:0;z-index:9999;background:rgba(13,43,38,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:1.5rem;animation:toast-fade-in .3s ease-out}
+@keyframes toast-fade-in{from{opacity:0}to{opacity:1}}
+.push-toast-card{background:#fff;border-radius:28px;width:100%;max-width:520px;box-shadow:0 24px 80px rgba(13,43,38,.4),0 0 0 2px rgba(45,139,122,.15);overflow:hidden;animation:toast-card-in .4s cubic-bezier(.16,1,.3,1)}
+@keyframes toast-card-in{from{opacity:0;transform:scale(.88) translateY(30px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.push-toast-header{background:linear-gradient(135deg,var(--brand),var(--brand-dark));padding:1.4rem 1.6rem;text-align:center;position:relative;overflow:hidden}
+.push-toast-header::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(255,255,255,.03) 10px,rgba(255,255,255,.03) 20px)}
+.push-toast-ring{display:inline-flex;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.15);margin-bottom:.6rem;animation:toast-ring 1.5s ease-in-out infinite;font-size:2rem}
+@keyframes toast-ring{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.4)}50%{box-shadow:0 0 0 16px rgba(255,255,255,0)}}
+.push-toast-header h3{color:#fff;font-family:'Playfair Display',serif;font-size:1.65rem;font-weight:700;margin:0}
+.push-toast-header p{color:rgba(255,255,255,.7);font-size:.9rem;margin-top:.25rem}
+.push-toast-body{padding:1.4rem 1.6rem}
+.push-toast-order-preview{background:var(--cream);border:1.5px solid rgba(45,139,122,.12);border-radius:16px;padding:1rem 1.1rem;margin-bottom:1rem}
+.push-toast-order-num{font-family:'Playfair Display',serif;font-size:1.45rem;font-weight:700;color:var(--dark);margin-bottom:.3rem}
+.push-toast-order-client{font-size:1rem;color:var(--muted);margin-bottom:.5rem}
+.push-toast-order-items{display:grid;gap:.25rem;font-size:.92rem;color:var(--mid);max-height:120px;overflow-y:auto}
+.push-toast-order-total{margin-top:.6rem;padding-top:.5rem;border-top:1.5px solid rgba(45,139,122,.12);font-size:1.15rem;font-weight:800;color:var(--brand);display:flex;justify-content:space-between}
+.push-toast-actions{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.push-toast-btn{min-height:56px;border:none;border-radius:14px;font-family:'Outfit',sans-serif;font-size:1.05rem;font-weight:700;cursor:pointer;transition:var(--transition);display:flex;align-items:center;justify-content:center;gap:.4rem}
+.push-toast-btn.primary{background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;box-shadow:0 4px 16px rgba(45,139,122,.3)}.push-toast-btn.primary:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(45,139,122,.4)}
+.push-toast-btn.secondary{background:rgba(45,139,122,.08);color:var(--mid);border:1.5px solid rgba(45,139,122,.15)}.push-toast-btn.secondary:hover{background:rgba(45,139,122,.12)}
+.push-toast-pending-count{display:inline-flex;align-items:center;justify-content:center;background:#fff;color:var(--brand);font-weight:800;font-size:.85rem;min-width:24px;height:24px;border-radius:999px;margin-left:.35rem;padding:0 .35rem}
+
+/* === SIDEBAR PENDING BADGE === */
+.sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 .35rem;border-radius:999px;background:#ef4444;color:#fff;font-size:.75rem;font-weight:800;margin-left:auto;flex-shrink:0;animation:badge-pulse 2s ease-in-out infinite}
+@keyframes badge-pulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(239,68,68,.5)}50%{transform:scale(1.1);box-shadow:0 0 0 6px rgba(239,68,68,0)}}
+.sidebar-btn-with-badge{display:flex !important;align-items:center;gap:.35rem}
+
+/* === NOTIFICATION PERMISSION BANNER (restaurant panel) === */
+.notif-permission-bar{background:linear-gradient(90deg,#fff4e5,#fff8ef);border:1.5px solid #f2d5aa;border-radius:14px;padding:.75rem 1rem;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:.8rem}
+.notif-permission-bar p{color:#b26a00;font-size:.92rem;font-weight:600}
+.notif-permission-bar .btn{min-height:40px;font-size:.88rem}
+
+@media (max-width:700px){
+  .push-toast-card{max-width:100%;border-radius:20px}
+  .push-toast-actions{grid-template-columns:1fr}
+  .push-toast-header h3{font-size:1.35rem}
+}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'arandaeats-v2';
+const CACHE_NAME = 'pideya-v3';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.svg', '/icon-512.svg'];
 
 const isHttpRequest = (url) => url.protocol === 'http:' || url.protocol === 'https:';
@@ -25,6 +25,66 @@ self.addEventListener('message', (event) => {
   }
 });
 
+/* ─── Push Notifications (from server or Supabase Edge Function) ─── */
+self.addEventListener('push', (event) => {
+  let title = '🍕 Nuevo pedido — Pide Ya';
+  let body = 'Tienes un pedido nuevo esperando tu confirmación.';
+  let data = {};
+
+  if (event.data) {
+    try {
+      const payload = event.data.json();
+      title = payload.title || title;
+      body = payload.body || body;
+      data = payload.data || {};
+    } catch {
+      body = event.data.text() || body;
+    }
+  }
+
+  const options = {
+    body,
+    icon: '/icon-192.svg',
+    badge: '/icon-192.svg',
+    vibrate: [300, 100, 300, 100, 300],
+    tag: 'pideya-new-order',
+    renotify: true,
+    requireInteraction: true,
+    data,
+    actions: [
+      { action: 'view', title: '📋 Ver pedido' },
+      { action: 'dismiss', title: 'Cerrar' }
+    ]
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+/* ─── Notification Click — navigate to restaurant orders panel ─── */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  if (event.action === 'dismiss') return;
+
+  const targetUrl = '/restaurantes?mode=login';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Focus existing window if available
+      for (const client of clientList) {
+        if (client.url.includes('/restaurantes') && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Open new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+
+/* ─── Fetch — Network-first for navigations, cache-first for assets ─── */
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
