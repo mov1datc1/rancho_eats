@@ -1279,7 +1279,7 @@ export default function App() {
 
       const { data: fallbackOrders, error: fallbackError } = await supabase
         .from('orders')
-        .select('id,order_number,reference_code,status,total,client_name,client_phone,client_location_note,created_at,restaurant_id')
+        .select('id,order_number,reference_code,status,total,commission_amount,client_name,client_phone,client_location_note,created_at,restaurant_id')
         .order('created_at', { ascending: false })
         .limit(60);
       if (fallbackError) throw fallbackError;
@@ -3868,7 +3868,7 @@ export default function App() {
                       <div className="admin-orders-table-wrap">
                         <table className="spam-table">
                           <thead>
-                            <tr><th>#</th><th>Restaurante</th><th>Cliente</th><th>Total</th><th>Estado</th><th>Fecha</th></tr>
+                            <tr><th>#</th><th>Restaurante</th><th>Cliente</th><th>Total</th><th>Comisión</th><th>Estado</th><th>Fecha</th></tr>
                           </thead>
                           <tbody>
                             {adminOrders.map((order) => (
@@ -3877,6 +3877,7 @@ export default function App() {
                                 <td>{order.restaurant_name}</td>
                                 <td>{order.client_name ?? 'Sin nombre'} · {order.client_phone ?? 'Sin teléfono'}</td>
                                 <td>{formatPrice(order.total)}</td>
+                                <td style={{ color: 'var(--brand)', fontWeight: 700 }}>{formatPrice(Math.max(0, Number(order.commission_amount ?? 0)))}</td>
                                 <td>{statusLabel(order.status)}</td>
                                 <td>{formatRelative(order.created_at)}</td>
                               </tr>

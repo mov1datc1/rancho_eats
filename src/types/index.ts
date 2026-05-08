@@ -149,6 +149,7 @@ export interface AdminOrderFeedItem {
   restaurant_name: string;
   status: string;
   total: number;
+  commission_amount?: number | null;
   client_name: string | null;
   client_phone: string | null;
   client_location_note: string | null;
