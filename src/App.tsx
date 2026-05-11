@@ -922,11 +922,20 @@ export default function App() {
     setAdminUser(currentUser);
 
     if (currentUser) {
-      await checkAdminProfile(currentUser.id);
+      const isAdminUser = await checkAdminProfile(currentUser.id);
+
+      // If not an admin, try to restore the restaurant panel (PWA session persistence)
+      if (!isAdminUser) {
+        try {
+          await loadOwnedRestaurant(currentUser.id);
+        } catch (e) {
+          console.error('Could not restore restaurant session:', e);
+        }
+      }
     }
   };
 
-  const checkAdminProfile = async (userId: string) => {
+  const checkAdminProfile = async (userId: string): Promise<boolean> => {
     try {
       const { data, error } = await supabase
         .from('admin_profiles')
@@ -935,10 +944,13 @@ export default function App() {
         .maybeSingle();
 
       if (error) throw error;
-      setIsAdmin(Boolean(data));
+      const result = Boolean(data);
+      setIsAdmin(result);
+      return result;
     } catch (error) {
       console.error(error);
       setIsAdmin(false);
+      return false;
     }
   };
 
