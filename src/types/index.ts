@@ -75,6 +75,7 @@ export interface Order {
   subtotal?: number | null;
   commission_amount?: number | null;
   delivery_amount?: number | null;
+  delivery_type?: 'delivery' | 'pickup';
   total: number;
   status: string;
   rejection_reason?: string | null;

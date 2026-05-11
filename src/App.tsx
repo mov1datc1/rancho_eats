@@ -251,7 +251,8 @@ export default function App() {
   const [clientPhone, setClientPhone] = useState('');
   const [clientRef, setClientRef] = useState('');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
-  const [orderWizardStep, setOrderWizardStep] = useState<1 | 2 | 3>(1);
+  const [orderWizardStep, setOrderWizardStep] = useState<1 | 2 | 3 | 4>(1);
+  const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
 
   const [registerForm, setRegisterForm] = useState(baseForm);
   const [registerMessage, setRegisterMessage] = useState('');
@@ -390,7 +391,7 @@ export default function App() {
     if (!Number.isFinite(Number(selectedRestaurant.lat)) || !Number.isFinite(Number(selectedRestaurant.lng))) return null;
     return haversineKm(Number(selectedRestaurant.lat), Number(selectedRestaurant.lng), clientPoint.lat, clientPoint.lng);
   }, [selectedRestaurant, clientPoint.lat, clientPoint.lng]);
-  const cartDelivery = useMemo(() => (cartCount > 0 && orderWizardStep === 3 ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, orderWizardStep, selectedRestaurant, estimatedDeliveryDistanceKm]);
+  const cartDelivery = useMemo(() => (cartCount > 0 && orderWizardStep >= 3 && deliveryType === 'delivery' ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, orderWizardStep, selectedRestaurant, estimatedDeliveryDistanceKm, deliveryType]);
   const cartCommission = useMemo(() => (cartCount > 0 ? calculateCommission(cartSubtotal, commissionConfig.tiers) : 0), [cartCount, cartSubtotal, commissionConfig.tiers]);
   const cartTotal = useMemo(() => cartSubtotal + cartCommission + cartDelivery, [cartSubtotal, cartCommission, cartDelivery]);
   const groupedMenuItems = useMemo(() => {
@@ -1594,20 +1595,22 @@ export default function App() {
     await updateRestaurantOrderStatus(order, status);
   };
 
-  const goToWizardStep = (step: 1 | 2 | 3) => {
-    if (step === 2 && cartCount === 0) {
+  const goToWizardStep = (step: 1 | 2 | 3 | 4) => {
+    if (step >= 2 && cartCount === 0) {
       setErrorMessage('Primero agrega al menos un platillo para continuar.');
       return;
     }
 
-    if (step === 3 && cartCount === 0) {
-      setErrorMessage('Primero agrega al menos un platillo para continuar.');
-      return;
+    // For pickup, skip step 4 (map)
+    if (step === 4 && deliveryType === 'pickup') {
+      return; // shouldn't reach here, but safety
     }
 
     setErrorMessage('');
     setOrderWizardStep(step);
   };
+
+  const getMaxWizardStep = (): number => deliveryType === 'pickup' ? 3 : 4;
 
   const submitOrder = async () => {
     if (!selectedRestaurant) return;
@@ -1616,8 +1619,9 @@ export default function App() {
       return;
     }
 
-    if (orderWizardStep !== 3) {
-      setErrorMessage('Completa los 3 pasos antes de enviar el pedido.');
+    const maxStep = deliveryType === 'pickup' ? 3 : 4;
+    if (orderWizardStep !== maxStep) {
+      setErrorMessage(`Completa los ${maxStep} pasos antes de enviar el pedido.`);
       return;
     }
 
@@ -1635,13 +1639,14 @@ export default function App() {
           restaurant_id: selectedRestaurant.id,
           client_name: clientName || null,
           client_phone: clientPhone || null,
-          client_location_note: clientRef || null,
-          client_lat: clientPoint.lat,
-          client_lng: clientPoint.lng,
+          client_location_note: deliveryType === 'pickup' ? 'PICKUP — Recoger en local' : (clientRef || null),
+          client_lat: deliveryType === 'pickup' ? (Number(selectedRestaurant.lat) || clientPoint.lat) : clientPoint.lat,
+          client_lng: deliveryType === 'pickup' ? (Number(selectedRestaurant.lng) || clientPoint.lng) : clientPoint.lng,
           items: cartItems,
           subtotal: cartSubtotal,
           commission_amount: cartCommission,
-          delivery_amount: cartDelivery,
+          delivery_amount: deliveryType === 'pickup' ? 0 : cartDelivery,
+          delivery_type: deliveryType,
           total: cartTotal,
           status: 'PENDING'
         })
@@ -3421,8 +3426,8 @@ export default function App() {
 
                     return (
                       <article key={order.id} className={`incoming-order ${order.status === 'PENDING' ? 'new' : ''}`}>
-                        <div className="order-head"><h4>{order.reference_code ?? `#${order.order_number}`} <small style={{fontWeight: 400, color: 'var(--muted)', fontSize: '.75em'}}>#{order.order_number}</small></h4><span>{statusLabel(order.status)}</span></div>
-                        <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))} · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(order))} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
+                        <div className="order-head"><h4>{order.reference_code ?? `#${order.order_number}`} <small style={{fontWeight: 400, color: 'var(--muted)', fontSize: '.75em'}}>#{order.order_number}</small></h4><span>{order.delivery_type === 'pickup' ? '🏠 PICKUP · ' : ''}{statusLabel(order.status)}</span></div>
+                        <p><strong>Subtotal:</strong> {formatPrice(getOrderSubtotal(order))} · <strong>Comisión:</strong> {formatPrice(getOrderCommission(order))}{order.delivery_type !== 'pickup' && <> · <strong>Delivery:</strong> {formatPrice(getOrderDelivery(order))}</>} · <strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                         <div className="client-box">
                           👤 {order.client_name ?? 'Sin nombre'} · 📱 {order.client_phone ?? 'Sin teléfono'}
                           {buildWhatsAppUrl(order.client_phone, order) && (
@@ -4288,8 +4293,11 @@ export default function App() {
 
             <div className="wizard-steps" role="tablist" aria-label="Pasos para pedir">
               <button className={`wizard-step ${orderWizardStep === 1 ? 'active' : orderWizardStep > 1 ? 'done' : ''}`} onClick={() => goToWizardStep(1)}>1. Productos</button>
-              <button className={`wizard-step ${orderWizardStep === 2 ? 'active' : orderWizardStep > 2 ? 'done' : ''}`} onClick={() => goToWizardStep(2)}>2. Datos y referencia</button>
-              <button className={`wizard-step ${orderWizardStep === 3 ? 'active' : ''}`} onClick={() => goToWizardStep(3)}>3. Ubicación en mapa</button>
+              <button className={`wizard-step ${orderWizardStep === 2 ? 'active' : orderWizardStep > 2 ? 'done' : ''}`} onClick={() => goToWizardStep(2)}>2. Tipo de entrega</button>
+              <button className={`wizard-step ${orderWizardStep === 3 ? 'active' : orderWizardStep > 3 ? 'done' : ''}`} onClick={() => goToWizardStep(3)}>3. Datos</button>
+              {deliveryType === 'delivery' && (
+                <button className={`wizard-step ${orderWizardStep === 4 ? 'active' : ''}`} onClick={() => goToWizardStep(4)}>4. Ubicación</button>
+              )}
             </div>
 
             {orderWizardStep === 1 && (
@@ -4359,38 +4367,90 @@ export default function App() {
 
             {orderWizardStep === 2 && (
               <>
-                <div className="wizard-section-title">Paso 2 · Tus datos y referencia</div>
+                <div className="wizard-section-title">Paso 2 · ¿Cómo quieres recibir tu pedido?</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '1.5rem 0' }}>
+                  <button
+                    onClick={() => { setDeliveryType('delivery'); goToWizardStep(3); }}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.8rem',
+                      padding: '2rem 1rem', borderRadius: '18px', border: deliveryType === 'delivery' ? '3px solid var(--brand)' : '2px solid rgba(45,139,122,.15)',
+                      background: deliveryType === 'delivery' ? 'rgba(45,139,122,.08)' : 'var(--cream)',
+                      cursor: 'pointer', transition: 'all .2s'
+                    }}
+                  >
+                    <span style={{ fontSize: '3rem' }}>🛵</span>
+                    <strong style={{ fontSize: '1.2rem', color: 'var(--fg)' }}>Envío a domicilio</strong>
+                    <span style={{ fontSize: '.9rem', color: 'var(--muted)', textAlign: 'center' }}>Un repartidor lleva tu pedido hasta tu ubicación</span>
+                  </button>
+                  <button
+                    onClick={() => { setDeliveryType('pickup'); goToWizardStep(3); }}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.8rem',
+                      padding: '2rem 1rem', borderRadius: '18px', border: deliveryType === 'pickup' ? '3px solid var(--brand)' : '2px solid rgba(45,139,122,.15)',
+                      background: deliveryType === 'pickup' ? 'rgba(45,139,122,.08)' : 'var(--cream)',
+                      cursor: 'pointer', transition: 'all .2s'
+                    }}
+                  >
+                    <span style={{ fontSize: '3rem' }}>🏠</span>
+                    <strong style={{ fontSize: '1.2rem', color: 'var(--fg)' }}>Recoger en local</strong>
+                    <span style={{ fontSize: '.9rem', color: 'var(--muted)', textAlign: 'center' }}>Tú recoges directamente en el restaurante — sin costo de envío</span>
+                  </button>
+                </div>
+                {deliveryType === 'pickup' && (
+                  <div style={{ background: 'rgba(45,139,122,.06)', borderRadius: '12px', padding: '.8rem 1rem', textAlign: 'center', color: 'var(--mid)', fontSize: '.9rem' }}>
+                    🏠 Recogerás tu pedido en: <strong>{selectedRestaurant?.address ?? selectedRestaurant?.name ?? 'el restaurante'}</strong>
+                  </div>
+                )}
+              </>
+            )}
+
+            {orderWizardStep === 3 && (
+              <>
+                <div className="wizard-section-title">Paso 3 · Tus datos {deliveryType === 'pickup' ? 'para recoger' : 'y referencia'}</div>
                 <div className="client-form">
                   <div className="client-form-title">Tus datos de contacto <span>(opcionales pero muy útiles)</span></div>
                   <div className="cf-grid">
                     <div><label className="cfl">Tu nombre</label><input className="cfi" placeholder="ej. Juan Pérez" value={clientName} onChange={(e) => setClientName(e.target.value)} /></div>
                     <div><label className="cfl">WhatsApp</label><input className="cfi" placeholder="344 123 4567" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></div>
                   </div>
-                  <div><label className="cfl">Referencia de tu ubicación (ayuda mucho al repartidor)</label><textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} /></div>
-                  <div className="cf-hint">💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir. Mientras más detallada la referencia, más fácil llega.</div>
+                  {deliveryType === 'delivery' && (
+                    <div><label className="cfl">Referencia de tu ubicación (ayuda mucho al repartidor)</label><textarea className="cfta" placeholder="ej. Rancho Las Flores, después del puente..." value={clientRef} onChange={(e) => setClientRef(e.target.value)} /></div>
+                  )}
+                  <div className="cf-hint">
+                    {deliveryType === 'pickup'
+                      ? '🏠 Tu pedido estará listo para recoger en el local del restaurante. Te confirmarán por WhatsApp cuando esté listo.'
+                      : '💡 Si das tu WhatsApp, el restaurante puede confirmarte antes de salir. Mientras más detallada la referencia, más fácil llega.'}
+                  </div>
                 </div>
               </>
             )}
 
-            {orderWizardStep === 3 && (
+            {orderWizardStep === 4 && deliveryType === 'delivery' && (
               <>
-                <div className="wizard-section-title">Paso 3 · Marca tu ubicación en el mapa</div>
+                <div className="wizard-section-title">Paso 4 · Marca tu ubicación en el mapa</div>
                 <MapPicker lat={clientPoint.lat} lng={clientPoint.lng} addressText={clientRef} onAddressTextChange={setClientRef} onChange={setClientPoint} />
               </>
             )}
 
-            <div className="cash-note">💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir</div>
+            <div className="cash-note">
+              {deliveryType === 'pickup'
+                ? '🏠 Recoger en local · Sin registro requerido · Pago en efectivo al recoger'
+                : '💵 Sin registro requerido · Pago en efectivo al recibir · El restaurante confirma antes de salir'}
+            </div>
 
             <div className="cart-bar" style={{ display: 'flex' }}>
               <div className="cart-info">
-                🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong> + Delivery: <strong>{formatPrice(cartDelivery)}</strong> · Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
+                🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong>
+                {deliveryType === 'delivery' && <> + Delivery: <strong>{formatPrice(cartDelivery)}</strong></>}
+                {' '}· Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
+                {deliveryType === 'pickup' && <span style={{ color: 'var(--brand)', fontWeight: 700, marginLeft: '.4rem' }}>(🏠 Pickup)</span>}
               </div>
               <div className="wizard-actions">
                 {orderWizardStep > 1 && (
-                  <button className="btn ghost" onClick={() => setOrderWizardStep((prev) => (prev === 3 ? 2 : 1))} disabled={actionLoading}>Atrás</button>
+                  <button className="btn ghost" onClick={() => setOrderWizardStep((prev) => (prev - 1) as 1 | 2 | 3 | 4)} disabled={actionLoading}>Atrás</button>
                 )}
-                {orderWizardStep < 3 ? (
-                  <button className="btn btn-order" onClick={() => goToWizardStep((orderWizardStep + 1) as 2 | 3)} disabled={actionLoading || cartCount === 0}>
+                {orderWizardStep < getMaxWizardStep() ? (
+                  <button className="btn btn-order" onClick={() => goToWizardStep((orderWizardStep + 1) as 2 | 3 | 4)} disabled={actionLoading || cartCount === 0}>
                     Continuar
                   </button>
                 ) : (
