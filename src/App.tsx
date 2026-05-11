@@ -762,29 +762,56 @@ export default function App() {
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, [isStandalone]);
 
-  // Realtime subscription — ALWAYS ACTIVE when restaurant is selected (not dependent on activeTab)
-  // This ensures alerts fire even if the user navigated to another section of the app
+  // Realtime subscription — ALWAYS ACTIVE when restaurant is selected
+  // Includes polling fallback every 30s as safety net if realtime drops
+  const selectedRestaurantIdRef = useRef<string | null>(null);
+  selectedRestaurantIdRef.current = selectedRestaurant?.id ?? null;
+
   useEffect(() => {
     if (!selectedRestaurant?.id) return;
+    const restaurantId = selectedRestaurant.id;
+
+    console.log('[PideYa Realtime] Subscribing to orders for restaurant:', restaurantId);
 
     const channel = supabase
-      .channel(`restaurant-orders-${selectedRestaurant.id}`)
+      .channel(`restaurant-orders-${restaurantId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'orders',
-        filter: `restaurant_id=eq.${selectedRestaurant.id}`
+        filter: `restaurant_id=eq.${restaurantId}`
       }, (payload) => {
-        void loadRestaurantData(selectedRestaurant.id);
+        console.log('[PideYa Realtime] Order change detected:', payload.eventType);
+        void loadRestaurantData(restaurantId);
 
         const next = payload.new as Order;
         if (payload.eventType === 'INSERT' && next?.status === 'PENDING') {
           triggerNewOrderAlert(next);
         }
       })
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log('[PideYa Realtime] Channel status:', status, err ?? '');
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[PideYa Realtime] Channel error — will retry in 5s');
+          setTimeout(() => {
+            if (selectedRestaurantIdRef.current === restaurantId) {
+              void supabase.removeChannel(channel);
+            }
+          }, 5000);
+        }
+      });
+
+    // Polling fallback: refresh data every 30s even if realtime is silent
+    // This ensures the restaurant always has fresh data even if WS drops
+    const pollingInterval = setInterval(() => {
+      if (selectedRestaurantIdRef.current === restaurantId) {
+        void loadRestaurantData(restaurantId);
+      }
+    }, 30000);
 
     return () => {
+      console.log('[PideYa Realtime] Cleaning up channel for:', restaurantId);
+      clearInterval(pollingInterval);
       void supabase.removeChannel(channel);
     };
   }, [selectedRestaurant?.id]);
