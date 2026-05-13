@@ -252,10 +252,22 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 /* === CART BAR === */
 .cart-bar{background:#fff;border-top:3px solid var(--brand);padding:.9rem 1.3rem;display:flex;align-items:center;justify-content:space-between;position:sticky;bottom:0;border-radius:0 0 24px 24px;margin-top:1rem;box-shadow:0 -4px 20px rgba(13,43,38,.08);z-index:5}.cart-info{font-size:1.1rem;font-weight:700}.foot-note{font-size:.9rem;color:var(--muted);text-align:center;margin-top:.8rem}
 
+/* === MOBILE BOTTOM TAB BAR === */
+.mobile-bottom-bar{display:none;position:fixed;bottom:0;left:0;right:0;z-index:1000;background:linear-gradient(180deg,#0a201c,var(--dark));border-top:1px solid rgba(45,139,122,.25);padding:0;padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -4px 20px rgba(0,0,0,.25)}
+.btab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.55rem .2rem;background:transparent;border:none;cursor:pointer;color:rgba(255,255,255,.45);transition:var(--transition);position:relative;min-height:56px;gap:2px}
+.btab.active{color:var(--brand-light)}
+.btab.active::before{content:'';position:absolute;top:0;left:25%;right:25%;height:3px;background:var(--brand-light);border-radius:0 0 4px 4px}
+.btab-icon{font-size:1.3rem;line-height:1}
+.btab-label{font-size:.62rem;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+.btab-badge{position:absolute;top:4px;right:12%;min-width:18px;height:18px;background:#E07B30;color:#fff;border-radius:50%;font-size:.65rem;font-weight:800;display:flex;align-items:center;justify-content:center;line-height:1;padding:0 4px;animation:pulse-dot 2s infinite}
+
 /* === RESPONSIVE === */
 @media (max-width:1100px){
   .nav-links{display:none}.ae-nav{padding:0 1rem}
-  .restaurant-page{grid-template-columns:1fr}.restaurant-sidebar{min-height:auto}.restaurant-main{padding:1rem}
+  .restaurant-page{grid-template-columns:1fr}
+  .restaurant-sidebar{display:none}
+  .mobile-bottom-bar{display:flex}
+  .restaurant-main{padding:1rem;padding-bottom:calc(80px + env(safe-area-inset-bottom,0))}
   .stats-row{grid-template-columns:1fr 1fr}.orders-grid{grid-template-columns:1fr}.menu-cards{grid-template-columns:1fr 1fr}
 }
 @media (max-width:700px){
@@ -273,8 +285,10 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 /* === TABLET (768-1200px) — Optimized for restaurant tablets in kitchen === */
 @media (min-width:768px) and (max-width:1200px){
   /* Layout */
-  .restaurant-page{grid-template-columns:240px 1fr}
-  .restaurant-main{padding:1.2rem}
+  .restaurant-page{grid-template-columns:280px 1fr}
+  .restaurant-sidebar{display:flex}
+  .mobile-bottom-bar{display:none}
+  .restaurant-main{padding:1.2rem;padding-bottom:1.4rem}
   .restaurant-header-row{flex-wrap:wrap;gap:.6rem}
   .restaurant-header-row h2{font-size:2.2rem}
   .restaurant-header-row p{font-size:1.2rem}

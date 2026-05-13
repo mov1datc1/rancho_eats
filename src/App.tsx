@@ -3709,6 +3709,31 @@ export default function App() {
               </div>
             )}
           </section>
+
+          {/* ── MOBILE BOTTOM TAB BAR ── */}
+          <nav className="mobile-bottom-bar">
+            <button className={`btab ${restaurantPanel === 'resumen' ? 'active' : ''}`} onClick={() => setRestaurantPanel('resumen')}>
+              <span className="btab-icon">📦</span>
+              <span className="btab-label">Pedidos</span>
+              {pendingOrdersCount > 0 && <span className="btab-badge">{pendingOrdersCount}</span>}
+            </button>
+            <button className={`btab ${restaurantPanel === 'pedidos' ? 'active' : ''}`} onClick={() => setRestaurantPanel('pedidos')}>
+              <span className="btab-icon">📋</span>
+              <span className="btab-label">Historial</span>
+            </button>
+            <button className={`btab ${restaurantPanel === 'menu' ? 'active' : ''}`} onClick={() => setRestaurantPanel('menu')}>
+              <span className="btab-icon">🍽️</span>
+              <span className="btab-label">Menú</span>
+            </button>
+            <button className={`btab ${restaurantPanel === 'drivers' ? 'active' : ''}`} onClick={() => setRestaurantPanel('drivers')}>
+              <span className="btab-icon">🛵</span>
+              <span className="btab-label">Delivery</span>
+            </button>
+            <button className={`btab ${restaurantPanel === 'config' ? 'active' : ''}`} onClick={() => setRestaurantPanel('config')}>
+              <span className="btab-icon">⚙️</span>
+              <span className="btab-label">Config</span>
+            </button>
+          </nav>
         </div>
       )}
 
