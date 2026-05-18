@@ -2610,6 +2610,112 @@ export default function App() {
     }
   };
 
+  /** Impresión de ticket para impresora térmica POS (80mm) */
+  const printOrderTicket = (order: Order) => {
+    const w = window.open('', '_blank', 'width=350,height=700');
+    if (!w) {
+      alert('No se pudo abrir la ventana de impresión. Permite las ventanas emergentes.');
+      return;
+    }
+
+    const now = new Date(order.created_at);
+    const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    const subtotal = getOrderSubtotal(order);
+    const commission = getOrderCommission(order);
+    const delivery = getOrderDelivery(order);
+    const isPickup = order.delivery_type === 'pickup';
+
+    // Build items HTML
+    const itemsHtml = (Array.isArray(order.items) ? order.items : []).map((item) => {
+      const qty = item.qty ?? 1;
+      const price = Number(item.subtotal ?? (item.unit_price * qty));
+      const optionInfo = item.option_label ? `<br><span class="opt">&nbsp;&nbsp;↳ ${item.option_label}</span>` : '';
+      return `<div class="item"><span class="iq">${qty}x</span><span class="in">${item.name}${optionInfo}</span><span class="ip">$${price.toFixed(2)}</span></div>`;
+    }).join('');
+
+    w.document.write(`<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8">
+<title>Ticket #${order.order_number}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+@page{size:80mm auto;margin:0}
+body{font-family:'Courier New',Courier,monospace;width:80mm;padding:4mm;color:#000;font-size:12px;line-height:1.4}
+.center{text-align:center}
+.brand{font-size:18px;font-weight:900;letter-spacing:1px;margin-bottom:2px}
+.rest{font-size:14px;font-weight:700;margin-bottom:4px}
+.sep{border-bottom:1px dashed #000;margin:6px 0}
+.sep-double{border-bottom:2px dashed #000;margin:8px 0}
+.ref{font-size:20px;font-weight:900;letter-spacing:2px;margin:4px 0}
+.badge{display:inline-block;border:2px solid #000;padding:2px 10px;font-weight:900;font-size:14px;margin:4px 0}
+.meta{font-size:11px;margin:2px 0}
+.item{display:flex;justify-content:space-between;align-items:flex-start;margin:3px 0;gap:4px}
+.iq{font-weight:700;min-width:28px}
+.in{flex:1;word-break:break-word}
+.ip{font-weight:700;text-align:right;white-space:nowrap}
+.opt{font-size:10px;color:#444}
+.totals{margin-top:6px}
+.trow{display:flex;justify-content:space-between;margin:2px 0;font-size:12px}
+.trow.big{font-size:16px;font-weight:900}
+.client{margin-top:4px;font-size:11px}
+.client b{font-weight:700}
+.footer{margin-top:8px;font-size:10px;color:#444;text-align:center}
+.type-badge{display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:900;font-size:13px;margin:4px 0}
+@media print{.no-print{display:none!important}body{padding:2mm}}
+.print-btn{display:block;margin:10px auto 0;background:#333;color:#fff;border:none;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+</style>
+</head>
+<body>
+<div class="center">
+<div class="brand">PIDE YA</div>
+<div class="rest">${selectedRestaurant?.name ?? 'Restaurante'}</div>
+</div>
+<div class="sep-double"></div>
+
+<div class="center">
+<div class="ref">${order.reference_code ?? '#' + order.order_number}</div>
+<div class="meta">Pedido #${order.order_number}</div>
+<div class="meta">${dateStr} · ${timeStr}</div>
+<div class="type-badge">${isPickup ? '🏠 RECOGER EN LOCAL' : '🛵 DELIVERY'}</div>
+</div>
+<div class="sep"></div>
+
+${itemsHtml}
+
+<div class="sep"></div>
+<div class="totals">
+<div class="trow"><span>Subtotal:</span><span>$${subtotal.toFixed(2)}</span></div>
+${commission > 0 ? `<div class="trow"><span>Comisión PideYa:</span><span>$${commission.toFixed(2)}</span></div>` : ''}
+${!isPickup && delivery > 0 ? `<div class="trow"><span>Envío:</span><span>$${delivery.toFixed(2)}</span></div>` : ''}
+<div class="sep"></div>
+<div class="trow big"><span>TOTAL:</span><span>$${Number(order.total).toFixed(2)}</span></div>
+</div>
+<div class="sep-double"></div>
+
+<div class="client">
+<b>👤 Cliente:</b> ${order.client_name ?? 'Sin nombre'}<br>
+<b>📱 Tel:</b> ${order.client_phone ?? 'Sin teléfono'}<br>
+${!isPickup ? `<b>📍 Dirección:</b> ${order.client_location_note ?? 'Sin referencia'}<br>` : ''}
+</div>
+
+<div class="sep"></div>
+<div class="footer">
+— Gracias por tu pedido —<br>
+Impreso: ${new Date().toLocaleString('es-MX')}<br>
+pideya.com
+</div>
+
+<button class="print-btn no-print" onclick="window.print()">🖨️ IMPRIMIR TICKET</button>
+</body>
+</html>`);
+    w.document.close();
+    w.focus();
+    // Auto-print after brief delay for render
+    setTimeout(() => { try { w.print(); } catch { /* popup blocker */ } }, 400);
+  };
+
   const generateCommissionReceipt = (balance: RestaurantCommissionBalance) => {
     const w = window.open('', '_blank', 'width=800,height=600');
     if (!w) { alert('No se pudo abrir la ventana. Permite las ventanas emergentes.'); return; }
@@ -3480,6 +3586,9 @@ export default function App() {
                             <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
                           </div>
                         )}
+                        <div className="order-actions" style={{ marginTop: '.4rem' }}>
+                          <button className="btn print" onClick={() => printOrderTicket(order)}>🖨️ Imprimir ticket</button>
+                        </div>
                       </article>
                     );
                   })}
@@ -3535,6 +3644,9 @@ export default function App() {
                         <a className="map-link" href={`https://maps.google.com/?q=${selectedOrder.client_lat},${selectedOrder.client_lng}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a>
                       </div>
                     )}
+                    <div className="order-actions" style={{ marginTop: '.5rem' }}>
+                      <button className="btn print" onClick={() => printOrderTicket(selectedOrder)}>🖨️ Imprimir ticket</button>
+                    </div>
                   </article>
                 )}
                 <div className="orders-grid-title">📦 Todos los pedidos</div>

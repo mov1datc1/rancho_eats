@@ -32,6 +32,8 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 .btn.green{background:linear-gradient(135deg,#2D6A4F,#1e5c3a)}
 .btn.red{background:linear-gradient(135deg,#D00000,#a00000)}
 .btn.dark{background:linear-gradient(135deg,var(--mid),var(--dark))}
+.btn.amber{background:linear-gradient(135deg,#E07B30,#c46520)}
+.btn.print{background:linear-gradient(135deg,#4a5568,#2d3748);box-shadow:0 2px 8px rgba(45,55,72,.2)}
 
 /* === PWA BANNER === */
 .pwa-banner{background:linear-gradient(90deg,var(--brand),var(--brand-dark));padding:.65rem 2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
