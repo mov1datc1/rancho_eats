@@ -2962,20 +2962,13 @@ pideya.com
           <>
             <ul className="nav-links">
               <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
-              <li><a href="#">¿Cómo funciona?</a></li>
-              <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/pruebas'); }}>Pruebas</a></li>
-              <li style={{ position: 'relative' }}>
-                <a href="#" onClick={(e) => { e.preventDefault(); setRestaurantsMenuOpen((prev) => !prev); }}>Para restaurantes</a>
-                {restaurantsMenuOpen && (
-                  <div style={{ position: 'absolute', top: '2rem', right: 0, background: '#fff', border: '1px solid #ecd8c7', borderRadius: '10px', boxShadow: 'var(--shadow)', minWidth: '180px', zIndex: 1200 }}>
-                    <button className="btn ghost" style={{ width: '100%', border: 0, borderBottom: '1px solid #f0e4d8', borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=register'); setRestaurantsMenuOpen(false); }}>Registrarse</button>
-                    <button className="btn ghost" style={{ width: '100%', border: 0, borderRadius: 0, textAlign: 'left' }} onClick={() => { navigate('/restaurantes?mode=login'); setRestaurantsMenuOpen(false); }}>Ingresar</button>
-                  </div>
-                )}
-              </li>
+              <li><a href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }}>¿Cómo funciona?</a></li>
             </ul>
             {!isAdminRoute && (
-              <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrar Restaurante</button>
+              <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                <button className="btn ghost" style={{ color: '#1E6B5A', fontWeight: 600, fontSize: '0.95rem' }} onClick={() => navigate('/restaurantes?mode=login')}>Ingresar</button>
+                <button className="nav-cta" onClick={() => navigate('/restaurantes?mode=register')}>Registrarse</button>
+              </div>
             )}
           </>
         )}
@@ -3086,44 +3079,48 @@ pideya.com
 
       {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && activeTab === 'cliente' && (
         <div className="page active">
-          <div className="hero">
+          <div className="hero b2b-hero">
             <div className="hero-inner">
-              <div className="hero-badge">📍 Los Altos de Jalisco — y todos sus ranchos</div>
-              <h1>Tu comida favorita<br />hasta tu <em>rancho</em></h1>
-              <p>Sin registro, sin complicaciones. Pon tu ubicación en el mapa y los restaurantes te llevan lo que quieras — aunque sea camino de tierra.</p>
+              <div className="hero-badge">💼 Plataforma para Negocios</div>
+              <h1>Digitaliza tu negocio y gestiona pedidos desde <em>un solo lugar</em></h1>
+              <p>La solución todo-en-uno más intuitiva. Toma el control de tus ventas, tu menú y tus repartidores.</p>
+              <div className="hero-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '2rem' }}>
+                <button className="btn green" onClick={() => navigate('/restaurantes?mode=register')} style={{ fontSize: '1.1rem', padding: '14px 28px' }}>Empezar ahora</button>
+                <button className="btn ghost" onClick={() => navigate('/restaurantes?mode=login')} style={{ fontSize: '1.1rem', padding: '14px 28px', backgroundColor: 'rgba(255,255,255,0.8)' }}>Ingresar a mi panel</button>
+              </div>
             </div>
           </div>
 
-          <div className="section">
-            <div className="s-title">Restaurantes disponibles</div>
-            <div className="rest-grid">
-              {restaurants.map((restaurant) => (
-                <div key={restaurant.id} className="rcard" onClick={() => openMenu(restaurant)}>
-                  <div className="rcard-img" style={{ background: 'linear-gradient(135deg,#1E6B5A,#2D8B7A)' }}>
-                    {restaurant.photo_url && isValidRestaurantImageUrl(sanitizeImageUrl(restaurant.photo_url)) && (
-                      <img
-                        src={sanitizeImageUrl(restaurant.photo_url)}
-                        alt={`Banner ${restaurant.name}`}
-                        className="restaurant-banner-photo"
-                        onError={(event) => { event.currentTarget.style.display = 'none'; }}
-                      />
-                    )}
-                    <span className="banner-fallback">🍽️</span>
-                    <div className={`rbadge ${restaurant.is_open ? 'open' : 'closed'}`}>{restaurant.is_open ? 'Abierto' : 'Cerrado'}</div>
-                  </div>
-                  <div className="rcard-body">
-                    <div className="rname">{restaurant.name}</div>
-                    <div className="rmeta"><span>📦 {restaurant.type}</span><span>📍 {restaurant.delivery_radius_km} km</span></div>
-                  </div>
-                </div>
-              ))}
+          <div className="section b2b-features">
+            <div className="s-title" style={{ textAlign: 'center', marginBottom: '3rem', fontSize: '2rem' }}>Todo lo que necesitas para operar</div>
+            <div className="features-grid">
+              <div className="feature-card">
+                <div className="feature-icon">📦</div>
+                <h3>Recepción en tiempo real</h3>
+                <p>Recibe notificaciones al instante y acepta pedidos con un clic. Optimiza el tiempo en tu cocina o mostrador.</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">🛵</div>
+                <h3>Gestión de Repartidores</h3>
+                <p>Asigna pedidos a tu equipo y monitorea su ubicación por GPS. Tus clientes verán su pedido llegar en vivo.</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">🍽️</div>
+                <h3>Menú Digital Flexible</h3>
+                <p>Añade fotos, ajusta precios, pausa productos agotados y crea variaciones (tamaños, extras) en segundos.</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">📊</div>
+                <h3>Control e Historial</h3>
+                <p>Analiza tus pedidos ganados, revisa reportes de ventas diarios y mantén tus cuentas y comisiones claras.</p>
+              </div>
             </div>
           </div>
 
           {showPwaBanner && !isStandalone && !isDriverRoute && (
-            <div className="pwa-banner pwa-banner-footer">
+            <div className="pwa-banner pwa-banner-footer" style={{ marginTop: '4rem' }}>
               <div>
-                <p>📲 ¿Te vas? También puedes instalar Pide ya desde aquí.</p>
+                <p>📲 ¿Administras tu negocio desde el celular o tablet? Instala el Dashboard B2B.</p>
                 {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
               </div>
               <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
@@ -3337,14 +3334,23 @@ pideya.com
                 <h2>{selectedRestaurant?.name ?? 'Sin restaurante activo'}</h2>
                 <p>{selectedRestaurant?.is_open ? '🟢 Abierto' : '🔴 Cerrado'} · {selectedRestaurant?.type ?? 'Sin tipo'}</p>
               </div>
-              <button
-                className={`btn ${selectedRestaurant?.is_open ? 'ghost' : 'green'}`}
-                onClick={() => void toggleRestaurantOpenStatus()}
-                disabled={actionLoading || !selectedRestaurant}
-                style={{ minHeight: '52px', fontSize: '1.05rem' }}
-              >
-                {selectedRestaurant?.is_open ? 'Cerrar restaurante' : 'Abrir restaurante'}
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <button
+                  className={`btn ${selectedRestaurant?.is_open ? 'ghost' : 'green'}`}
+                  onClick={() => void toggleRestaurantOpenStatus()}
+                  disabled={actionLoading || !selectedRestaurant}
+                  style={{ minHeight: '52px', fontSize: '1.05rem' }}
+                >
+                  {selectedRestaurant?.is_open ? 'Cerrar restaurante' : 'Abrir restaurante'}
+                </button>
+                <button
+                  className="btn ghost"
+                  onClick={() => void signOutRestaurant()}
+                  style={{ minHeight: '52px', fontSize: '1.05rem' }}
+                >
+                  Cerrar sesión
+                </button>
+              </div>
             </div>
 
             <div className="stats-row">

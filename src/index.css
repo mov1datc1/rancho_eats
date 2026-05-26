@@ -523,3 +523,74 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
   .push-toast-actions{grid-template-columns:1fr}
   .push-toast-header h3{font-size:1.35rem}
 }
+
+/* === B2B LANDING PAGE === */
+.b2b-hero {
+  padding: 4rem 1.5rem;
+  background-color: var(--card-bg);
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+}
+.b2b-hero .hero-inner h1 {
+  font-size: 2.8rem;
+  line-height: 1.15;
+  margin-bottom: 1rem;
+}
+.b2b-hero p {
+  font-size: 1.15rem;
+  color: var(--text-muted);
+  max-width: 600px;
+  margin: 0 auto;
+}
+.b2b-features {
+  padding: 4rem 1.5rem;
+  background-color: var(--bg-color);
+}
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.feature-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: var(--shadow);
+  text-align: left;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.feature-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+}
+.feature-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+.feature-card h3 {
+  font-family: var(--font-title);
+  color: var(--primary-color);
+  margin-bottom: 0.8rem;
+  font-size: 1.35rem;
+}
+.feature-card p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 700px) {
+  .b2b-hero .hero-inner h1 {
+    font-size: 2.2rem;
+  }
+  .b2b-hero .hero-actions {
+    flex-direction: column;
+  }
+  .b2b-hero .hero-actions button {
+    width: 100%;
+  }
+}
+
