@@ -2879,9 +2879,8 @@ pideya.com
 
   const signOutRestaurant = async () => {
     await supabase.auth.signOut();
-    setUser(null);
+    setAdminUser(null);
     setSelectedRestaurant(null);
-    setRestaurantsMode('login');
     setActiveTab('cliente');
     navigate('/');
   };
