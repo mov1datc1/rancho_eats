@@ -231,6 +231,7 @@ export default function App() {
   const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('dashboard');
   const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
   const [adminPanel, setAdminPanel] = useState<AdminPanelKey>('dashboard');
+  const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
 
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [pendingRestaurants, setPendingRestaurants] = useState<Restaurant[]>([]);
@@ -4070,13 +4071,23 @@ pideya.com
                           <article className="admin-request-card" key={request.id}>
                             <h4>{request.name}</h4>
                             <p>Correo: {'email' in request ? request.email : 'No disponible'} · WhatsApp: {'phone' in request ? request.phone : 'No disponible'}</p>
-                            <div className="admin-status-row">
+                            <div className="admin-status-row" style={{ marginTop: '0.5rem' }}>
                               <span className="status-pill pendiente">PENDIENTE</span>
                               <div className="order-actions">
+                                <button className="btn ghost" onClick={() => setViewingRequestId(viewingRequestId === request.id ? null : request.id)}>
+                                  {viewingRequestId === request.id ? 'Ocultar' : 'Ver detalles'}
+                                </button>
                                 <button className="btn green" onClick={() => updatePendingRestaurant(request.id, 'ACTIVE')} disabled={actionLoading}>Aprobar</button>
                                 <button className="btn ghost" onClick={() => updatePendingRestaurant(request.id, 'SUSPENDED')} disabled={actionLoading}>Rechazar</button>
                               </div>
                             </div>
+                            {viewingRequestId === request.id && 'address' in request && (
+                              <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--cloud)', borderRadius: '8px', fontSize: '14px' }}>
+                                <p style={{ margin: '0 0 0.5rem 0' }}><strong>Categoría:</strong> {'type' in request ? request.type : 'N/A'}</p>
+                                <p style={{ margin: '0 0 0.5rem 0' }}><strong>Dirección:</strong> {'address' in request ? request.address : 'N/A'}</p>
+                                <p style={{ margin: '0 0 0.5rem 0' }}><strong>Cuenta CLABE:</strong> {'clabe_account' in request && request.clabe_account ? request.clabe_account : 'No proporcionada'}</p>
+                              </div>
+                            )}
                           </article>
                         ))}
                         {pendingRestaurants.length === 0 && derivedPendingFromOverview.length === 0 && <article className="admin-request-card"><h4>Sin solicitudes pendientes</h4><p>Todo está al día por ahora.</p></article>}
