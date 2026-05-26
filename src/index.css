@@ -538,7 +538,7 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
 }
 .b2b-hero p {
   font-size: 1.15rem;
-  color: var(--text-muted);
+  color: #ffffff;
   max-width: 600px;
   margin: 0 auto;
 }
