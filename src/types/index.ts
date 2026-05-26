@@ -165,3 +165,11 @@ export interface AdminMapPoint {
   status: RestaurantStatus;
   is_open: boolean;
 }
+
+export interface AppCategory {
+  id: string;
+  name: string;
+  emoji: string;
+  sort_order: number;
+  is_active: boolean;
+}

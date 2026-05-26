@@ -24,7 +24,7 @@ import type {
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'comisiones' | 'config';
-type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config';
+type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config' | 'categorias';
 
 type CommissionTier = { up_to: number | null; fee: number };
 type CommissionConfig = { tiers: CommissionTier[]; cutoffFrom: string; cutoffTo: string };
@@ -268,6 +268,9 @@ export default function App() {
   const [menuOptionsNotice, setMenuOptionsNotice] = useState('');
   const [dashboardDateFrom, setDashboardDateFrom] = useState('');
   const [dashboardDateTo, setDashboardDateTo] = useState('');
+  const [appCategories, setAppCategories] = useState<AppCategory[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryEmoji, setNewCategoryEmoji] = useState('🍔');
   const [configDraft, setConfigDraft] = useState({
     openTime: '09:00',
     closeTime: '21:00',
@@ -275,6 +278,7 @@ export default function App() {
     address: '',
     lat: '',
     lng: '',
+    deliveryRadius: '10',
     deliveryFee0_10: '0',
     deliveryFee10_15: '0',
     deliveryFee15_20: '0',
@@ -538,6 +542,7 @@ export default function App() {
       address: selectedRestaurant.address ?? '',
       lat: selectedRestaurant.lat != null ? String(selectedRestaurant.lat) : '',
       lng: selectedRestaurant.lng != null ? String(selectedRestaurant.lng) : '',
+      deliveryRadius: String(selectedRestaurant.delivery_radius_km ?? 10),
       deliveryFee0_10: String(selectedRestaurant.delivery_fee_0_10 ?? 0),
       deliveryFee10_15: String(selectedRestaurant.delivery_fee_10_15 ?? 0),
       deliveryFee15_20: String(selectedRestaurant.delivery_fee_15_20 ?? 0),
@@ -702,6 +707,14 @@ export default function App() {
 
     void bootAdmin();
   }, [isAdmin]);
+
+  useEffect(() => {
+    const fetchAppCategories = async () => {
+      const { data } = await supabase.from('app_categories').select('*').order('sort_order');
+      if (data) setAppCategories(data as AppCategory[]);
+    };
+    void fetchAppCategories();
+  }, []);
 
   useEffect(() => {
     const refreshAdmin = async () => {
@@ -1367,6 +1380,54 @@ export default function App() {
     }
   };
 
+  const createCategory = async () => {
+    if (!newCategoryName.trim() || !newCategoryEmoji.trim()) return;
+    try {
+      setActionLoading(true);
+      const { error } = await supabase.from('app_categories').insert({
+        name: newCategoryName.trim(),
+        emoji: newCategoryEmoji.trim()
+      });
+      if (error) throw error;
+      setNewCategoryName('');
+      const { data } = await supabase.from('app_categories').select('*').order('sort_order');
+      if (data) setAppCategories(data as AppCategory[]);
+    } catch (e) {
+      console.error(e);
+      setErrorMessage('Error al crear categoría.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const deleteCategory = async (id: string) => {
+    try {
+      setActionLoading(true);
+      const { error } = await supabase.from('app_categories').delete().eq('id', id);
+      if (error) throw error;
+      setAppCategories(prev => prev.filter(c => c.id !== id));
+    } catch (e) {
+      console.error(e);
+      setErrorMessage('Error al eliminar categoría.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const toggleCategory = async (id: string, currentStatus: boolean) => {
+    try {
+      setActionLoading(true);
+      const { error } = await supabase.from('app_categories').update({ is_active: !currentStatus }).eq('id', id);
+      if (error) throw error;
+      setAppCategories(prev => prev.map(c => c.id === id ? { ...c, is_active: !currentStatus } : c));
+    } catch (e) {
+      console.error(e);
+      setErrorMessage('Error al actualizar categoría.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const blockEntity = async (value: string) => {
     try {
       setActionLoading(true);
@@ -1925,6 +1986,7 @@ export default function App() {
 
       const parsedLat = Number(configDraft.lat);
       const parsedLng = Number(configDraft.lng);
+      const radiusKm = Math.max(0, Number(configDraft.deliveryRadius || 10));
       const fee0_10 = Math.max(0, Number(configDraft.deliveryFee0_10 || 0));
       const fee10_15 = Math.max(0, Number(configDraft.deliveryFee10_15 || 0));
       const fee15_20 = Math.max(0, Number(configDraft.deliveryFee15_20 || 0));
@@ -1942,6 +2004,7 @@ export default function App() {
         address: configDraft.address || null,
         lat: parsedLat,
         lng: parsedLng,
+        delivery_radius_km: radiusKm,
         delivery_fee_0_10: fee0_10,
         delivery_fee_10_15: fee10_15,
         delivery_fee_15_20: fee15_20,
@@ -3380,6 +3443,7 @@ pideya.com
 
                 <div className="frow">
                   <div className="fg"><label>Dirección del restaurante</label><input className="fi" value={configDraft.address} onChange={(e) => setConfigDraft((prev) => ({ ...prev, address: e.target.value }))} placeholder="Ej. Calle Morelos 123, Arandas" /></div>
+                  <div className="fg"><label>Radio de entrega máximo (km)</label><input className="fi" type="number" min="1" max="100" value={configDraft.deliveryRadius} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryRadius: e.target.value }))} /></div>
                   <div className="fg"><label>Tarifa 0 a 10 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee0_10} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee0_10: e.target.value }))} /></div>
                 </div>
                 <div className="frow">
@@ -3865,7 +3929,10 @@ pideya.com
                 </div>
                 <div className="frow">
                   <div className="fg"><label>Contraseña del panel</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" value={registerForm.password} onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))} /></div>
-                  <div className="fg"><label>Tipo de comida</label><select className="fs" value={registerForm.type} onChange={(e) => setRegisterForm((p) => ({ ...p, type: e.target.value }))}><option value="CARNES">Carnes y parrilla</option><option value="BIRRIA">Birria y caldos</option><option value="TACOS">Tacos y antojitos</option><option value="POLLOS">Pollos y asados</option><option value="MARISCOS">Mariscos</option><option value="CORRIDA">Comida corrida</option><option value="ANTOJITOS">Antojitos</option><option value="OTRO">Otro</option></select></div>
+                  <div className="fg"><label>Categoría principal</label><select className="fs" value={registerForm.type} onChange={(e) => setRegisterForm((p) => ({ ...p, type: e.target.value }))}>
+                    {appCategories.map(cat => <option key={cat.id} value={cat.name}>{cat.emoji} {cat.name}</option>)}
+                    <option value="Otro">Otro</option>
+                  </select></div>
                 </div>
                 <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" value={registerForm.description} onChange={(e) => setRegisterForm((p) => ({ ...p, description: e.target.value }))} /></div>
                 <div className="fg"><label>Radio de entrega máximo</label><select className="fs" value={registerForm.radius} onChange={(e) => setRegisterForm((p) => ({ ...p, radius: e.target.value }))}><option value="5">5 km</option><option value="10">10 km</option><option value="15">15 km</option><option value="20">20 km</option><option value="30">30 km</option></select></div>
@@ -3917,6 +3984,7 @@ pideya.com
                   { key: 'antispam', label: '🚨 Anti-spam' },
                   { key: 'mapa', label: '📍 Mapa en vivo' },
                   { key: 'reportes', label: '📈 Reportes' },
+                  { key: 'categorias', label: '🏷️ Categorías' },
                   { key: 'config', label: '⚙️ Config' }
                 ].map((panel) => (
                   <li
@@ -3963,6 +4031,7 @@ pideya.com
                       { key: 'antispam', label: '🚨 Anti-spam' },
                       { key: 'mapa', label: '📍 Mapa en vivo' },
                       { key: 'reportes', label: '📈 Reportes' },
+                      { key: 'categorias', label: '🏷️ Categorías' },
                       { key: 'config', label: '⚙️ Config' }
                     ].map((panel) => (
                       <button
@@ -4390,6 +4459,80 @@ pideya.com
                         )}
                       </article>
                     </>
+                  )}
+
+                  {adminPanel === 'categorias' && (
+                    <article className="admin-card">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h4>🏷️ Gestión de Categorías Maestras</h4>
+                      </div>
+                      <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
+                        Crea o edita las categorías principales que se mostrarán en la aplicación de clientes.
+                      </p>
+
+                      <div className="frow" style={{ marginBottom: '1rem', alignItems: 'flex-end' }}>
+                        <div className="fg" style={{ flex: '0 0 80px' }}>
+                          <label>Emoji</label>
+                          <input className="fi" value={newCategoryEmoji} onChange={(e) => setNewCategoryEmoji(e.target.value)} placeholder="🛍️" />
+                        </div>
+                        <div className="fg">
+                          <label>Nombre de Categoría</label>
+                          <input className="fi" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Ej. Ferretería" />
+                        </div>
+                        <div className="fg" style={{ flex: '0 0 auto' }}>
+                          <button className="btn" onClick={createCategory} disabled={actionLoading || !newCategoryName.trim()}>Añadir</button>
+                        </div>
+                      </div>
+
+                      <div className="table-responsive">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Orden</th>
+                              <th>Icono</th>
+                              <th>Nombre</th>
+                              <th>Estado</th>
+                              <th>Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {appCategories.map((cat) => (
+                              <tr key={cat.id}>
+                                <td>{cat.sort_order}</td>
+                                <td><span style={{ fontSize: '1.5rem' }}>{cat.emoji}</span></td>
+                                <td><strong>{cat.name}</strong></td>
+                                <td>
+                                  <span className={`status-badge ${cat.is_active ? 'active' : 'suspended'}`}>
+                                    {cat.is_active ? 'Activo' : 'Oculto'}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button className="btn ghost" onClick={() => toggleCategory(cat.id, cat.is_active)}>
+                                      {cat.is_active ? 'Ocultar' : 'Mostrar'}
+                                    </button>
+                                    <button className="btn ghost" style={{ color: 'var(--error)' }} onClick={() => {
+                                      if (confirm(`¿Eliminar categoría ${cat.name}? Esto podría afectar restaurantes que la usen.`)) {
+                                        void deleteCategory(cat.id);
+                                      }
+                                    }}>
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                            {appCategories.length === 0 && (
+                              <tr>
+                                <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)' }}>
+                                  No hay categorías configuradas.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </article>
                   )}
 
                   {adminPanel === 'config' && (
