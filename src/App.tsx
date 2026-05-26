@@ -4085,7 +4085,6 @@ pideya.com
                               <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--cloud)', borderRadius: '8px', fontSize: '14px' }}>
                                 <p style={{ margin: '0 0 0.5rem 0' }}><strong>Categoría:</strong> {'type' in request ? request.type : 'N/A'}</p>
                                 <p style={{ margin: '0 0 0.5rem 0' }}><strong>Dirección:</strong> {'address' in request ? request.address : 'N/A'}</p>
-                                <p style={{ margin: '0 0 0.5rem 0' }}><strong>Cuenta CLABE:</strong> {'clabe_account' in request && request.clabe_account ? request.clabe_account : 'No proporcionada'}</p>
                               </div>
                             )}
                           </article>
