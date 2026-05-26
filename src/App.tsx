@@ -2986,28 +2986,6 @@ pideya.com
       {isPrivacyRoute && <PrivacyPolicy />}
       {isDeleteAccountRoute && <DeleteAccount />}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && (
-        <div className="tabs">
-          {[
-            { key: 'cliente', label: '👤 Cliente' },
-            { key: 'seguimiento', label: '📦 Seguimiento' }
-          ].map((tab) => (
-            <button key={tab.key} className={`tab ${activeTab === tab.key ? 'active' : ''}`} onClick={() => setActiveTab(tab.key as TabKey)}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!isAdminRoute && !isRestaurantsRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && showPwaBanner && !isStandalone && (
-        <div className="pwa-banner pwa-banner-top">
-          <div>
-            <p>📲 Instala Pide ya para pedir y dar seguimiento más rápido desde tu celular.</p>
-            {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
-          </div>
-          <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
-        </div>
-      )}
       {errorMessage && <div className="global-error">{errorMessage}</div>}
       {loading && <div className="global-loading">Cargando datos de la plataforma…</div>}
 
