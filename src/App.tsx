@@ -637,6 +637,13 @@ export default function App() {
       '🍕 Nuevo pedido — Pide Ya',
       `Pedido ${order.reference_code ?? '#' + order.order_number} · ${order.client_name ?? 'Cliente'} · ${formatPrice(Number(order.total))}`
     );
+    // Disparar la notificación nativa por segunda vez a los 4 segundos para asegurar
+    setTimeout(() => {
+      void notifyUser(
+        '🍕 ¡Acepta el pedido!',
+        `El pedido ${order.reference_code ?? '#' + order.order_number} está esperando tu confirmación.`
+      );
+    }, 4000);
 
     // Auto-dismiss after 45 seconds
     const autoDismiss = setTimeout(() => {
@@ -1610,6 +1617,28 @@ export default function App() {
     });
   };
 
+  const sendExpoPush = async (token: string, title: string, body: string, data: any = {}) => {
+    try {
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: token,
+          sound: 'default',
+          title,
+          body,
+          data,
+        }),
+      });
+    } catch (error) {
+      console.error('[PideYa] Error sending Expo push', error);
+    }
+  };
+
   const updateRestaurantOrderStatus = async (
     order: Order,
     nextStatus: 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED',
@@ -1639,6 +1668,34 @@ export default function App() {
       if (searchedOrder?.id === order.id) {
         const { data } = await supabase.from('orders').select('*').eq('id', order.id).maybeSingle();
         if (data) setSearchedOrder(data as Order);
+      }
+
+      // --- EXPO PUSH NOTIFICATION (DUPLICATED) ---
+      if (order.user_id) {
+        const { data: tokenData } = await supabase.from('push_tokens').select('expo_token').eq('user_id', order.user_id).maybeSingle();
+        if (tokenData?.expo_token) {
+          let title = '';
+          let body = '';
+          if (nextStatus === 'ACCEPTED') {
+            title = '✅ Pedido Aceptado';
+            body = `Tu pedido en ${selectedRestaurant.name} se está preparando.`;
+          } else if (nextStatus === 'REJECTED') {
+            title = '❌ Pedido Rechazado';
+            body = `Tu pedido en ${selectedRestaurant.name} no pudo ser procesado.`;
+          } else if (nextStatus === 'ON_THE_WAY') {
+            title = '🛵 ¡Tu pedido va en camino!';
+            body = `El repartidor de ${selectedRestaurant.name} va para tu ubicación.`;
+          } else if (nextStatus === 'DELIVERED') {
+            title = '🎉 Pedido Entregado';
+            body = `Disfruta tu pedido de ${selectedRestaurant.name}.`;
+          }
+          
+          if (title) {
+            // Enviar dos veces por seguridad como fue solicitado
+            await sendExpoPush(tokenData.expo_token, title, body, { orderId: order.id });
+            await sendExpoPush(tokenData.expo_token, title, body, { orderId: order.id });
+          }
+        }
       }
     } catch (error) {
       console.error(error);
@@ -4410,6 +4467,21 @@ pideya.com
                                 created_by: adminUser?.id,
                               });
                               if (error) throw error;
+
+                              // --- EXPO PROMO PUSH NOTIFICATION (DUPLICATED) ---
+                              // Si es inmediata, disparar las notificaciones push ahora mismo
+                              if (!promoDraft.scheduledDate || promoDraft.scheduledDate === new Date().toISOString().split('T')[0]) {
+                                const { data: tokensData } = await supabase.from('push_tokens').select('expo_token');
+                                if (tokensData && tokensData.length > 0) {
+                                  const tokens = tokensData.map((t: any) => t.expo_token).filter(Boolean);
+                                  // Hacemos el envío en background para no bloquear el panel
+                                  Promise.all(tokens.map(async (t) => {
+                                    await sendExpoPush(t, promoDraft.title, promoDraft.body, { isPromo: true });
+                                    // Segunda vez
+                                    await sendExpoPush(t, promoDraft.title, promoDraft.body, { isPromo: true });
+                                  })).catch(console.error);
+                                }
+                              }
                               setPromoDraft({ restaurantId: '', title: '', body: '', scheduledDate: '', scheduledTime: '' });
                               // Reload promos
                               const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
