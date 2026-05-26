@@ -21,7 +21,8 @@ import type {
   MenuItem,
   MenuItemOption,
   Order,
-  Restaurant
+  Restaurant,
+  AppCategory
 } from './types';
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
