@@ -2877,6 +2877,15 @@ pideya.com
     setPendingRestaurants([]);
   };
 
+  const signOutRestaurant = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setSelectedRestaurant(null);
+    setRestaurantsMode('login');
+    setActiveTab('cliente');
+    navigate('/');
+  };
+
   const toggleZone = (zone: string) => {
     setSelectedZones((prev) => (prev.includes(zone) ? prev.filter((item) => item !== zone) : [...prev, zone]));
   };
