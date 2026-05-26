@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import MapPicker from './components/map/MapPicker';
 import MapViewer from './components/map/MapViewer';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import DeleteAccount from './components/DeleteAccount';
 import { supabase } from './lib/supabase';
 import { formatPrice, statusLabel } from './lib/utils';
 import type {
@@ -382,6 +384,8 @@ export default function App() {
   const isRestaurantsRoute = location.pathname === '/restaurantes';
   const isTestRoute = location.pathname === '/pruebas';
   const isDriverRoute = location.pathname === '/repartidor';
+  const isPrivacyRoute = location.pathname === '/privacy' || location.pathname === '/aviso-privacidad';
+  const isDeleteAccountRoute = location.pathname === '/delete-account';
   const routeParams = new URLSearchParams(location.search);
   const restaurantsMode = routeParams.get('mode') === 'login' ? 'login' : 'register';
   const driverAccessToken = routeParams.get('token')?.trim() ?? '';
@@ -2976,7 +2980,10 @@ pideya.com
         {isDriverRoute && <span className="status-chip">Modo repartidor</span>}
       </nav>
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && (
+      {isPrivacyRoute && <PrivacyPolicy />}
+      {isDeleteAccountRoute && <DeleteAccount />}
+
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && (
         <div className="tabs">
           {[
             { key: 'cliente', label: '👤 Cliente' },
@@ -2989,7 +2996,7 @@ pideya.com
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isDriverRoute && showPwaBanner && !isStandalone && (
+      {!isAdminRoute && !isRestaurantsRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && showPwaBanner && !isStandalone && (
         <div className="pwa-banner pwa-banner-top">
           <div>
             <p>📲 Instala Pide ya para pedir y dar seguimiento más rápido desde tu celular.</p>
@@ -3075,7 +3082,7 @@ pideya.com
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && activeTab === 'cliente' && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && activeTab === 'cliente' && (
         <div className="page active">
           <div className="hero">
             <div className="hero-inner">
@@ -3123,7 +3130,7 @@ pideya.com
         </div>
       )}
 
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && activeTab === 'seguimiento' && (
+      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && activeTab === 'seguimiento' && (
         <div className="page active">
           <div className="track-wrap">
             <div className="track-lookup">
