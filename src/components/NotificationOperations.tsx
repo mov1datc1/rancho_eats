@@ -24,7 +24,7 @@ export default function NotificationOperations() {
   if (!notificationV2) return null;
   return <section aria-label="Pedidos sin atención" style={{ marginTop: 24 }}>
     <h4>Pedidos pendientes de aceptación</h4>
-    <p>Si un negocio lleva más de dos minutos sin aceptar, contacta al negocio y revisa el pedido.</p>
+    <p>Si un negocio lleva más de siete minutos sin aceptar, contacta al negocio y revisa el pedido.</p>
     {error ? <p role="alert">{error}</p> : incidents.length === 0 ? <p>No hay incidencias pendientes registradas.</p> :
       <ul>{incidents.map(item => <li key={item.id}>Pedido {item.order_id} — incidencia desde {new Date(item.created_at).toLocaleTimeString('es-MX')}</li>)}</ul>}
   </section>;

@@ -22,9 +22,24 @@ SELECT driver_set_shift('qa-driver-code-12345678901234567890',now()+interval '4 
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
 UPDATE orders SET delivery_driver_id='00000000-0000-0000-0000-000000000020' WHERE id='00000000-0000-0000-0000-000000000030';
 SELECT (driver_take_order('qa-driver-code-12345678901234567890','00000000-0000-0000-0000-000000000030')).status;
+-- A second reservation cannot become a second physical delivery.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
+INSERT INTO orders(id,restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,subtotal,commission_amount,delivery_amount,total,status,payment_method,delivery_type)
+SELECT '00000000-0000-0000-0000-000000000034',restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,100,8,0,108,'PENDING','cash','delivery' FROM orders LIMIT 1;
+SELECT pg_temp.reject($q$INSERT INTO orders(restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,subtotal,commission_amount,delivery_amount,total,status,payment_method,delivery_type) SELECT restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,100,8,0,108,'PENDING','card','delivery' FROM orders LIMIT 1$q$,'efectivo');
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+UPDATE orders SET status='ACCEPTED',delivery_driver_id='00000000-0000-0000-0000-000000000020' WHERE id='00000000-0000-0000-0000-000000000034';
+SELECT pg_temp.reject($q$SELECT driver_take_order('qa-driver-code-12345678901234567890','00000000-0000-0000-0000-000000000034')$q$,'liquida');
+UPDATE courier_shifts SET available_until=now()-interval '1 second';
+SELECT expire_courier_shifts();
+SELECT pg_temp.assert((SELECT delivery_driver_id IS NULL FROM orders WHERE id='00000000-0000-0000-0000-000000000034'),'expired shift releases reservations');
+SELECT pg_temp.assert((SELECT delivery_driver_id IS NOT NULL AND status='ON_THE_WAY' FROM orders WHERE id='00000000-0000-0000-0000-000000000030'),'expiry preserves active custody');
+SELECT driver_set_shift('qa-driver-code-12345678901234567890',now()+interval '4 hours');
 SELECT pg_temp.reject($q$SELECT driver_complete_cash('qa-driver-code-12345678901234567890','00000000-0000-0000-0000-000000000030',0)$q$,'no coincide');
 SELECT driver_complete_cash('qa-driver-code-12345678901234567890','00000000-0000-0000-0000-000000000030',108);
 SELECT pg_temp.assert(EXISTS(SELECT 1 FROM delivery_cycles WHERE state='RETURNING' AND closed_at IS NULL),'delivered is not settled');
+SELECT driver_complete_cash('qa-driver-code-12345678901234567890','00000000-0000-0000-0000-000000000030',108);
+SELECT pg_temp.reject($q$SELECT driver_return_order('qa-driver-code-12345678901234567890','00000000-0000-0000-0000-000000000030','Intento de devolución después de cobrar')$q$,'cobrada');
 SELECT merchant_settle_cycle((SELECT id FROM delivery_cycles LIMIT 1),100,'Faltan ocho pesos');
 SELECT pg_temp.assert(EXISTS(SELECT 1 FROM order_incidents WHERE cause='CASH'),'cash discrepancy incident');
 SELECT pg_temp.assert(EXISTS(SELECT 1 FROM delivery_cycles WHERE closed_at IS NULL),'difference blocks release');
@@ -36,7 +51,7 @@ SELECT pg_temp.assert(NOT can_order_business('00000000-0000-0000-0000-0000000000
 INSERT INTO category_pilots VALUES('00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000003');
 SELECT pg_temp.assert(can_order_business('00000000-0000-0000-0000-000000000010'),'pilot allows exact user and business');
 SELECT cancel_orphan_orders();
-SELECT pg_temp.assert((SELECT status='DELIVERED' FROM orders LIMIT 1),'completed order never expires');
+SELECT pg_temp.assert((SELECT status='DELIVERED' FROM orders WHERE id='00000000-0000-0000-0000-000000000030'),'completed order never expires');
 -- A new pending request expires, while an active route becomes an incident.
 UPDATE app_categories SET release_mode='public';
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
