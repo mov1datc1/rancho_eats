@@ -8,6 +8,7 @@ import PrivacyPolicy from './components/PrivacyPolicy';
 import DeleteAccount from './components/DeleteAccount';
 import { supabase } from './lib/supabase';
 import { formatPrice, statusLabel } from './lib/utils';
+import { uploadMenuImageWeb, isBase64Image } from './lib/storage';
 import type {
   AdminActivityItem,
   AdminAntiSpamItem,
@@ -1441,6 +1442,20 @@ export default function App() {
     }
   };
 
+  const updateFlowType = async (id: string, flowType: string) => {
+    try {
+      setActionLoading(true);
+      const { error } = await supabase.from('app_categories').update({ flow_type: flowType }).eq('id', id);
+      if (error) throw error;
+      setAppCategories(prev => prev.map(c => c.id === id ? { ...c, flow_type: flowType as any } : c));
+    } catch (e) {
+      console.error(e);
+      setErrorMessage('Error al actualizar tipo de flujo.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const blockEntity = async (value: string) => {
     try {
       setActionLoading(true);
@@ -2386,13 +2401,21 @@ export default function App() {
       setErrorMessage('');
 
       const fallbackPrice = hasOptions ? Math.min(...parsedOptions.map((option) => option.price)) : Number(menuDraft.price);
+
+      // Upload image to Supabase Storage if it's a base64 data URL
+      let photoUrl: string | null = menuDraft.imageUrl.trim() || null;
+      if (photoUrl && isBase64Image(photoUrl)) {
+        const storageUrl = await uploadMenuImageWeb(photoUrl, selectedRestaurant.id);
+        photoUrl = storageUrl; // null if upload failed — that's OK
+      }
+
       const payload = {
         restaurant_id: selectedRestaurant.id,
         name: menuDraft.name.trim(),
         description: menuDraft.description.trim() || null,
         price: fallbackPrice,
         category: menuDraft.category.trim() || 'Especialidades',
-        photo_url_1: menuDraft.imageUrl.trim() || null,
+        photo_url_1: photoUrl,
         available: true
       };
 
@@ -2476,6 +2499,14 @@ export default function App() {
     try {
       setActionLoading(true);
       setErrorMessage('');
+
+      // Upload image to Storage if it's a base64 data URL
+      let finalImageUrl: string | null = nextImageUrl.trim() || null;
+      if (finalImageUrl && isBase64Image(finalImageUrl) && selectedRestaurant) {
+        const storageUrl = await uploadMenuImageWeb(finalImageUrl, selectedRestaurant.id, item.id);
+        finalImageUrl = storageUrl;
+      }
+
       const { error } = await supabase
         .from('menu_items')
         .update({
@@ -2483,7 +2514,7 @@ export default function App() {
           price: parsedPrice,
           category: nextCategory.trim() || 'Especialidades',
           description: nextDescription.trim() || null,
-          photo_url_1: nextImageUrl.trim() || null
+          photo_url_1: finalImageUrl
         })
         .eq('id', item.id);
       if (error) throw error;
@@ -4573,6 +4604,7 @@ pideya.com
                               <th>Orden</th>
                               <th>Icono</th>
                               <th>Nombre</th>
+                              <th>Tipo de Flujo</th>
                               <th>Estado</th>
                               <th>Acciones</th>
                             </tr>
@@ -4583,6 +4615,18 @@ pideya.com
                                 <td>{cat.sort_order}</td>
                                 <td><span style={{ fontSize: '1.5rem' }}>{cat.emoji}</span></td>
                                 <td><strong>{cat.name}</strong></td>
+                                <td>
+                                  <select
+                                    className="fi"
+                                    value={cat.flow_type || 'prepared'}
+                                    onChange={(e) => void updateFlowType(cat.id, e.target.value)}
+                                    style={{ minWidth: '150px', padding: '6px 10px', fontSize: '0.85rem' }}
+                                  >
+                                    <option value="prepared">🍽️ Preparado</option>
+                                    <option value="picked">🧺 Con Picking</option>
+                                    <option value="pharmacy">💊 Farmacia</option>
+                                  </select>
+                                </td>
                                 <td>
                                   <span className={`status-badge ${cat.is_active ? 'active' : 'suspended'}`}>
                                     {cat.is_active ? 'Activo' : 'Oculto'}
@@ -4606,7 +4650,7 @@ pideya.com
                             ))}
                             {appCategories.length === 0 && (
                               <tr>
-                                <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)' }}>
+                                <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)' }}>
                                   No hay categorías configuradas.
                                 </td>
                               </tr>
@@ -4626,6 +4670,120 @@ pideya.com
                       </div>
                       <p style={{ color: 'var(--muted)' }}>Proyecto conectado: <code>{import.meta.env.VITE_SUPABASE_URL}</code></p><p style={{ color: 'var(--muted)' }}>Si en SQL Editor ves restaurantes PENDING y aquí no, casi siempre es por URL/KEY de otro proyecto o migraciones 002/003 faltantes.</p>
                       <p style={{ color: 'var(--muted)' }}>Fallback Edge Function admin-restaurants: <strong>{adminFunctionEnabled ? 'habilitado' : 'deshabilitado (error CORS/404 detectado)'}</strong>.</p>
+
+                      {/* ═══════════════ GPS TRACKING CONFIG ═══════════════ */}
+                      <div style={{ borderTop: '1px solid var(--border)', marginTop: '24px', paddingTop: '24px' }}>
+                        <h4>📡 Configuración GPS del Repartidor</h4>
+                        <p style={{ color: 'var(--muted)', marginBottom: '16px' }}>
+                          Controla cada cuánto envía ubicación el repartidor. En <strong>modo pruebas</strong> usa 0m para ver todas las actualizaciones.
+                          En <strong>producción</strong> usa 20-50m para ahorrar batería y ancho de banda.
+                        </p>
+
+                        <div className="frow">
+                          <div className="fg">
+                            <label>Distancia mínima (metros)</label>
+                            <input
+                              className="fi"
+                              id="gps-distance-input"
+                              type="number"
+                              min="0"
+                              max="200"
+                              step="5"
+                              defaultValue="0"
+                              ref={(el) => {
+                                if (el && !el.dataset.loaded) {
+                                  el.dataset.loaded = 'true';
+                                  supabase.from('app_settings').select('value').eq('setting_key', 'gps_distance_interval_m').single()
+                                    .then(({ data }) => { if (data) el.value = String(data.value); });
+                                }
+                              }}
+                            />
+                            <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>0 = cada update GPS (pruebas). 30 = cada 30m de movimiento (producción).</p>
+                          </div>
+                          <div className="fg">
+                            <label>Intervalo de tiempo (ms)</label>
+                            <input
+                              className="fi"
+                              id="gps-time-input"
+                              type="number"
+                              min="3000"
+                              max="60000"
+                              step="1000"
+                              defaultValue="10000"
+                              ref={(el) => {
+                                if (el && !el.dataset.loaded) {
+                                  el.dataset.loaded = 'true';
+                                  supabase.from('app_settings').select('value').eq('setting_key', 'gps_time_interval_ms').single()
+                                    .then(({ data }) => { if (data) el.value = String(data.value); });
+                                }
+                              }}
+                            />
+                            <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>Mínimo entre actualizaciones. 10000 = 10 segundos.</p>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
+                          <button
+                            className="btn btn-outline"
+                            onClick={() => {
+                              const distEl = document.getElementById('gps-distance-input') as HTMLInputElement;
+                              const timeEl = document.getElementById('gps-time-input') as HTMLInputElement;
+                              if (distEl) distEl.value = '0';
+                              if (timeEl) timeEl.value = '10000';
+                            }}
+                          >
+                            🧪 Modo Pruebas (0m / 10s)
+                          </button>
+                          <button
+                            className="btn btn-outline"
+                            onClick={() => {
+                              const distEl = document.getElementById('gps-distance-input') as HTMLInputElement;
+                              const timeEl = document.getElementById('gps-time-input') as HTMLInputElement;
+                              if (distEl) distEl.value = '30';
+                              if (timeEl) timeEl.value = '10000';
+                            }}
+                          >
+                            🚀 Modo Producción (30m / 10s)
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ background: 'var(--primary)', color: '#fff' }}
+                            onClick={async () => {
+                              const distEl = document.getElementById('gps-distance-input') as HTMLInputElement;
+                              const timeEl = document.getElementById('gps-time-input') as HTMLInputElement;
+                              if (!distEl || !timeEl) return;
+
+                              try {
+                                setActionLoading(true);
+                                const distValue = Number(distEl.value) || 0;
+                                const timeValue = Number(timeEl.value) || 10000;
+
+                                await supabase.from('app_settings').upsert({
+                                  setting_key: 'gps_distance_interval_m',
+                                  value: distValue,
+                                  updated_at: new Date().toISOString(),
+                                  updated_by: adminUser?.id ?? null,
+                                });
+                                await supabase.from('app_settings').upsert({
+                                  setting_key: 'gps_time_interval_ms',
+                                  value: timeValue,
+                                  updated_at: new Date().toISOString(),
+                                  updated_by: adminUser?.id ?? null,
+                                });
+
+                                window.alert(`✅ GPS configurado:\n• Distancia: ${distValue}m\n• Intervalo: ${timeValue}ms\n\nLos repartidores recibirán la nueva configuración al iniciar su próxima entrega.`);
+                              } catch (err) {
+                                console.error(err);
+                                window.alert('❌ No se pudo guardar. Verifica que la migración 026 esté ejecutada.');
+                              } finally {
+                                setActionLoading(false);
+                              }
+                            }}
+                          >
+                            💾 Guardar configuración GPS
+                          </button>
+                        </div>
+                      </div>
                     </article>
                   )}
                 </>

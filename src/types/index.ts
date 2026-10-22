@@ -167,10 +167,13 @@ export interface AdminMapPoint {
   is_open: boolean;
 }
 
+export type FlowType = 'prepared' | 'picked' | 'pharmacy';
+
 export interface AppCategory {
   id: string;
   name: string;
   emoji: string;
   sort_order: number;
   is_active: boolean;
+  flow_type: FlowType;
 }
