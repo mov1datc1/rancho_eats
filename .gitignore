@@ -7,3 +7,11 @@ dist
 
 # Credentials (never commit)
 .credentials.md
+
+# Notification worker secrets
+notification-worker/.env*
+!notification-worker/.env.example
+
+# Generated TypeScript build cache
+*.tsbuildinfo
+.vercel

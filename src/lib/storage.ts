@@ -1,23 +1,4 @@
-/**
- * Supabase Storage utilities for PideYa Web Admin.
- *
- * Menu item photos are uploaded to the `menu-images` bucket.
- * This mirrors the storage.ts utility in pideya-restaurant for consistency.
- *
- * The bucket must be created in Supabase with public access:
- *   INSERT INTO storage.buckets (id, name, public) VALUES ('menu-images', 'menu-images', true);
- *   
- *   -- Allow public reads
- *   CREATE POLICY "Public read menu images" ON storage.objects
- *     FOR SELECT USING (bucket_id = 'menu-images');
- *   
- *   -- Allow authenticated users to upload/update
- *   CREATE POLICY "Authenticated upload menu images" ON storage.objects
- *     FOR INSERT WITH CHECK (bucket_id = 'menu-images');
- *   CREATE POLICY "Authenticated update menu images" ON storage.objects
- *     FOR UPDATE USING (bucket_id = 'menu-images');
- */
-
+// Catalog images are stored as objects, never embedded in database rows.
 import { supabase } from './supabase';
 
 const BUCKET = 'menu-images';
@@ -39,19 +20,34 @@ export const uploadMenuImageWeb = async (
   try {
     // Convert data URL to Blob (web-native approach)
     const response = await fetch(dataUrl);
-    const blob = await response.blob();
+    const source = await response.blob();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(source.type) || source.size > 10 * 1024 * 1024) throw new Error('Usa JPG, PNG o WebP de hasta 10 MB.');
+    const bitmap = await createImageBitmap(source);
+    let blob: Blob;
+    try {
+      if (bitmap.width * bitmap.height > 40000000) throw new Error('Imagen demasiado grande.');
+      const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('No se pudo procesar la foto.');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('No se pudo comprimir la foto.')), 'image/jpeg', 0.82));
+    } finally { bitmap.close(); }
 
     const contentType = blob.type || 'image/jpeg';
     const ext = contentType.includes('png') ? 'png' : 'jpg';
-    const fileName = itemId
-      ? `${restaurantId}/${itemId}.${ext}`
-      : `${restaurantId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const fileName = `${restaurantId}/${itemId || 'photo'}-${crypto.randomUUID()}.${ext}`;
 
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(fileName, blob, {
         contentType,
-        upsert: true,
+        upsert: false,
+        cacheControl: "31536000",
       });
 
     if (uploadError) {

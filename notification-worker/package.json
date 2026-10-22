@@ -1,0 +1,8 @@
+{
+  "name": "pideya-notification-worker",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node worker.mjs", "test": "node --test tests/*.test.mjs" },
+  "dependencies": { "web-push": "3.6.7" }
+}

@@ -1,0 +1,233 @@
+{
+  "createdAt": "2026-10-22T14:55:14.482Z",
+  "businesses": [
+    {
+      "id": "37d9f1c4-083e-44c1-adc7-641e523f1964",
+      "name": "Forno 21 · PRUEBA",
+      "type": "Restaurantes",
+      "menu_items": [
+        {
+          "id": "2f3331d4-ae52-40ae-a1ce-473aee59d0c5",
+          "name": "Pizza Pepperoni",
+          "price": 149,
+          "menu_item_options": [
+            {
+              "id": "526e9a8b-c917-485c-af55-292b9faf156b",
+              "price": 149,
+              "option_type": "size"
+            },
+            {
+              "id": "a7d02a0f-6744-4ebf-a467-c93434e348be",
+              "price": 199,
+              "option_type": "size"
+            },
+            {
+              "id": "f4a2b608-458b-4c45-a2ac-c667940443a1",
+              "price": 259,
+              "option_type": "size"
+            },
+            {
+              "id": "85d7c08f-f1b1-426b-a075-bc16133a976e",
+              "price": 25,
+              "option_type": "extra"
+            },
+            {
+              "id": "d2318b6f-5921-465d-a39d-c57b3ccf9c8c",
+              "price": 30,
+              "option_type": "extra"
+            },
+            {
+              "id": "cc251660-346e-4c3a-a805-6e6f989c8a17",
+              "price": 20,
+              "option_type": "extra"
+            },
+            {
+              "id": "abd0f9b1-13e2-44d9-a201-a66b39571b37",
+              "price": 0,
+              "option_type": "extra"
+            }
+          ]
+        },
+        {
+          "id": "c73c3760-3edd-4619-aac3-beae056368de",
+          "name": "Pizza Margherita",
+          "price": 139,
+          "menu_item_options": [
+            {
+              "id": "bad68eab-99d0-4d06-a948-d150d177de8b",
+              "price": 139,
+              "option_type": "size"
+            },
+            {
+              "id": "6efa15a7-67dd-48f0-aca3-1a07883607f1",
+              "price": 189,
+              "option_type": "size"
+            },
+            {
+              "id": "d930c21b-d8e8-405d-ab95-3a8383448ef0",
+              "price": 249,
+              "option_type": "size"
+            },
+            {
+              "id": "c4f1448f-be45-46e2-ac2d-9feffb3ba5e1",
+              "price": 25,
+              "option_type": "extra"
+            },
+            {
+              "id": "1f3d4c22-7b4d-4c08-ae3d-e2c2aa762f8e",
+              "price": 20,
+              "option_type": "extra"
+            }
+          ]
+        },
+        {
+          "id": "5bbc97fb-1eba-4f91-a45b-ec2ba7589edc",
+          "name": "Agua natural · 600 ml",
+          "price": 22,
+          "menu_item_options": []
+        }
+      ]
+    },
+    {
+      "id": "d63a84b5-a629-49a8-acfc-ef36102c4f99",
+      "name": "Huerta Clara · PRUEBA",
+      "type": "Frutería",
+      "menu_items": [
+        {
+          "id": "068f4ace-ed8d-4808-a0e2-c6033aad0f4b",
+          "name": "Manzana Gala · bolsa de 1 kg",
+          "price": 49,
+          "menu_item_options": []
+        },
+        {
+          "id": "44dba9be-00d7-4878-aba0-25a1f19feb5b",
+          "name": "Manzana Gala · pieza",
+          "price": 12,
+          "menu_item_options": []
+        },
+        {
+          "id": "983cfb74-8cb5-474d-a13c-867b395031a1",
+          "name": "Canasta de temporada",
+          "price": 229,
+          "menu_item_options": []
+        }
+      ]
+    },
+    {
+      "id": "44fe7a84-2132-4eba-ab39-d68faad01634",
+      "name": "Tacos del Patio · PRUEBA",
+      "type": "Restaurantes",
+      "menu_items": [
+        {
+          "id": "7b4b6b64-431e-4bf7-aa7a-63749679501a",
+          "name": "Orden de tacos al pastor",
+          "price": 75,
+          "menu_item_options": [
+            {
+              "id": "269bf9c6-8fc8-49f6-a647-95bafb1c3025",
+              "price": 75,
+              "option_type": "size"
+            },
+            {
+              "id": "61c4429e-c34f-498e-a2a1-9669b01c4ec7",
+              "price": 119,
+              "option_type": "size"
+            },
+            {
+              "id": "9a2af3cc-fbd1-41cf-af5b-b475b7b3f28e",
+              "price": 18,
+              "option_type": "extra"
+            },
+            {
+              "id": "ed000b94-21c9-47e9-ab1f-5b5d1a161f96",
+              "price": 0,
+              "option_type": "extra"
+            }
+          ]
+        },
+        {
+          "id": "4b6db1e6-ca19-4184-a082-0027c64bce2b",
+          "name": "Agua natural · 600 ml",
+          "price": 22,
+          "menu_item_options": []
+        }
+      ]
+    },
+    {
+      "id": "9cd9fdff-267f-43c4-ad2a-59b73867fe58",
+      "name": "Brasa Urbana · PRUEBA",
+      "type": "Restaurantes",
+      "menu_items": [
+        {
+          "id": "179ff03d-9e3d-4a60-aa76-ca42043656d9",
+          "name": "Hamburguesa clásica",
+          "price": 129,
+          "menu_item_options": [
+            {
+              "id": "7acd7063-1718-4a00-a050-fdcd88310ffd",
+              "price": 15,
+              "option_type": "extra"
+            },
+            {
+              "id": "51ff3ef4-b10f-4e84-a68f-9559ae4d392c",
+              "price": 25,
+              "option_type": "extra"
+            },
+            {
+              "id": "21c5cb9a-6026-4095-a982-4c86bb73d544",
+              "price": 45,
+              "option_type": "extra"
+            }
+          ]
+        },
+        {
+          "id": "0c8f7896-3c37-4895-a592-85d1ce452b12",
+          "name": "Agua natural · 600 ml",
+          "price": 22,
+          "menu_item_options": []
+        }
+      ]
+    },
+    {
+      "id": "428e7066-9bb3-47cc-a520-0519889a473f",
+      "name": "Miga y Café · PRUEBA",
+      "type": "Restaurantes",
+      "menu_items": [
+        {
+          "id": "c80954b7-a418-4d9d-ab5d-d38145f11351",
+          "name": "Croissant de mantequilla",
+          "price": 45,
+          "menu_item_options": [
+            {
+              "id": "0eea695a-aeb6-4974-a5fb-f16e09f149d5",
+              "price": 10,
+              "option_type": "extra"
+            }
+          ]
+        },
+        {
+          "id": "f8953cca-cb86-42bf-a71e-25c31ba66dbd",
+          "name": "Café americano",
+          "price": 35,
+          "menu_item_options": [
+            {
+              "id": "6c900681-6b6c-4a11-a36a-203f3c7ec6ca",
+              "price": 35,
+              "option_type": "size"
+            },
+            {
+              "id": "581a0617-2d51-4695-abaf-17be3076794e",
+              "price": 45,
+              "option_type": "size"
+            },
+            {
+              "id": "5c30bf48-0e7e-475e-ad6d-80c28e768b2c",
+              "price": 15,
+              "option_type": "extra"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

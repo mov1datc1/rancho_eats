@@ -63,6 +63,7 @@ export interface CartItem {
 
 export interface Order {
   id: string;
+  client_user_id?: string | null;
   user_id?: string | null;
   order_number: number;
   reference_code?: string; // PY-XXXXXX unique identifier

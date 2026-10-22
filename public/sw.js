@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pideya-v3';
+const CACHE_NAME = 'pideya-v4';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.svg', '/icon-512.svg'];
 
 const isHttpRequest = (url) => url.protocol === 'http:' || url.protocol === 'https:';
@@ -47,8 +47,8 @@ self.addEventListener('push', (event) => {
     icon: '/icon-192.svg',
     badge: '/icon-192.svg',
     vibrate: [300, 100, 300, 100, 300],
-    tag: 'pideya-new-order',
-    renotify: true,
+    tag: data.eventId || data.orderId || 'pideya-new-order',
+    renotify: false,
     requireInteraction: true,
     data,
     actions: [
@@ -66,14 +66,15 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'dismiss') return;
 
-  const targetUrl = '/restaurantes?mode=login';
+  const orderId = event.notification.data?.orderId;
+  const targetUrl = '/restaurantes?mode=login' + (orderId ? '&orderId=' + encodeURIComponent(orderId) : '');
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // Focus existing window if available
       for (const client of clientList) {
         if (client.url.includes('/restaurantes') && 'focus' in client) {
-          return client.focus();
+          return client.navigate(targetUrl).then(() => client.focus());
         }
       }
       // Open new window

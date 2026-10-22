@@ -1,3 +1,7 @@
+import OperationsControl from './components/OperationsControl';
+import DeliveryOperations from './components/DeliveryOperations';
+import { normalizeOrderItems, escapeHtml } from './lib/orderItems';
+import { parseMenuDraft } from './lib/menuDraft';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -7,6 +11,8 @@ import MapViewer from './components/map/MapViewer';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import DeleteAccount from './components/DeleteAccount';
 import { supabase } from './lib/supabase';
+import { notificationV2, registerWebNotifications, unregisterWebNotifications } from './lib/notificationDevice';
+import NotificationOperations from './components/NotificationOperations';
 import { formatPrice, statusLabel } from './lib/utils';
 import { uploadMenuImageWeb, isBase64Image } from './lib/storage';
 import type {
@@ -28,7 +34,7 @@ import type {
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'comisiones' | 'config';
-type AdminPanelKey = 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config' | 'categorias';
+type AdminPanelKey = 'operacion' | 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config' | 'categorias';
 
 type CommissionTier = { up_to: number | null; fee: number };
 type CommissionConfig = { tiers: CommissionTier[]; cutoffFrom: string; cutoffTo: string };
@@ -314,6 +320,10 @@ export default function App() {
     moved_month: 0,
     blocked_entities: 0
   });
+  const [adminOrderPage, setAdminOrderPage] = useState(0);
+  const [adminOrderHasMore, setAdminOrderHasMore] = useState(false);
+  const [adminOrderLoading, setAdminOrderLoading] = useState(false);
+  const adminOrderRequest = useRef(0);
   const [adminRestaurants, setAdminRestaurants] = useState<AdminRestaurantOverview[]>([]);
   const [adminActivity, setAdminActivity] = useState<AdminActivityItem[]>([]);
   const [adminAntiSpam, setAdminAntiSpam] = useState<AdminAntiSpamItem[]>([]);
@@ -437,56 +447,7 @@ export default function App() {
     return cleaned && isValidRestaurantImageUrl(cleaned) ? cleaned : '';
   }, [configDraft.restaurantImageUrl]);
 
-  const selectedOrderDisplayItems = useMemo(() => {
-    if (!selectedOrder || !Array.isArray(selectedOrder.items)) return [] as CartItem[];
-
-    const normalizeMoney = (value: number) => Math.round(value * 100);
-    const denormalizeMoney = (value: number) => value / 100;
-
-    const rawItems = selectedOrder.items.filter((item) => Number.isFinite(Number(item.subtotal)) && Number(item.subtotal) > 0);
-    const rawSubtotal = rawItems.reduce((acc, item) => acc + normalizeMoney(Number(item.subtotal)), 0);
-    const orderTotal = normalizeMoney(Number(selectedOrder.total));
-
-    let itemsToDisplay = rawItems;
-
-    if (rawItems.length > 0 && orderTotal > 0 && rawSubtotal !== orderTotal) {
-      const dp = new Map<number, number[]>();
-      dp.set(0, []);
-
-      rawItems.forEach((item, index) => {
-        const itemValue = normalizeMoney(Number(item.subtotal));
-        if (itemValue <= 0) return;
-
-        const snapshot = Array.from(dp.entries());
-        snapshot.forEach(([sum, indices]) => {
-          const nextSum = sum + itemValue;
-          if (nextSum > orderTotal || dp.has(nextSum)) return;
-          dp.set(nextSum, [...indices, index]);
-        });
-      });
-
-      const matched = dp.get(orderTotal);
-      if (matched && matched.length > 0) {
-        itemsToDisplay = matched.map((index) => rawItems[index]);
-      }
-    }
-
-    const grouped = new Map<string, CartItem>();
-    itemsToDisplay.forEach((item) => {
-      const key = `${item.menu_item_id}::${item.option_id ?? item.option_label ?? ''}::${item.name}::${item.unit_price}`;
-      const existing = grouped.get(key);
-      if (!existing) {
-        grouped.set(key, { ...item });
-        return;
-      }
-
-      const qty = existing.qty + item.qty;
-      const subtotal = denormalizeMoney(normalizeMoney(Number(existing.subtotal)) + normalizeMoney(Number(item.subtotal)));
-      grouped.set(key, { ...existing, qty, subtotal });
-    });
-
-    return Array.from(grouped.values());
-  }, [selectedOrder]);
+  const selectedOrderDisplayItems = useMemo(() => normalizeOrderItems(selectedOrder?.items), [selectedOrder]);
   const selectedDriverOrder = useMemo(() => driverOrders.find((order) => order.id === driverActiveOrderId) ?? driverOrders[0] ?? null, [driverActiveOrderId, driverOrders]);
   const pendingOwnedRestaurant = pendingRestaurants.find((item) => item.owner_id && item.owner_id === adminUser?.id) ?? null;
   const dashboardOrders = useMemo(() => {
@@ -630,6 +591,15 @@ export default function App() {
     if (navigator.vibrate) navigator.vibrate(0); // stop vibration
   };
 
+  useEffect(() => {
+    if (!notificationV2) return;
+    const restore = () => { void registerWebNotifications().catch(() => setErrorMessage('No se pudieron activar las alertas en segundo plano. Reintenta con Activar alertas.')); };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => { setTimeout(restore, 0); });
+    window.addEventListener('focus', restore);
+    restore();
+    return () => { subscription.unsubscribe(); window.removeEventListener('focus', restore); };
+  }, []);
+
   /** Show the toast and trigger the sound+notification */
   const triggerNewOrderAlert = (order: Order) => {
     setIncomingToastOrder(order);
@@ -638,14 +608,6 @@ export default function App() {
       '🍕 Nuevo pedido — Pide Ya',
       `Pedido ${order.reference_code ?? '#' + order.order_number} · ${order.client_name ?? 'Cliente'} · ${formatPrice(Number(order.total))}`
     );
-    // Disparar la notificación nativa por segunda vez a los 4 segundos para asegurar
-    setTimeout(() => {
-      void notifyUser(
-        '🍕 ¡Acepta el pedido!',
-        `El pedido ${order.reference_code ?? '#' + order.order_number} está esperando tu confirmación.`
-      );
-    }, 4000);
-
     // Auto-dismiss after 45 seconds
     const autoDismiss = setTimeout(() => {
       setIncomingToastOrder((current) => (current?.id === order.id ? null : current));
@@ -658,16 +620,19 @@ export default function App() {
     if (typeof Notification === 'undefined') return 'denied' as NotificationPermission;
     if (Notification.permission === 'granted') {
       setNotificationPermission('granted');
+      await registerWebNotifications();
       return 'granted';
     }
     const result = await Notification.requestPermission();
     setNotificationPermission(result);
+    if (result === 'granted') await registerWebNotifications();
     return result;
   };
 
   const notifyUser = async (title: string, body: string) => {
+    if (notificationV2) return;
     if (typeof Notification === 'undefined') return;
-    const permission = Notification.permission === 'granted' ? 'granted' : await requestNotificationPermission();
+    const permission = Notification.permission; // Permission prompts belong to the user's alert button.
     if (permission === 'granted') {
       new Notification(title, { body, icon: '/icon-192.svg', tag: 'pideya-order', renotify: true } as NotificationOptions & { renotify: boolean });
     }
@@ -1038,15 +1003,15 @@ export default function App() {
     try {
       const { data, error } = await supabase
         .from('app_settings')
-        .select('commission_fee, commission_tiers, cutoff_from, cutoff_to')
-        .eq('id', 1)
+        .select('value')
+        .eq('setting_key', 'commission_config')
         .maybeSingle();
 
       if (error) throw error;
 
-      const tiers: CommissionTier[] = Array.isArray(data?.commission_tiers) ? data.commission_tiers : DEFAULT_TIERS;
-      const cutoffFrom = data?.cutoff_from ?? '';
-      const cutoffTo = data?.cutoff_to ?? '';
+      const tiers: CommissionTier[] = Array.isArray(data?.value?.commission_tiers) ? data.value.commission_tiers : DEFAULT_TIERS;
+      const cutoffFrom = data?.value?.cutoff_from ?? '';
+      const cutoffTo = data?.value?.cutoff_to ?? '';
 
       setCommissionConfig({ tiers, cutoffFrom, cutoffTo });
       setCommissionTiersDraft(tiers);
@@ -1186,12 +1151,28 @@ export default function App() {
     }
   };
 
+  // Page the complete directory; the legacy overview RPC returns only eight rows.
+  const loadAllAdminBusinesses = async () => {
+    const rows: AdminRestaurantOverview[] = [];
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    for (let offset = 0; ; offset += 100) {
+      const { data, error } = await supabase.from('restaurants')
+        .select('id,name,status,orders(count)').gte('orders.created_at', start.toISOString())
+        .order('id').range(offset, offset + 99);
+      if (error) return { data: null, error };
+      rows.push(...(data ?? []).map(r => ({ id: r.id, name: r.name, status: r.status,
+        orders_today: r.orders?.[0]?.count ?? 0 })));
+      if ((data?.length ?? 0) < 100) break;
+    }
+    return { data: rows, error: null };
+  };
+
   const loadAdminDashboardData = async (rpcEnabled = adminRpcEnabled) => {
     try {
       if (rpcEnabled) {
         const [summaryRes, restaurantsRes, activityRes, antiSpamRes, chartRes] = await Promise.all([
           supabase.rpc('admin_dashboard_summary'),
-          supabase.rpc('admin_restaurants_overview'),
+          loadAllAdminBusinesses(),
           supabase.rpc('admin_recent_activity'),
           supabase.rpc('admin_antispam_overview'),
           supabase.rpc('admin_orders_by_restaurant_30d')
@@ -1250,7 +1231,6 @@ export default function App() {
         setAdminRestaurants(
           restaurantsData
             .sort((a, b) => (statusWeight[a.status] - statusWeight[b.status]) || ((b.created_at ?? '').localeCompare(a.created_at ?? '')))
-            .slice(0, 8)
             .map((restaurant) => ({
               id: restaurant.id,
               name: restaurant.name,
@@ -1331,37 +1311,38 @@ export default function App() {
     }
   };
 
-  const loadAdminOrders = async (rpcEnabled = adminRpcEnabled) => {
+  const loadAdminOrders = async (rpcEnabled = adminRpcEnabled, page = adminOrderPage) => {
+    const request = ++adminOrderRequest.current;
+    setAdminOrderLoading(true);
     try {
-      if (rpcEnabled) {
-        const { data, error } = await supabase.rpc('admin_orders_feed', { p_limit: 60 });
-        if (!error) {
-          setAdminOrders((data ?? []) as AdminOrderFeedItem[]);
-          return;
-        }
-
-        if (!isRpcMissingError(error)) throw error;
-        setAdminRpcEnabled(false);
-      }
-
+      // Direct paginated query also includes commission_amount, omitted by the old RPC.
+      void rpcEnabled;
       const { data: fallbackOrders, error: fallbackError } = await supabase
         .from('orders')
         .select('id,order_number,reference_code,status,total,commission_amount,client_name,client_phone,client_location_note,created_at,restaurant_id')
         .order('created_at', { ascending: false })
-        .limit(60);
+        .order('id', { ascending: false })
+        .range(page * 50, page * 50 + 50);
       if (fallbackError) throw fallbackError;
 
-      const restaurantIds = Array.from(new Set((fallbackOrders ?? []).map((order) => order.restaurant_id).filter(Boolean)));
+      if (request !== adminOrderRequest.current) return;
+      const visibleOrders = (fallbackOrders ?? []).slice(0, 50);
+      const restaurantIds = Array.from(new Set((visibleOrders ?? []).map((order) => order.restaurant_id).filter(Boolean)));
       const { data: fallbackRestaurants } = await supabase.from('restaurants').select('id,name').in('id', restaurantIds.length > 0 ? restaurantIds : ['00000000-0000-0000-0000-000000000000']);
       const byId = new Map((fallbackRestaurants ?? []).map((r) => [r.id, r.name]));
 
-      setAdminOrders(((fallbackOrders ?? []) as Array<{ id: string; order_number: number; status: string; total: number; client_name: string | null; client_phone: string | null; client_location_note: string | null; created_at: string; restaurant_id: string }>).map((order) => ({
+      if (request !== adminOrderRequest.current) return;
+      setAdminOrderPage(page);
+      setAdminOrderHasMore((fallbackOrders?.length ?? 0) > 50);
+      setAdminOrders((visibleOrders as Array<{ id: string; order_number: number; status: string; total: number; client_name: string | null; client_phone: string | null; client_location_note: string | null; created_at: string; restaurant_id: string }>).map((order) => ({
         ...order,
         restaurant_name: byId.get(order.restaurant_id) ?? 'Restaurante'
       })) as AdminOrderFeedItem[]);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo cargar la sección de pedidos de admin.');
+      if (request === adminOrderRequest.current) setErrorMessage('No se pudo cargar la sección de pedidos de admin.');
+    } finally {
+      if (request === adminOrderRequest.current) setAdminOrderLoading(false);
     }
   };
 
@@ -1586,6 +1567,7 @@ export default function App() {
   };
 
   const addItem = (item: MenuItem, option?: MenuItemOption) => {
+    if (option?.option_type === 'extra') { setErrorMessage('Los extras se agregan a un producto desde la app cliente.'); return; }
     setCart((prev) => {
       const cartKey = buildCartKey(item.id, option ?? null);
       const existing = prev[cartKey];
@@ -1633,6 +1615,7 @@ export default function App() {
   };
 
   const sendExpoPush = async (token: string, title: string, body: string, data: any = {}) => {
+    if (notificationV2) return;
     try {
       await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
@@ -1685,9 +1668,9 @@ export default function App() {
         if (data) setSearchedOrder(data as Order);
       }
 
-      // --- EXPO PUSH NOTIFICATION (DUPLICATED) ---
-      if (order.user_id) {
-        const { data: tokenData } = await supabase.from('push_tokens').select('expo_token').eq('user_id', order.user_id).maybeSingle();
+      // Legacy path only; v2 events are committed atomically by PostgreSQL.
+      if (!notificationV2 && (order.client_user_id || order.user_id)) {
+        const { data: tokenData } = await supabase.from('push_tokens').select('expo_token').eq('user_id', order.client_user_id || order.user_id).maybeSingle();
         if (tokenData?.expo_token) {
           let title = '';
           let body = '';
@@ -1706,8 +1689,6 @@ export default function App() {
           }
           
           if (title) {
-            // Enviar dos veces por seguridad como fue solicitado
-            await sendExpoPush(tokenData.expo_token, title, body, { orderId: order.id });
             await sendExpoPush(tokenData.expo_token, title, body, { orderId: order.id });
           }
         }
@@ -1793,16 +1774,6 @@ export default function App() {
         .single();
 
       if (orderInsertError) throw orderInsertError;
-
-      await supabase.functions.invoke('notify-restaurant', {
-        body: {
-          restaurant_id: selectedRestaurant.id,
-          order_number: orderData.order_number,
-          client_name: clientName || 'Sin nombre',
-          client_phone: clientPhone || null,
-          total: cartTotal
-        }
-      });
 
       setSearchedOrder(orderData as Order);
       setTrackNumber(`#${orderData.order_number}`);
@@ -2056,10 +2027,16 @@ export default function App() {
       setActionLoading(true);
       setErrorMessage('');
 
-      const cleanedImageUrl = sanitizeImageUrl(configDraft.restaurantImageUrl);
+      let cleanedImageUrl = sanitizeImageUrl(configDraft.restaurantImageUrl);
       if (cleanedImageUrl && !isValidRestaurantImageUrl(cleanedImageUrl)) {
         setErrorMessage('La imagen debe ser URL (http/https) o base64 válido (data:image/...).');
         return;
+      }
+
+      if (isBase64Image(cleanedImageUrl)) {
+        const uploaded = await uploadMenuImageWeb(cleanedImageUrl, selectedRestaurant.id);
+        if (!uploaded) throw new Error('No se pudo subir la portada. Reintenta.');
+        cleanedImageUrl = uploaded;
       }
 
       const parsedLat = Number(configDraft.lat);
@@ -2370,43 +2347,29 @@ export default function App() {
       return;
     }
 
-    const parsedOptions = menuDraftOptions
-      .map((option, index) => ({
-        label: option.label.trim(),
-        price: option.price.trim(),
-        image_url: option.imageUrl.trim() || null,
-        sort_order: index,
-        option_type: option.optionType
-      }))
-      .filter((option) => option.label && option.price)
-      .map((option) => ({
-        label: option.label,
-        price: Number(option.price),
-        image_url: option.image_url,
-        sort_order: option.sort_order,
-        option_type: option.option_type,
-        available: true
-      }))
-      .filter((option) => Number.isFinite(option.price) && option.price > 0);
-
-    const hasOptions = parsedOptions.length > 0;
-
-    if (!menuDraft.name.trim() || (!hasOptions && !menuDraft.price.trim())) {
-      setErrorMessage('Completa nombre y precio del platillo (o agrega opciones con precio).');
+    let parsed: ReturnType<typeof parseMenuDraft>;
+    try {
+      if (!menuDraft.name.trim()) throw new Error('Escribe el nombre del producto.');
+      parsed = parseMenuDraft(menuDraft.price, menuDraftOptions);
+      if (parsed.options.length && !menuOptionsEnabled) throw new Error('Activa las migraciones de opciones antes de guardar este producto.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Revisa las opciones.');
       return;
     }
-
+    const parsedOptions = parsed.options;
+    const hasOptions = parsedOptions.length > 0;
     try {
       setActionLoading(true);
       setErrorMessage('');
 
-      const fallbackPrice = hasOptions ? Math.min(...parsedOptions.map((option) => option.price)) : Number(menuDraft.price);
+      const fallbackPrice = parsed.price;
 
       // Upload image to Supabase Storage if it's a base64 data URL
       let photoUrl: string | null = menuDraft.imageUrl.trim() || null;
       if (photoUrl && isBase64Image(photoUrl)) {
         const storageUrl = await uploadMenuImageWeb(photoUrl, selectedRestaurant.id);
-        photoUrl = storageUrl; // null if upload failed — that's OK
+        if (!storageUrl) throw new Error('No se pudo subir la foto; no se guardó el producto.');
+        photoUrl = storageUrl;
       }
 
       const payload = {
@@ -2416,37 +2379,26 @@ export default function App() {
         price: fallbackPrice,
         category: menuDraft.category.trim() || 'Especialidades',
         photo_url_1: photoUrl,
-        available: true
+        available: !hasOptions
       };
 
       const { data: createdItem, error } = await supabase.from('menu_items').insert(payload).select('id').single();
       if (error) throw error;
 
       if (hasOptions && createdItem?.id) {
-        if (menuOptionsEnabled) {
-          const optionRows = parsedOptions.map((option) => ({
-            menu_item_id: createdItem.id,
-            label: option.label,
-            price: option.price,
-            image_url: option.image_url,
-            sort_order: option.sort_order,
-            available: true
-          }));
-          const { error: optionError } = await supabase.from('menu_item_options').insert(optionRows);
-          if (optionError && isMenuOptionsMissingTableError(optionError)) {
-            setMenuOptionsEnabled(false);
-            setMenuOptionsNotice('El platillo se guardó, pero las opciones no: falta ejecutar migración 007_menu_item_options.sql en Supabase.');
-          } else if (optionError && isMenuOptionsImageColumnMissingError(optionError)) {
-            const fallbackRows = optionRows.map(({ image_url: _discard, ...rest }) => rest);
-            const { error: fallbackOptionError } = await supabase.from('menu_item_options').insert(fallbackRows);
-            if (fallbackOptionError) throw fallbackOptionError;
-            setMenuOptionsNotice('Se guardaron opciones sin imagen. Ejecuta migración 008_menu_item_options_image_url.sql para habilitar imagen por opción.');
-          } else if (optionError) {
-            throw optionError;
+        const optionRows = [];
+        for (const option of parsedOptions) {
+          let imageUrl = option.image_url;
+          if (imageUrl && isBase64Image(imageUrl)) {
+            imageUrl = await uploadMenuImageWeb(imageUrl, selectedRestaurant.id);
+            if (!imageUrl) throw new Error('No se pudo subir una imagen de opción. El producto quedó desactivado; revisa el catálogo.');
           }
-        } else {
-          setMenuOptionsNotice('El platillo se guardó sin opciones porque aún falta la migración 007_menu_item_options.sql en Supabase.');
+          optionRows.push({ ...option, menu_item_id: createdItem.id, image_url: imageUrl });
         }
+        const { error: optionError } = await supabase.from('menu_item_options').insert(optionRows);
+        if (optionError) throw new Error('No se guardaron las opciones. El producto quedó desactivado; revisa las migraciones 007–009 y 034 antes de activarlo.');
+        const { error: publishError } = await supabase.from('menu_items').update({ available: true }).eq('id', createdItem.id).eq('restaurant_id', selectedRestaurant.id).select('id').single();
+        if (publishError) throw publishError;
       }
 
       setMenuDraft({ name: '', description: '', price: '', category: menuDraft.category, imageUrl: '' });
@@ -2454,7 +2406,8 @@ export default function App() {
       await loadRestaurantData(selectedRestaurant.id);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo crear el platillo. Revisa permisos del restaurante.');
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo crear el producto. Revisa permisos del negocio.');
+      await loadRestaurantData(selectedRestaurant.id);
     } finally {
       setActionLoading(false);
     }
@@ -2504,6 +2457,7 @@ export default function App() {
       let finalImageUrl: string | null = nextImageUrl.trim() || null;
       if (finalImageUrl && isBase64Image(finalImageUrl) && selectedRestaurant) {
         const storageUrl = await uploadMenuImageWeb(finalImageUrl, selectedRestaurant.id, item.id);
+        if (!storageUrl) throw new Error('No se pudo subir la foto.');
         finalImageUrl = storageUrl;
       }
 
@@ -2721,11 +2675,12 @@ export default function App() {
       const { error } = await supabase
         .from('app_settings')
         .upsert({
-          id: 1,
-          commission_tiers: validTiers,
+          setting_key: 'commission_config',
+          value: { commission_tiers: validTiers,
           cutoff_from: commissionCutoffFromDraft || null,
-          cutoff_to: commissionCutoffToDraft || null
-        }, { onConflict: 'id' });
+          cutoff_to: commissionCutoffToDraft || null },
+          updated_by: adminUser?.id, updated_at: new Date().toISOString()
+        }, { onConflict: 'setting_key' });
 
       if (error) throw error;
 
@@ -2784,11 +2739,11 @@ export default function App() {
     const isPickup = order.delivery_type === 'pickup';
 
     // Build items HTML
-    const itemsHtml = (Array.isArray(order.items) ? order.items : []).map((item) => {
+    const itemsHtml = normalizeOrderItems(order.items).map((item) => {
       const qty = item.qty ?? 1;
       const price = Number(item.subtotal ?? (item.unit_price * qty));
-      const optionInfo = item.option_label ? `<br><span class="opt">&nbsp;&nbsp;↳ ${item.option_label}</span>` : '';
-      return `<div class="item"><span class="iq">${qty}x</span><span class="in">${item.name}${optionInfo}</span><span class="ip">$${price.toFixed(2)}</span></div>`;
+      const optionInfo = item.option_label ? `<br><span class="opt">&nbsp;&nbsp;↳ ${escapeHtml(item.option_label)}</span>` : '';
+      return `<div class="item"><span class="iq">${qty}x</span><span class="in">${escapeHtml(item.name)}${optionInfo}</span><span class="ip">$${price.toFixed(2)}</span></div>`;
     }).join('');
 
     w.document.write(`<!DOCTYPE html>
@@ -2827,12 +2782,12 @@ body{font-family:'Courier New',Courier,monospace;width:80mm;padding:4mm;color:#0
 <body>
 <div class="center">
 <div class="brand">PIDE YA</div>
-<div class="rest">${selectedRestaurant?.name ?? 'Restaurante'}</div>
+<div class="rest">${escapeHtml(selectedRestaurant?.name ?? 'Negocio')}</div>
 </div>
 <div class="sep-double"></div>
 
 <div class="center">
-<div class="ref">${order.reference_code ?? '#' + order.order_number}</div>
+<div class="ref">${escapeHtml(order.reference_code ?? '#' + order.order_number)}</div>
 <div class="meta">Pedido #${order.order_number}</div>
 <div class="meta">${dateStr} · ${timeStr}</div>
 <div class="type-badge">${isPickup ? '🏠 RECOGER EN LOCAL' : '🛵 DELIVERY'}</div>
@@ -2852,16 +2807,16 @@ ${!isPickup && delivery > 0 ? `<div class="trow"><span>Envío:</span><span>$${de
 <div class="sep-double"></div>
 
 <div class="client">
-<b>👤 Cliente:</b> ${order.client_name ?? 'Sin nombre'}<br>
-<b>📱 Tel:</b> ${order.client_phone ?? 'Sin teléfono'}<br>
-${!isPickup ? `<b>📍 Dirección:</b> ${order.client_location_note ?? 'Sin referencia'}<br>` : ''}
+<b>👤 Cliente:</b> ${escapeHtml(order.client_name ?? 'Sin nombre')}<br>
+<b>📱 Tel:</b> ${escapeHtml(order.client_phone ?? 'Sin teléfono')}<br>
+${!isPickup ? `<b>📍 Dirección:</b> ${escapeHtml(order.client_location_note ?? 'Sin referencia')}<br>` : ''}
 </div>
 
 <div class="sep"></div>
 <div class="footer">
 — Gracias por tu pedido —<br>
 Impreso: ${new Date().toLocaleString('es-MX')}<br>
-pideya.com
+PideYa
 </div>
 
 <button class="print-btn no-print" onclick="window.print()">🖨️ IMPRIMIR TICKET</button>
@@ -2959,6 +2914,7 @@ pideya.com
   };
 
   const signOutAdmin = async () => {
+    await unregisterWebNotifications();
     await supabase.auth.signOut();
     setIsAdmin(false);
     setAdminUser(null);
@@ -2966,6 +2922,7 @@ pideya.com
   };
 
   const signOutRestaurant = async () => {
+    await unregisterWebNotifications();
     await supabase.auth.signOut();
     setAdminUser(null);
     setSelectedRestaurant(null);
@@ -3750,6 +3707,7 @@ pideya.com
               </>
             )}
 
+            {restaurantPanel === 'pedidos' && selectedRestaurant && <><DeliveryOperations restaurantId={selectedRestaurant.id} /><OperationsControl restaurantId={selectedRestaurant.id} /></>}
             {restaurantPanel === 'pedidos' && (
               <>
                 {selectedOrder && (
@@ -3921,7 +3879,7 @@ pideya.com
                               <option value="extra">Extra</option>
                             </select>
                             <input className="fi" placeholder={option.optionType === 'size' ? 'Nombre tamaño (ej. Mediana)' : 'Nombre extra (ej. Queso extra)'} value={option.label} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} />
-                            <input className="fi" type="number" min="1" step="1" placeholder={option.optionType === 'size' ? 'Precio completo' : 'Precio extra'} value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
+                            <input className="fi" type="number" min="0" step="0.01" placeholder={option.optionType === 'size' ? 'Precio completo' : 'Precio extra'} value={option.price} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: e.target.value } : item))} />
                             <input className="fi" placeholder="Imagen opción (URL/base64)" value={option.imageUrl} onChange={(e) => setMenuDraftOptions((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, imageUrl: e.target.value } : item))} />
                             <input className="fi" type="file" accept="image/*" onChange={async (e) => {
                               const file = e.target.files?.[0];
@@ -4074,6 +4032,7 @@ pideya.com
                   { key: 'mapa', label: '📍 Mapa en vivo' },
                   { key: 'reportes', label: '📈 Reportes' },
                   { key: 'categorias', label: '🏷️ Categorías' },
+                  { key: 'operacion', label: '🚦 Operación' },
                   { key: 'config', label: '⚙️ Config' }
                 ].map((panel) => (
                   <li
@@ -4121,6 +4080,7 @@ pideya.com
                       { key: 'mapa', label: '📍 Mapa en vivo' },
                       { key: 'reportes', label: '📈 Reportes' },
                       { key: 'categorias', label: '🏷️ Categorías' },
+                  { key: 'operacion', label: '🚦 Operación' },
                       { key: 'config', label: '⚙️ Config' }
                     ].map((panel) => (
                       <button
@@ -4176,7 +4136,7 @@ pideya.com
 
                   {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <article className="admin-card">
-                      <h4>🍽️ Restaurantes</h4>
+                      <h4>🏪 Negocios de la plataforma ({adminRestaurants.length})</h4>
                       {adminRestaurants.map((item) => {
                         const nextStatus = item.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
                         const actionLabel = item.status === 'ACTIVE' ? 'Apagar' : 'Encender';
@@ -4213,6 +4173,11 @@ pideya.com
                   {(adminPanel === 'dashboard' || adminPanel === 'pedidos') && (
                     <article className="admin-card">
                       <h4>📦 Pedidos de la plataforma</h4>
+                      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                        <button className="btn ghost" disabled={adminOrderLoading || adminOrderPage === 0} onClick={() => void loadAdminOrders(adminRpcEnabled, adminOrderPage - 1)}>Anterior</button>
+                        <span>Página {adminOrderPage + 1} · hasta 50 pedidos</span>
+                        <button className="btn ghost" disabled={adminOrderLoading || !adminOrderHasMore} onClick={() => void loadAdminOrders(adminRpcEnabled, adminOrderPage + 1)}>Siguiente</button>
+                      </div>
                       <div className="admin-orders-table-wrap">
                         <table className="spam-table">
                           <thead>
@@ -4282,7 +4247,7 @@ pideya.com
                       <h4>📊 Pedidos por restaurante — últimos 30 días</h4>
                       <div className="bars">
                         {adminOrdersChart.map((item) => {
-                          const max = adminOrdersChart[0]?.orders_count ?? 1;
+                          const max = Math.max(1, ...adminOrdersChart.map(row => row.orders_count));
                           const width = Math.max(8, Math.round((item.orders_count / max) * 100));
                           return (
                             <div key={item.restaurant_name} className="bar-row">
@@ -4499,25 +4464,13 @@ pideya.com
                               });
                               if (error) throw error;
 
-                              // --- EXPO PROMO PUSH NOTIFICATION (DUPLICATED) ---
-                              // Si es inmediata, disparar las notificaciones push ahora mismo
-                              if (!promoDraft.scheduledDate || promoDraft.scheduledDate === new Date().toISOString().split('T')[0]) {
-                                const { data: tokensData } = await supabase.from('push_tokens').select('expo_token');
-                                if (tokensData && tokensData.length > 0) {
-                                  const tokens = tokensData.map((t: any) => t.expo_token).filter(Boolean);
-                                  // Hacemos el envío en background para no bloquear el panel
-                                  Promise.all(tokens.map(async (t) => {
-                                    await sendExpoPush(t, promoDraft.title, promoDraft.body, { isPromo: true });
-                                    // Segunda vez
-                                    await sendExpoPush(t, promoDraft.title, promoDraft.body, { isPromo: true });
-                                  })).catch(console.error);
-                                }
-                              }
+                              // Campaign delivery is handled separately from order notifications.
+                              // Never enumerate tokens or broadcast from an administrator's browser.
                               setPromoDraft({ restaurantId: '', title: '', body: '', scheduledDate: '', scheduledTime: '' });
                               // Reload promos
                               const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
                               setAdminPromos((data ?? []) as Promotion[]);
-                              alert(promoDraft.scheduledDate ? '✅ Promoción programada!' : '✅ Promoción enviada! Se procesará en menos de 1 minuto.');
+                              alert('Promoción guardada. El envío requiere el procesador de campañas; aún no se ha enviado.');
                             } catch (err: any) {
                               alert('Error: ' + (err?.message ?? 'No se pudo crear la promoción'));
                             } finally {
@@ -4574,13 +4527,14 @@ pideya.com
                     </>
                   )}
 
+                  {adminPanel === 'operacion' && <><DeliveryOperations /><OperationsControl /></>}
                   {adminPanel === 'categorias' && (
                     <article className="admin-card">
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                         <h4>🏷️ Gestión de Categorías Maestras</h4>
                       </div>
                       <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
-                        Crea o edita las categorías principales que se mostrarán en la aplicación de clientes.
+                        Gestiona las categorías. Para abrir una categoría solo a compradores de prueba, usa Operación → Lanzamiento de categorías. Cerrar bloquea compras nuevas sin cancelar pedidos existentes.
                       </p>
 
                       <div className="frow" style={{ marginBottom: '1rem', alignItems: 'flex-end' }}>
@@ -4672,6 +4626,7 @@ pideya.com
                       <p style={{ color: 'var(--muted)' }}>Fallback Edge Function admin-restaurants: <strong>{adminFunctionEnabled ? 'habilitado' : 'deshabilitado (error CORS/404 detectado)'}</strong>.</p>
 
                       {/* ═══════════════ GPS TRACKING CONFIG ═══════════════ */}
+                      <NotificationOperations />
                       <div style={{ borderTop: '1px solid var(--border)', marginTop: '24px', paddingTop: '24px' }}>
                         <h4>📡 Configuración GPS del Repartidor</h4>
                         <p style={{ color: 'var(--muted)', marginBottom: '16px' }}>
@@ -4840,9 +4795,9 @@ pideya.com
                             <div className="product-title">{item.name}</div>
                             <div className="product-desc">{item.description ?? 'Sin descripción'}</div>
                             <div className="product-footer product-footer-stack">
-                              {item.menu_item_options && item.menu_item_options.filter((option) => option.available).length > 0 ? (
+                              {item.menu_item_options && item.menu_item_options.filter((option) => option.available && option.option_type !== 'extra').length > 0 ? (
                                 <div className="product-options-list">
-                                  {item.menu_item_options.filter((option) => option.available).map((option) => (
+                                  {item.menu_item_options.filter((option) => option.available && option.option_type !== 'extra').map((option) => (
                                     <div key={`${item.id}-${option.id}`} className="product-option-row">
                                       <div className="product-option-meta">
                                         {option.image_url ? <img src={option.image_url} alt={option.label} className="option-photo" /> : <span className="option-photo-fallback">🍽️</span>}

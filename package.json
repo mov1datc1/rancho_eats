@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run fix:app-duplicates && npm run guard:app && tsc -b --force && vite build",
+    "build": "npm run guard:app && tsc -b --force && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --force",
     "guard:app": "node scripts/guard-app-duplicates.mjs",
     "fix:app-duplicates": "node scripts/fix-app-duplicates.mjs"
   },
