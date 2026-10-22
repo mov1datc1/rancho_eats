@@ -9,4 +9,4 @@
 8. Frutería: faltante retirado, parcial consentida, todo faltante sin cobro. Verificar importe cobrado coincide con lista final.
 9. Admin: filtros, tiempos, incidencias y alerta de dos horas sin cancelación automática.
 
-Automatizadas: TypeScript de las cuatro apps; 23 pruebas cliente, 6 negocio, 5 acceso repartidor, 8 web y 15 trabajador; integración SQL de plazo, consentimiento, efectivo, piloto, caducidad y aislamiento entre clientes. Las pruebas automatizadas no sustituyen recepción física de push.
+Automatizadas: TypeScript de las cuatro apps; 23 pruebas cliente, 6 negocio, 5 acceso repartidor, 8 web y 17 trabajador; integración SQL de plazo, consentimiento, efectivo, piloto, caducidad y aislamiento entre clientes. Las pruebas automatizadas no sustituyen recepción física de push.

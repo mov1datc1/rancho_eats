@@ -75,11 +75,26 @@ SELECT (merchant_pick_item((SELECT id FROM order_picking_items LIMIT 1),'UNAVAIL
 SELECT merchant_finish_picking('00000000-0000-0000-0000-000000000032');
 SELECT pg_temp.assert((SELECT status='CANCELLED' AND total=0 AND delivery_amount=0 FROM orders WHERE id='00000000-0000-0000-0000-000000000032'),'empty basket cancels without fees');
 
+SELECT pg_temp.assert((operations_metrics(7)->>'total')::integer=4,'server metrics count the full filtered set');
+SELECT pg_temp.assert((operations_metrics(7)->>'cash_pending')::numeric=0,'settled cash is excluded');
+-- Exercise direct merchant transitions under the actual authenticated role.
+UPDATE restaurants SET type='Restaurantes';
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
+INSERT INTO orders(id,restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,subtotal,commission_amount,delivery_amount,total,status,payment_method,delivery_type)
+SELECT '00000000-0000-0000-0000-000000000035',restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,100,8,0,108,'PENDING','cash','delivery' FROM orders LIMIT 1;
 -- Access checks use real SQL roles, not only owner-executed functions.
 GRANT USAGE ON SCHEMA public,auth TO authenticated;
 GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+SET LOCAL ROLE authenticated;
+UPDATE orders SET status='ACCEPTED' WHERE id='00000000-0000-0000-0000-000000000035';
+UPDATE orders SET status='READY' WHERE id='00000000-0000-0000-0000-000000000035';
+SELECT pg_temp.assert((SELECT status='READY' AND accepted_at IS NOT NULL FROM orders WHERE id='00000000-0000-0000-0000-000000000035'),'merchant accepts and prepares through real RLS');
+SELECT pg_temp.reject($q$UPDATE orders SET commission_amount=0 WHERE id='00000000-0000-0000-0000-000000000030'$q$,'operaciones autorizadas');
+RESET ROLE;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',true);
 SET LOCAL ROLE authenticated;
+SELECT pg_temp.reject($q$SELECT operations_metrics(7)$q$,'No autorizado');
 SELECT pg_temp.assert((SELECT count(*) FROM orders)=0,'another customer cannot read orders');
 RESET ROLE;
 SELECT 'PASS: deadline, consent, cancellation, shifts, cash, discrepancy, settlement, pilot, expiry, RLS' AS result;

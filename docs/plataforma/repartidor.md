@@ -1,7 +1,7 @@
 # Repartidor · 1.1.0
 Acceso mediante código individual emitido por el negocio. Teléfono validado por negocio vincula identidad operativa para impedir turnos simultáneos con distintos negocios.
 
-Activar disponibilidad por horas (hasta 12), extender o dejar de recibir pedidos. Al detenerse se liberan reservas sin custodia. Un turno vencido sin custodia puede cerrarse al volver a activar. La custodia pendiente impide cambiar de negocio.
+Activar disponibilidad por horas (hasta 12), extender o dejar de recibir pedidos. Al detenerse se liberan reservas sin custodia. Cada minuto se liberan reservas de turnos vencidos; un turno sin custodia se cierra. También se comprueba al volver a activar. La custodia pendiente impide cambiar de negocio.
 
 Una entrega física activa, hasta dos pedidos reservados. No se inicia otra salida hasta regresar y liquidar. Cobro exacto del total vigente; tarjeta implica cero efectivo de mercancía. Confirmación cobrada queda pendiente de caja. Pedido no entregado: informar regreso con motivo; negocio confirma mercancía.
 

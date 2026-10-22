@@ -7,4 +7,6 @@ El trabajador supervisor ejecuta rutas independientes y expone /healthz. Service
 
 No apagar los disparadores antiguos hasta verificar trabajador vivo y rutas activas. Nunca dejar ambos enviando el mismo evento. Cambio de sesión desregistra dispositivos. Recordatorios de pendientes y alertas no deben notificar un pedido ya atendido.
 
-Migraciones 030a–039 aplicadas el 22 de octubre de 2026. Pruebas de SQL en réplica local del esquema real. Aún se requiere prueba física con Android bloqueado, permisos, optimización de batería y señal rural. No se ha acreditado capacidad de 50.000 usuarios simultáneos mediante carga real.
+Migraciones 030a–043 aplicadas el 22 de octubre de 2026. Pruebas de SQL en réplica local del esquema real. Aún se requiere prueba física con Android bloqueado, permisos, optimización de batería y señal rural. No se ha acreditado capacidad de 50.000 usuarios simultáneos mediante carga real.
+
+Desplegado: Render `pideya-notifications`, plan Starter, región Oregon, `/healthz`, auto-deploy de main. Cuatro rutas activas desde el 22 de octubre; deshabilitados `trg_notify_driver_assignment` y `trg_order_status_push`. Las credenciales están en variables privadas de Render. Registros recientes de dispositivos heredados válidos: cero; abrir las apps nuevas con permisos para registrar dispositivos antes de la prueba física.
