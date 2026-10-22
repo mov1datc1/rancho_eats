@@ -8,3 +8,5 @@ Ajustes permite dar de alta repartidores propios o temporales con nombre, teléf
 Caja registra dinero realmente recibido y comprobación. Diferencias generan incidencia y no liberan la custodia. Mercancía no entregada requiere confirmar devolución. Una incidencia necesita nota al cambiar de estado; resolver una incidencia no liquida automáticamente efectivo.
 
 Surtido: retirar faltantes; no inventar sustituciones. Cantidad parcial solo si fue permitida; total se recalcula a la baja. Pedidos completamente sin existencias se cancelan sin cobro.
+
+En esta primera versión, custodia única y caja se aplican tanto a propios como temporales. Las rutas con varias entregas simultáneas no están habilitadas; evitan repartir efectivo entre pedidos sin conciliación.

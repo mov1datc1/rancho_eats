@@ -1,5 +1,5 @@
 # Despliegues · 22 de octubre de 2026
-Base de datos: migraciones 030a–043 aplicadas. Web: proyecto Vercel rancho-eats / www.pide-ya.app. Apps EAS bajo pideya1.
+Base de datos: migraciones 030a–044 aplicadas. Web: proyecto Vercel rancho-eats / www.pide-ya.app. Apps EAS bajo pideya1.
 
 Artefactos de esta liberación y revisión de servicios: se registran al terminar las compilaciones. Cliente AAB para carga manual: no se ejecuta submit a Google Play. El workflow de cliente se mantiene manual durante esta configuración.
 
@@ -17,3 +17,5 @@ Categorías iniciales: restaurantes públicos; frutería y carnicería piloto; o
 Git: cliente 0e98e51, repartidor 27f5a74 publicados. Negocios 2c6595d: repositorio privado autorizado por el propietario; push completado en https://github.com/mov1datc1/pideya-restaurant.
 
 La compilación anterior de repartidor (build 6) quedó reemplazada por build 7, que serializa confirmaciones offline concurrentes. Usar únicamente el enlace final de arriba.
+
+Cliente confirmado FINISHED: [AAB 1.3.0 build 31](https://expo.dev/artifacts/eas/8emmoH-hnVcSSvLXGKHDN9qD6qLRVU7w8kSIeFpKn7g.aab). Copia local en `releases/2026-10-22` del workspace. No se ejecutó submit a Play.

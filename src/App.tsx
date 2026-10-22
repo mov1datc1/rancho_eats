@@ -1381,7 +1381,9 @@ export default function App() {
       setActionLoading(true);
       const { error } = await supabase.from('app_categories').insert({
         name: newCategoryName.trim(),
-        emoji: newCategoryEmoji.trim()
+        emoji: newCategoryEmoji.trim(),
+        is_active: false,
+        release_mode: 'closed'
       });
       if (error) throw error;
       setNewCategoryName('');
@@ -1412,7 +1414,7 @@ export default function App() {
   const toggleCategory = async (id: string, currentStatus: boolean) => {
     try {
       setActionLoading(true);
-      const { error } = await supabase.from('app_categories').update({ is_active: !currentStatus }).eq('id', id);
+      const { error } = await supabase.from('app_categories').update({ is_active: !currentStatus, release_mode: currentStatus ? 'closed' : 'pilot' }).eq('id', id);
       if (error) throw error;
       setAppCategories(prev => prev.map(c => c.id === id ? { ...c, is_active: !currentStatus } : c));
     } catch (e) {
@@ -4589,7 +4591,7 @@ PideYa
                                 <td>
                                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                                     <button className="btn ghost" onClick={() => toggleCategory(cat.id, cat.is_active)}>
-                                      {cat.is_active ? 'Ocultar' : 'Mostrar'}
+                                      {cat.is_active ? 'Cerrar categoría' : 'Abrir piloto'}
                                     </button>
                                     <button className="btn ghost" style={{ color: 'var(--error)' }} onClick={() => {
                                       if (confirm(`¿Eliminar categoría ${cat.name}? Esto podría afectar restaurantes que la usen.`)) {
