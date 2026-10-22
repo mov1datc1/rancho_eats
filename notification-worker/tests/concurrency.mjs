@@ -3,8 +3,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
 const exec = promisify(execFile);
-const args = ['-h', '/private/tmp/pideya-notification-pg', '-p', '55439', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-At'];
-const sql = async query => (await exec('/opt/homebrew/bin/psql', [...args, '-c', query], { maxBuffer: 32 * 1024 * 1024 })).stdout.trim();
+const args = ['-h', '/private/tmp', '-p', '55439', '-d', 'pideya_notification_qa', '-v', 'ON_ERROR_STOP=1', '-At'];
+const sql = async query => (await exec('/opt/homebrew/opt/postgresql@14/bin/psql', [...args, '-c', query], { maxBuffer: 32 * 1024 * 1024 })).stdout.trim();
 const started = Date.now();
 await sql(`
  INSERT INTO auth.users VALUES ('00000000-0000-0000-0000-000000000002');

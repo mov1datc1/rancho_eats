@@ -56,7 +56,7 @@ INSERT INTO orders(restaurant_id,status) VALUES('10000000-0000-0000-0000-0000000
 ROLLBACK TO before_order;
 DO $$ BEGIN ASSERT (SELECT count(*) FROM notification_events)=4,'Rollback must not leave ghost events'; END $$;
 -- Reminders are based on business acknowledgement, not provider acceptance.
-UPDATE orders SET status='PENDING',created_at=now()-interval '3 minutes';
+UPDATE orders SET status='PENDING',created_at=now()-interval '8 minutes';
 SELECT maintain_notifications();
 SELECT maintain_notifications();
 DO $$ BEGIN

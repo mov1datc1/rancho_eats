@@ -9,4 +9,6 @@
 8. Frutería: faltante retirado, parcial consentida, todo faltante sin cobro. Verificar importe cobrado coincide con lista final.
 9. Admin: filtros, tiempos, incidencias y alerta de dos horas sin cancelación automática.
 
-Automatizadas: TypeScript de las cuatro apps; 23 pruebas cliente, 6 negocio, 5 acceso repartidor, 8 web y 17 trabajador; integración SQL de plazo, consentimiento, efectivo, piloto, caducidad y aislamiento entre clientes. Las pruebas automatizadas no sustituyen recepción física de push.
+Automatizadas: TypeScript de las cuatro apps; 23 pruebas cliente, 6 negocio, 9 repartidor (acceso y sincronización), 8 web y 17 trabajador; integración SQL de plazo, consentimiento, efectivo, piloto, caducidad y aislamiento entre clientes. Las pruebas automatizadas no sustituyen recepción física de push.
+
+Prueba sintética local de cola: 50.000 pedidos → 50.000 entregas persistentes en 4.629 ms; ocho consumidores concurrentes, 100 reservas únicas en la ventana limitada, recuperación de leases y rechazo de confirmaciones antiguas; 99 ms para reserva/recuperación. No mide red Expo, recepción Android ni 50.000 usuarios reales simultáneos.

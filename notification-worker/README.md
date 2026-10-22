@@ -9,7 +9,7 @@ npm ci
 npm test
 ```
 
-The SQL fixtures and concurrency script target a **throwaway PostgreSQL instance only**, at `/private/tmp/pideya-notification-pg`, port `55439`. `tests/schema.sql` is not a production migration. Apply fixtures, then platform migrations 031/032, then `tests/outbox.sql`. `tests/concurrency.mjs` inserts and deletes synthetic test data; never point it at production.
+The SQL fixtures and concurrency script target a **throwaway PostgreSQL instance only**, database `pideya_notification_qa`, local socket `/private/tmp`, port `55439`. `tests/schema.sql` is not a production migration. Apply fixtures, then platform migrations 031/032, then `tests/outbox.sql`. `tests/concurrency.mjs` inserts and deletes synthetic test data; never point it at production.
 
 ## Run
 
