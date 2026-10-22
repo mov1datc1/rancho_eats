@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { backoff, classify, expoProvider, fcmProvider, jsonRequest, messageFor, validWebEndpoint } from '../providers.mjs';
-import { eligible, runBatch } from '../worker.mjs';
+import { eligible, runBatch, rpcClient } from '../worker.mjs';
 import { generateKeyPairSync, createECDH, randomBytes } from 'node:crypto';
 import webpush from 'web-push';
 
@@ -107,4 +107,13 @@ test('Web Push library encrypts the payload and signs VAPID without exposing cle
   assert.equal(request.headers['Content-Encoding'], 'aes128gcm');
   assert.ok(request.headers.Authorization.startsWith('vapid '));
   assert.ok(!request.body.toString().includes('pedido-privado-de-prueba'));
+});
+
+test('void maintenance RPC accepts HTTP 204 while malformed JSON fails', async () => {
+ assert.equal(await rpcClient('https://example.test','server',async()=>new Response(null,{status:204}))('maintain_notifications',{}),null);
+ await assert.rejects(()=>rpcClient('https://example.test','server',async()=>new Response('{bad',{status:200}))('claim_notifications',{}));
+});
+test('pending time proposal remains eligible until accepted or expired', () => {
+ const j=job();j.current_status='PENDING';j.event.kind='order.time_proposal';assert.equal(eligible(j,false,now),null);
+ j.current_status='ACCEPTED';assert.equal(eligible(j,false,now).code,'ORDER_ALREADY_HANDLED');
 });
