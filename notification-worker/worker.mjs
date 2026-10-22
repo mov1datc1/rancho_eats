@@ -25,6 +25,12 @@ export function eligible(job, receipts, now = Date.now()) {
   if (['order.created','order.reminder'].includes(job.event.kind) && job.current_status !== 'PENDING') return { state: 'expired', code: 'ORDER_ALREADY_HANDLED' };
   if (job.event.kind === 'driver.assigned' && (job.current_driver_id !== job.event.driver_id || ['DELIVERED','CANCELLED','REJECTED'].includes(job.current_status))) return { state: 'expired', code: 'ASSIGNMENT_CHANGED' };
   if (job.event.kind === 'order.time_proposal' && job.current_status !== 'PENDING') return { state: 'expired', code: 'ORDER_ALREADY_HANDLED' };
+  if (job.event.kind === 'marketing.campaign') {
+    if (job.campaign_state === 'cancelled' || job.marketing_enabled === false) return { state: 'expired', code: 'MARKETING_DISABLED' };
+    const hour = Number(new Intl.DateTimeFormat('en-GB', {timeZone:'America/Mexico_City',hour:'2-digit',hourCycle:'h23'}).format(new Date(now)));
+    if (hour < 9 || hour >= 20) return { state: 'expired', code: 'QUIET_HOURS' };
+    return job.attempts > 8 ? {state:'dead',code:'MAX_ATTEMPTS'} : null;
+  }
   if (job.event.audience === 'client' && job.event.kind !== 'order.time_proposal' && job.event.kind !== `order.${String(job.current_status).toLowerCase()}`) return { state: 'expired', code: 'SUPERSEDED' };
   if (job.attempts > 8) return { state: 'dead', code: 'MAX_ATTEMPTS' };
   return null;
@@ -96,6 +102,7 @@ async function main() {
       await runBatch({ rpc, provider: guarded, app });
       if (Date.now() - lastMaintenance >= 10_000) {
         await rpc('maintain_notifications', {});
+        if (app === 'client') await rpc('process_marketing_campaigns', {});
         lastMaintenance = Date.now();
       }
       if (Date.now() - lastReceipts >= 10_000) {

@@ -1,3 +1,6 @@
+import OrderExplorer from './components/admin/OrderExplorer';
+import CommissionLedger from './components/admin/CommissionLedger';
+import CampaignStudio from './components/admin/CampaignStudio';
 import OperationsControl from './components/OperationsControl';
 import DeliveryOperations from './components/DeliveryOperations';
 import { normalizeOrderItems, escapeHtml } from './lib/orderItems';
@@ -4022,20 +4025,20 @@ PideYa
         <div className="page active">
           <div className="admin-layout" style={!isAdmin ? { gridTemplateColumns: '1fr' } : undefined}>
             {isAdmin && (<aside className="admin-sidebar">
-              <h3>⚙️ Admin</h3>
+              <h3>PideYa <small>Administración</small></h3>
               <ul>
                 {[
-                  { key: 'dashboard', label: '📊 Dashboard' },
-                  { key: 'restaurantes', label: '🍽️ Restaurantes' },
-                  { key: 'comisiones', label: '💰 Comisiones' },
-                  { key: 'pedidos', label: '📦 Pedidos' },
-                  { key: 'promociones', label: '📢 Promociones' },
-                  { key: 'antispam', label: '🚨 Anti-spam' },
-                  { key: 'mapa', label: '📍 Mapa en vivo' },
-                  { key: 'reportes', label: '📈 Reportes' },
-                  { key: 'categorias', label: '🏷️ Categorías' },
-                  { key: 'operacion', label: '🚦 Operación' },
-                  { key: 'config', label: '⚙️ Config' }
+                  { key: 'dashboard', label: ' Dashboard' },
+                  { key: 'restaurantes', label: ' Negocios' },
+                  { key: 'comisiones', label: ' Comisiones' },
+                  { key: 'pedidos', label: ' Pedidos' },
+                  { key: 'promociones', label: ' Promociones' },
+                  { key: 'antispam', label: ' Anti-spam' },
+                  { key: 'mapa', label: ' Mapa en vivo' },
+                  { key: 'reportes', label: ' Reportes' },
+                  { key: 'categorias', label: ' Categorías' },
+                  { key: 'operacion', label: ' Operación' },
+                  { key: 'config', label: ' Config' }
                 ].map((panel) => (
                   <li
                     key={panel.key}
@@ -4050,14 +4053,14 @@ PideYa
 
             <section className="admin-main">
               <div className="admin-top">
-                <h2>Panel de Administración — Pide ya</h2>
+                <h2>Centro de administración</h2>
                 <span>{new Date().toLocaleDateString('es-MX', { weekday: 'short', day: '2-digit', month: 'short' })} · {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} hrs</span>
               </div>
 
               {!isAdmin ? (
                 <article className="admin-card">
                   <h4>Inicia sesión como super admin</h4>
-                  <p>Solo las cuentas en <code>admin_profiles</code> pueden aprobar restaurantes pendientes.</p>
+                  <p>Solo las cuentas en <code>admin_profiles</code> pueden aprobar negocios pendientes.</p>
                   <div className="frow" style={{ marginTop: '1rem' }}>
                     <div className="fg"><label>Email admin</label><input className="fi" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@arandaeats.com" /></div>
                     <div className="fg"><label>Contraseña</label><input className="fi" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="••••••••" /></div>
@@ -4073,17 +4076,17 @@ PideYa
 
                   <div className="admin-panel-tabs">
                     {[
-                      { key: 'dashboard', label: '📊 Dashboard' },
-                      { key: 'restaurantes', label: '🍽️ Restaurantes' },
-                      { key: 'comisiones', label: '💰 Comisiones' },
-                      { key: 'pedidos', label: '📦 Pedidos' },
-                      { key: 'promociones', label: '📢 Promociones' },
-                      { key: 'antispam', label: '🚨 Anti-spam' },
-                      { key: 'mapa', label: '📍 Mapa en vivo' },
-                      { key: 'reportes', label: '📈 Reportes' },
-                      { key: 'categorias', label: '🏷️ Categorías' },
-                  { key: 'operacion', label: '🚦 Operación' },
-                      { key: 'config', label: '⚙️ Config' }
+                      { key: 'dashboard', label: ' Dashboard' },
+                      { key: 'restaurantes', label: ' Negocios' },
+                      { key: 'comisiones', label: ' Comisiones' },
+                      { key: 'pedidos', label: ' Pedidos' },
+                      { key: 'promociones', label: ' Promociones' },
+                      { key: 'antispam', label: ' Anti-spam' },
+                      { key: 'mapa', label: ' Mapa en vivo' },
+                      { key: 'reportes', label: ' Reportes' },
+                      { key: 'categorias', label: ' Categorías' },
+                  { key: 'operacion', label: ' Operación' },
+                      { key: 'config', label: ' Config' }
                     ].map((panel) => (
                       <button
                         key={panel.key}
@@ -4107,7 +4110,7 @@ PideYa
 
                   {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <article className="admin-card">
-                      <h4>📝 Solicitudes pendientes para aprobación</h4>
+                      <h4> Solicitudes pendientes para aprobación</h4>
                       <div className="admin-requests">
                         {(pendingRestaurants.length > 0 ? pendingRestaurants : derivedPendingFromOverview).map((request) => (
                           <article className="admin-request-card" key={request.id}>
@@ -4138,7 +4141,7 @@ PideYa
 
                   {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <article className="admin-card">
-                      <h4>🏪 Negocios de la plataforma ({adminRestaurants.length})</h4>
+                      <h4> Negocios de la plataforma ({adminRestaurants.length})</h4>
                       {adminRestaurants.map((item) => {
                         const nextStatus = item.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
                         const actionLabel = item.status === 'ACTIVE' ? 'Apagar' : 'Encender';
@@ -4172,40 +4175,11 @@ PideYa
                     </article>
                   )}
 
-                  {(adminPanel === 'dashboard' || adminPanel === 'pedidos') && (
-                    <article className="admin-card">
-                      <h4>📦 Pedidos de la plataforma</h4>
-                      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        <button className="btn ghost" disabled={adminOrderLoading || adminOrderPage === 0} onClick={() => void loadAdminOrders(adminRpcEnabled, adminOrderPage - 1)}>Anterior</button>
-                        <span>Página {adminOrderPage + 1} · hasta 50 pedidos</span>
-                        <button className="btn ghost" disabled={adminOrderLoading || !adminOrderHasMore} onClick={() => void loadAdminOrders(adminRpcEnabled, adminOrderPage + 1)}>Siguiente</button>
-                      </div>
-                      <div className="admin-orders-table-wrap">
-                        <table className="spam-table">
-                          <thead>
-                            <tr><th>#</th><th>Restaurante</th><th>Cliente</th><th>Total</th><th>Comisión</th><th>Estado</th><th>Fecha</th></tr>
-                          </thead>
-                          <tbody>
-                            {adminOrders.map((order) => (
-                              <tr key={order.id}>
-                                <td>#{order.order_number}</td>
-                                <td>{order.restaurant_name}</td>
-                                <td>{order.client_name ?? 'Sin nombre'} · {order.client_phone ?? 'Sin teléfono'}</td>
-                                <td>{formatPrice(order.total)}</td>
-                                <td style={{ color: 'var(--brand)', fontWeight: 700 }}>{formatPrice(Math.max(0, Number(order.commission_amount ?? 0)))}</td>
-                                <td>{statusLabel(order.status)}</td>
-                                <td>{formatRelative(order.created_at)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </article>
-                  )}
+                  {(adminPanel === 'dashboard' || adminPanel === 'pedidos') && <OrderExplorer />}
 
                   {(adminPanel === 'dashboard' || adminPanel === 'antispam') && (
                     <article className="admin-card spam-card">
-                      <h4>🚨 Panel Anti-Spam — IPs y dispositivos sospechosos</h4>
+                      <h4> Panel Anti-Spam — IPs y dispositivos sospechosos</h4>
                       <table className="spam-table">
                         <thead>
                           <tr><th>IP / Dispositivo</th><th>Pedidos hoy</th><th>Cancelados</th><th>Rechazados</th><th>Último pedido</th><th>Acción</th></tr>
@@ -4228,14 +4202,14 @@ PideYa
 
                   {(adminPanel === 'dashboard' || adminPanel === 'mapa') && (
                     <article className="admin-card">
-                      <h4>📍 Mapa en vivo — restaurantes activos</h4>
+                      <h4> Mapa en vivo — restaurantes activos</h4>
                       <div className="admin-live-map">
                         {adminMapPoints.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((point) => {
                           const x = Math.min(96, Math.max(4, ((point.lng + 103) / 1.5) * 100));
                           const y = Math.min(94, Math.max(6, ((21.8 - point.lat) / 1.2) * 100));
                           return (
                             <div key={point.id} className="admin-map-point" style={{ left: `${x}%`, top: `${y}%` }}>
-                              <span className={`admin-map-dot ${point.status === 'ACTIVE' ? 'ok' : 'warn'}`}>📍</span>
+                              <span className={`admin-map-dot ${point.status === 'ACTIVE' ? 'ok' : 'warn'}`}></span>
                               <small>{point.name}</small>
                             </div>
                           );
@@ -4246,7 +4220,7 @@ PideYa
 
                   {(adminPanel === 'dashboard' || adminPanel === 'reportes') && (
                     <article className="admin-card">
-                      <h4>📊 Pedidos por restaurante — últimos 30 días</h4>
+                      <h4> Pedidos por restaurante — últimos 30 días</h4>
                       <div className="bars">
                         {adminOrdersChart.map((item) => {
                           const max = Math.max(1, ...adminOrdersChart.map(row => row.orders_count));
@@ -4265,9 +4239,10 @@ PideYa
 
                   {adminPanel === 'comisiones' && (
                     <>
+                      <CommissionLedger />
                       {/* ── Tier Editor ── */}
                       <article className="admin-card">
-                        <h4>💰 Escalones de comisión por pedido</h4>
+                        <h4> Escalones de comisión por pedido</h4>
                         <p style={{ color: 'var(--muted)', marginBottom: '.8rem' }}>Define los escalones de comisión según el subtotal del pedido. La comisión se cobra al cliente y se acumula para cobro al restaurante.</p>
 
                         <div style={{ display: 'grid', gap: '.45rem', marginBottom: '.8rem' }}>
@@ -4305,7 +4280,7 @@ PideYa
                                   }}
                                 />
                               </div>
-                              <button className="btn ghost danger" style={{ marginTop: '1.2rem' }} onClick={() => setCommissionTiersDraft((prev) => prev.filter((_, i) => i !== idx))} disabled={commissionTiersDraft.length <= 1}>✕</button>
+                              <button className="btn ghost danger" style={{ marginTop: '1.2rem' }} onClick={() => setCommissionTiersDraft((prev) => prev.filter((_, i) => i !== idx))} disabled={commissionTiersDraft.length <= 1}></button>
                             </div>
                           ))}
                         </div>
@@ -4316,7 +4291,7 @@ PideYa
 
                         {/* Simulation table */}
                         <div style={{ marginBottom: '.8rem' }}>
-                          <strong style={{ fontSize: '.9rem', color: 'var(--mid)' }}>📊 Simulación de comisiones</strong>
+                          <strong style={{ fontSize: '.9rem', color: 'var(--mid)' }}> Simulación de comisiones</strong>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.4rem', marginTop: '.4rem' }}>
                             {[50, 80, 100, 120, 150, 200, 250, 300, 400, 500, 700].map((amt) => (
                               <div key={amt} style={{ background: 'var(--cream)', border: '1px solid rgba(45,139,122,.1)', borderRadius: '10px', padding: '.45rem .6rem', textAlign: 'center' }}>
@@ -4329,211 +4304,17 @@ PideYa
                       </article>
 
                       {/* ── Cutoff Dates ── */}
-                      <article className="admin-card">
-                        <h4>📅 Período de corte</h4>
-                        <p style={{ color: 'var(--muted)', marginBottom: '.6rem' }}>Define las fechas del período actual para calcular comisiones acumuladas.</p>
-                        <div className="frow">
-                          <div className="fg"><label>Fecha inicio</label><input className="fi" type="date" value={commissionCutoffFromDraft} onChange={(e) => setCommissionCutoffFromDraft(e.target.value)} /></div>
-                          <div className="fg"><label>Fecha fin (corte)</label><input className="fi" type="date" value={commissionCutoffToDraft} onChange={(e) => setCommissionCutoffToDraft(e.target.value)} /></div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-                          <button className="btn" onClick={() => { void saveCommissionSettings(); }} disabled={actionLoading}>💾 Guardar configuración</button>
-                          <button className="btn ghost" onClick={() => { setCommissionTiersDraft(commissionConfig.tiers); setCommissionCutoffFromDraft(commissionConfig.cutoffFrom); setCommissionCutoffToDraft(commissionConfig.cutoffTo); }} disabled={actionLoading}>Restablecer</button>
-                          <button className="btn ghost" onClick={() => void loadAdminCommissionBalances()} disabled={actionLoading}>🔄 Actualizar balances</button>
-                        </div>
-                      </article>
-
-                      {/* ── Balance per restaurant ── */}
-                      <article className="admin-card">
-                        <h4>🏪 Balance de comisiones por restaurante</h4>
-                        <p style={{ color: 'var(--muted)', marginBottom: '.6rem' }}>
-                          Período: <strong>{commissionConfig.cutoffFrom ? formatDateMX(commissionConfig.cutoffFrom) : '—'}</strong> al <strong>{commissionConfig.cutoffTo ? formatDateMX(commissionConfig.cutoffTo) : '—'}</strong>
-                        </p>
-                        {adminCommissionBalances.length === 0 ? (
-                          <div className="menu-empty">No hay comisiones acumuladas en este período. Ajusta las fechas de corte y presiona "Actualizar balances".</div>
-                        ) : (
-                          <div style={{ display: 'grid', gap: '.6rem' }}>
-                            {adminCommissionBalances.map((balance) => (
-                              <div key={balance.restaurant_id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.8rem', alignItems: 'center', background: 'var(--cream)', border: '1px solid rgba(45,139,122,.1)', borderRadius: '14px', padding: '.85rem 1rem' }}>
-                                <div>
-                                  <strong style={{ fontSize: '1.1rem' }}>{balance.restaurant_name}</strong>
-                                  <div style={{ fontSize: '.9rem', color: 'var(--muted)' }}>{balance.orders_count} pedidos entregados · Comisión: <strong style={{ color: 'var(--brand)' }}>{formatPrice(balance.total_commission)}</strong></div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-                                  <button className="btn green" style={{ fontSize: '.85rem', padding: '.5rem .8rem' }} onClick={() => void markCommissionAsPaid(balance)} disabled={actionLoading}>✓ Pagado</button>
-                                  <button className="btn ghost" style={{ fontSize: '.85rem', padding: '.5rem .8rem' }} onClick={() => generateCommissionReceipt(balance)}>🧾 Recibo PDF</button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </article>
-
-                      {/* ── Payment history ── */}
-                      {adminCommissionPayments.length > 0 && (
-                        <article className="admin-card">
-                          <h4>📜 Historial de pagos registrados</h4>
-                          <div className="orders-table-wrap">
-                            <table className="orders-table" style={{ minWidth: '600px' }}>
-                              <thead><tr><th>Restaurante</th><th>Período</th><th>Pedidos</th><th>Monto</th><th>Fecha pago</th><th>Notas</th></tr></thead>
-                              <tbody>
-                                {adminCommissionPayments.map((p) => (
-                                  <tr key={p.id}>
-                                    <td>{restaurants.find((r) => r.id === p.restaurant_id)?.name ?? p.restaurant_id.slice(0, 8)}</td>
-                                    <td>{formatDateMX(p.period_start)} — {formatDateMX(p.period_end)}</td>
-                                    <td>{p.orders_count}</td>
-                                    <td><strong>{formatPrice(p.total_commission)}</strong></td>
-                                    <td>{new Date(p.paid_at).toLocaleDateString('es-MX')}</td>
-                                    <td style={{ color: 'var(--muted)', fontSize: '.85rem' }}>{p.notes ?? '—'}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </article>
-                      )}
+                      <div className="console-toolbar"><p>Las tarifas se aplican a pedidos nuevos. Los pedidos existentes conservan su comisión original.</p><button className="btn" onClick={() => void saveCommissionSettings()} disabled={actionLoading}>Guardar tarifas</button></div>
                     </>
                   )}
 
-                  {adminPanel === 'promociones' && (
-                    <>
-                      <article className="admin-card">
-                        <h4>📢 Crear nueva promoción push</h4>
-                        <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>Las promociones se envían como notificaciones push a todos los usuarios de la app PideYa.</p>
-                        <div className="frow">
-                          <div className="fg">
-                            <label>Restaurante que patrocina</label>
-                            <select className="fi" value={promoDraft.restaurantId} onChange={(e) => setPromoDraft(d => ({ ...d, restaurantId: e.target.value }))}>
-                              <option value="">— PideYa (general) —</option>
-                              {adminRestaurants.filter(r => r.status === 'ACTIVE').map(r => (
-                                <option key={r.id} value={r.id}>{r.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="frow">
-                          <div className="fg">
-                            <label>Título del push</label>
-                            <input className="fi" placeholder="Ej: Pide McTocino desde $69" value={promoDraft.title} onChange={(e) => setPromoDraft(d => ({ ...d, title: e.target.value }))} maxLength={100} />
-                          </div>
-                        </div>
-                        <div className="frow">
-                          <div className="fg">
-                            <label>Mensaje del push</label>
-                            <textarea className="fi" placeholder="Ej: ¡Antes te costaba $125! Si hoy quieres tu favorita, no te preocupes: pide ya." value={promoDraft.body} onChange={(e) => setPromoDraft(d => ({ ...d, body: e.target.value }))} rows={3} maxLength={300} style={{ resize: 'vertical', fontFamily: 'inherit' }} />
-                          </div>
-                        </div>
-                        <div className="frow">
-                          <div className="fg">
-                            <label>Fecha de envío (CDMX)</label>
-                            <input className="fi" type="date" value={promoDraft.scheduledDate} onChange={(e) => setPromoDraft(d => ({ ...d, scheduledDate: e.target.value }))} />
-                          </div>
-                          <div className="fg">
-                            <label>Hora de envío (CDMX)</label>
-                            <input className="fi" type="time" value={promoDraft.scheduledTime} onChange={(e) => setPromoDraft(d => ({ ...d, scheduledTime: e.target.value }))} />
-                          </div>
-                        </div>
-
-                        {/* Push Preview */}
-                        {promoDraft.title && (
-                          <div style={{ margin: '1rem 0', padding: '1rem', background: 'linear-gradient(135deg, #1a1a2e, #16213e)', borderRadius: '16px', color: '#fff' }}>
-                            <p style={{ fontSize: '.7rem', color: '#999', marginBottom: '.5rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Vista previa del push</p>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.75rem', background: 'rgba(255,255,255,0.12)', borderRadius: '12px', padding: '.75rem' }}>
-                              <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'linear-gradient(135deg, #2D8B7A, #1E6B5A)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '16px' }}>🍽️</div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ fontWeight: 700, fontSize: '.85rem', lineHeight: 1.3, marginBottom: '2px' }}>{promoDraft.title}</p>
-                                <p style={{ fontSize: '.78rem', color: '#ccc', lineHeight: 1.35 }}>{promoDraft.body || 'Toca para ver la promoción...'}</p>
-                              </div>
-                              <span style={{ fontSize: '.65rem', color: '#888', whiteSpace: 'nowrap' }}>ahora</span>
-                            </div>
-                          </div>
-                        )}
-
-                        <div style={{ display: 'flex', gap: '.75rem', marginTop: '.5rem' }}>
-                          <button className="btn" disabled={promoLoading || !promoDraft.title || !promoDraft.body} onClick={async () => {
-                            setPromoLoading(true);
-                            try {
-                              const scheduledAt = promoDraft.scheduledDate && promoDraft.scheduledTime
-                                ? new Date(`${promoDraft.scheduledDate}T${promoDraft.scheduledTime}:00-06:00`).toISOString()
-                                : new Date().toISOString();
-                              const { error } = await supabase.from('promotions').insert({
-                                restaurant_id: promoDraft.restaurantId || null,
-                                title: promoDraft.title,
-                                body: promoDraft.body,
-                                scheduled_at: scheduledAt,
-                                status: 'SCHEDULED',
-                                created_by: adminUser?.id,
-                              });
-                              if (error) throw error;
-
-                              // Campaign delivery is handled separately from order notifications.
-                              // Never enumerate tokens or broadcast from an administrator's browser.
-                              setPromoDraft({ restaurantId: '', title: '', body: '', scheduledDate: '', scheduledTime: '' });
-                              // Reload promos
-                              const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
-                              setAdminPromos((data ?? []) as Promotion[]);
-                              alert('Promoción guardada. El envío requiere el procesador de campañas; aún no se ha enviado.');
-                            } catch (err: any) {
-                              alert('Error: ' + (err?.message ?? 'No se pudo crear la promoción'));
-                            } finally {
-                              setPromoLoading(false);
-                            }
-                          }}>
-                            {promoDraft.scheduledDate ? '📅 Programar envío' : '🚀 Enviar ahora'}
-                          </button>
-                        </div>
-                      </article>
-
-                      <article className="admin-card">
-                        <h4>📋 Historial de promociones</h4>
-                        <button className="btn ghost" style={{ marginBottom: '1rem' }} onClick={async () => {
-                          const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
-                          setAdminPromos((data ?? []) as Promotion[]);
-                        }}>Actualizar lista</button>
-                        {adminPromos.length === 0 ? (
-                          <p style={{ color: 'var(--muted)' }}>No hay promociones aún. Crea la primera arriba.</p>
-                        ) : (
-                          <table className="dtable">
-                            <thead><tr><th>Título</th><th>Estado</th><th>Programada</th><th>Enviada</th><th>Tokens</th><th>Acción</th></tr></thead>
-                            <tbody>
-                              {adminPromos.map(promo => (
-                                <tr key={promo.id}>
-                                  <td>
-                                    <strong>{promo.title}</strong>
-                                    <br /><span style={{ fontSize: '.75rem', color: 'var(--muted)' }}>{promo.body.slice(0, 60)}{promo.body.length > 60 ? '...' : ''}</span>
-                                  </td>
-                                  <td>
-                                    <span className={`badge ${promo.status === 'SENT' ? 'aprobado' : promo.status === 'CANCELLED' ? 'rechazado' : 'pendiente'}`}>
-                                      {promo.status === 'SENT' ? '✅ Enviada' : promo.status === 'CANCELLED' ? '❌ Cancelada' : '⏰ Programada'}
-                                    </span>
-                                  </td>
-                                  <td style={{ fontSize: '.8rem' }}>{new Date(promo.scheduled_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'short', timeStyle: 'short' })}</td>
-                                  <td style={{ fontSize: '.8rem' }}>{promo.sent_at ? new Date(promo.sent_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
-                                  <td>{promo.tokens_sent}</td>
-                                  <td>
-                                    {promo.status === 'SCHEDULED' && (
-                                      <button className="btn ghost" style={{ fontSize: '.75rem', padding: '.25rem .5rem' }} onClick={async () => {
-                                        if (!confirm('¿Cancelar esta promoción?')) return;
-                                        await supabase.from('promotions').update({ status: 'CANCELLED' }).eq('id', promo.id);
-                                        const { data } = await supabase.from('promotions').select('*').order('created_at', { ascending: false }).limit(50);
-                                        setAdminPromos((data ?? []) as Promotion[]);
-                                      }}>Cancelar</button>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </article>
-                    </>
-                  )}
+                  {adminPanel === 'promociones' && <CampaignStudio />}
 
                   {adminPanel === 'operacion' && <><DeliveryOperations /><OperationsControl /></>}
                   {adminPanel === 'categorias' && (
                     <article className="admin-card">
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h4>🏷️ Gestión de Categorías Maestras</h4>
+                        <h4> Gestión de Categorías Maestras</h4>
                       </div>
                       <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
                         Gestiona las categorías. Para abrir una categoría solo a compradores de prueba, usa Operación → Lanzamiento de categorías. Cerrar bloquea compras nuevas sin cancelar pedidos existentes.
@@ -4542,7 +4323,7 @@ PideYa
                       <div className="frow" style={{ marginBottom: '1rem', alignItems: 'flex-end' }}>
                         <div className="fg" style={{ flex: '0 0 80px' }}>
                           <label>Emoji</label>
-                          <input className="fi" value={newCategoryEmoji} onChange={(e) => setNewCategoryEmoji(e.target.value)} placeholder="🛍️" />
+                          <input className="fi" value={newCategoryEmoji} onChange={(e) => setNewCategoryEmoji(e.target.value)} placeholder="" />
                         </div>
                         <div className="fg">
                           <label>Nombre de Categoría</label>
@@ -4578,9 +4359,9 @@ PideYa
                                     onChange={(e) => void updateFlowType(cat.id, e.target.value)}
                                     style={{ minWidth: '150px', padding: '6px 10px', fontSize: '0.85rem' }}
                                   >
-                                    <option value="prepared">🍽️ Preparado</option>
-                                    <option value="picked">🧺 Con Picking</option>
-                                    <option value="pharmacy">💊 Farmacia</option>
+                                    <option value="prepared"> Preparado</option>
+                                    <option value="picked"> Con Picking</option>
+                                    <option value="pharmacy"> Farmacia</option>
                                   </select>
                                 </td>
                                 <td>

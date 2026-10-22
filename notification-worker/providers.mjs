@@ -12,7 +12,7 @@ export function messageFor(job, now = Date.now()) {
   const ttl = Math.max(1, Math.floor((Date.parse(event.expires_at) - now) / 1000));
   return {
     title: event.title, body: event.body, ttl, sound: merchantSound ? 'pideya_order.wav' : 'default',
-    data: { eventId: event.id, orderId: event.order_id, kind: event.kind, revision: String(event.revision) },
+    data: { eventId: event.kind === 'marketing.campaign' ? undefined : event.id, orderId: event.order_id, kind: event.kind, campaignId: event.campaign_id ?? null, revision: String(event.revision) },
     channelId: job.endpoint.app === 'driver' ? 'deliveries' : job.endpoint.app === 'restaurant' ? (merchantSound ? 'kds_new_order_alarm_v3' : 'kds_new_order_alarm_v2') : 'default',
   };
 }
@@ -37,7 +37,7 @@ export function expoProvider(accessToken, fetcher = fetch) {
   return {
     async send(jobs) {
       if (jobs.length > 100 || new Set(jobs.map(j => j.endpoint.app)).size > 1) throw new Error('Expo batch must contain <=100 messages from one app');
-      const payload = jobs.map(job => ({ ...messageFor(job), to: job.endpoint.token, priority: 'high' }));
+      const payload = jobs.map(job => ({ ...messageFor(job), to: job.endpoint.token, priority: job.event.kind === 'marketing.campaign' ? 'normal' : 'high' }));
       const response = await jsonRequest('https://exp.host/--/api/v2/push/send', { method: 'POST', headers, body: JSON.stringify(payload) }, fetcher);
       if (!Array.isArray(response.data) || response.data.length !== jobs.length) throw new Error('Malformed Expo tickets');
       return response.data.map(t => t.status === 'ok' && t.id

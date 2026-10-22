@@ -594,3 +594,38 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--text);o
   }
 }
 
+
+/* Owner console: compact, legible financial and operating workspace. */
+.admin-layout{background:#f4f6f8;grid-template-columns:216px minmax(0,1fr);color:#20312e}
+.admin-sidebar{background:#132e29;padding:28px 12px;position:sticky;top:80px;height:calc(100vh - 80px);overflow:auto}
+.admin-sidebar h3{font-family:inherit;font-size:23px;color:#fff;padding:0 14px 24px;letter-spacing:-.7px}
+.admin-sidebar h3 small{display:block;color:#a5c1b8;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin-top:6px}
+.admin-sidebar li{border:0;border-radius:7px;margin:3px 0;font-size:13px;padding:11px 14px;color:#c4d3cf}
+.admin-sidebar li.active{background:#286757;color:white;border:0}
+.admin-main{min-width:0;padding:28px 32px;max-width:1800px;width:100%;margin:auto}
+.admin-top h2{font-family:inherit;font-size:25px;letter-spacing:-.8px}
+.admin-top span,.admin-session{font-size:12px;color:#62736e}
+.admin-session{margin:10px 0 24px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.admin-layout .admin-card{border:1px solid #e0e7e4;border-radius:12px;padding:24px;box-shadow:0 2px 5px #102d2510;margin-bottom:20px}
+.admin-layout h3,.admin-layout h4{font-family:inherit;letter-spacing:-.4px}
+.admin-layout h4{font-size:17px}
+.admin-layout .btn{border-radius:7px;font-size:12px;padding:9px 14px;box-shadow:none;min-height:36px}
+.admin-layout .btn.ghost{background:white;border:1px solid #d3dfd9;color:#31574a}
+.admin-layout .fi{border-radius:7px;border:1px solid #ccd9d2;padding:10px 12px;font-size:13px;min-height:40px}
+.admin-layout .admin-panel-tabs{display:none}
+.console-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}
+.console-heading h3{font-size:25px;margin:6px 0 8px;line-height:1.2}
+.console-heading p,.console-note{color:#667770;font-size:13px;line-height:1.6;max-width:760px}
+.eyebrow{font-size:10px;letter-spacing:1.7px;font-weight:700;color:#4e7668}
+.console-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;background:#f7f9f8;border:1px solid #e5ebe7;border-radius:8px;padding:16px;margin:16px 0}
+.console-filters label,.console-field{display:flex;flex-direction:column;gap:7px;font-size:11px;font-weight:650;color:#52645d;letter-spacing:.2px}
+.console-filters input,.console-filters select,.console-field input,.console-field textarea{width:100%;min-width:0;padding:10px;border:1px solid #cfdbd5;border-radius:6px;background:white;color:#20312e;font:inherit;font-size:13px;min-height:40px}
+.console-field{margin:16px 0}.console-field textarea{resize:vertical}
+.console-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:18px 0;font-size:12px}.console-toolbar>div{display:flex;gap:8px}
+.console-table{width:100%;overflow:auto;border:1px solid #e2e9e5;border-radius:8px}.console-table table{border-collapse:collapse;width:100%;text-align:left;font-size:12px;white-space:nowrap}.console-table th{background:#f6f8f7;color:#607369;text-transform:uppercase;font-size:10px;letter-spacing:.6px;font-weight:650;padding:13px 14px;border-bottom:1px solid #dfe7e2}.console-table td{padding:15px 14px;border-bottom:1px solid #ecf0ed}.console-table tr:last-child td{border-bottom:0}.console-table tr:hover td{background:#fafcfb}.console-table small{display:block;font-size:11px;color:#738078;margin-top:5px}.console-table td:nth-child(3),.console-table td:nth-child(4),.console-table td:nth-child(5){font-variant-numeric:tabular-nums}
+.state-pill{display:inline-block;padding:5px 8px;background:#edf2ef;color:#52685c;font-size:11px;border-radius:5px;white-space:nowrap}.state-DELIVERED{background:#e4f3eb;color:#216444}.state-CANCELLED,.state-REJECTED{background:#faece9;color:#9b4c3d}.state-PENDING{background:#fff1d6;color:#8a651f}.state-ON_THE_WAY{background:#e4eef9;color:#35628e}
+.console-empty{padding:40px 20px;text-align:center;font-size:13px;color:#6b7c73}.console-error{padding:12px;background:#fff0ed;color:#953c2c;border-radius:6px;font-size:13px;margin:12px 0}.console-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0}.console-kpis>div{padding:18px;border:1px solid #dfe7e2;border-radius:8px}.console-kpis span{font-size:11px;color:#6b7c73;display:block}.console-kpis strong{font-size:25px;display:block;margin-top:8px;font-variant-numeric:tabular-nums;letter-spacing:-.6px}.console-kpis>div:nth-child(3){background:#eef6f1;border-color:#bbd8c9;color:#206046}
+.console-confirm{padding:20px;border:1px solid #90bca6;border-radius:8px;background:#f4faf6;margin:20px 0}.console-confirm p{font-size:13px;margin:10px 0}.console-confirm .btn{margin:14px 8px 0 0}
+.campaign-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);gap:28px}.campaign-preview{border-radius:10px;background:#f3f6f4;padding:22px}.campaign-preview h4{margin:25px 0 12px}.campaign-preview li,.campaign-preview p{font-size:12px;color:#63766c;line-height:1.8}.campaign-preview ul{padding-left:17px}.push-preview{display:flex;gap:12px;background:white;border:1px solid #e0e8e3;border-radius:12px;padding:18px;margin:18px 0;box-shadow:0 8px 20px #153c2210}.push-brand{width:32px;height:32px;display:grid;place-items:center;background:#247962;color:white;border-radius:8px;font-weight:bold;flex-shrink:0}.push-preview small{display:block;color:#78877e;font-size:10px;margin-bottom:6px}.push-preview strong{font-size:13px;overflow-wrap:anywhere}.push-preview p{font-size:12px;line-height:1.4;overflow-wrap:anywhere;margin-top:6px}
+@media(max-width:1200px){.admin-layout{grid-template-columns:1fr}.admin-sidebar{display:none}.admin-layout .admin-panel-tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;padding-bottom:10px}.admin-panel-tab{white-space:nowrap;font-size:12px}.admin-main{padding:20px}.console-kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.admin-main{padding:12px}.admin-layout .admin-card{padding:16px}.campaign-layout{grid-template-columns:1fr}.console-heading{display:block}.console-heading h3{font-size:22px}.admin-session,.console-toolbar{flex-wrap:wrap}.console-filters{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px}.console-kpis strong{font-size:20px}}

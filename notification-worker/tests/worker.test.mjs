@@ -117,3 +117,13 @@ test('pending time proposal remains eligible until accepted or expired', () => {
  const j=job();j.current_status='PENDING';j.event.kind='order.time_proposal';assert.equal(eligible(j,false,now),null);
  j.current_status='ACCEPTED';assert.equal(eligible(j,false,now).code,'ORDER_ALREADY_HANDLED');
 });
+
+test('marketing respects quiet hours, cancellation, opt out and order-independent status',()=>{
+ const j=job();j.event.kind='marketing.campaign';j.event.order_id=null;j.event.campaign_id='campaign';j.campaign_state='completed';j.marketing_enabled=true;
+ const day=Date.parse('2026-10-22T16:00:00Z');j.event.expires_at=new Date(day+86400000).toISOString();
+ assert.equal(eligible(j,false,day),null);
+ j.campaign_state='cancelled';assert.equal(eligible(j,false,day).code,'MARKETING_DISABLED');j.campaign_state='running';
+ j.marketing_enabled=false;assert.equal(eligible(j,false,day).code,'MARKETING_DISABLED');j.marketing_enabled=true;
+ assert.equal(eligible(j,false,Date.parse('2026-10-23T03:00:00Z')).code,'QUIET_HOURS');
+});
+test('campaign payload remains compatible with clients that only navigate order eventIds',()=>{const j=job();j.event.kind='marketing.campaign';j.event.campaign_id='campaign';j.event.order_id=null;const payload=messageFor(j);assert.equal(payload.data.eventId,undefined);assert.equal(payload.data.campaignId,'campaign');assert.equal(messageFor(job()).data.eventId,'event-1');});
