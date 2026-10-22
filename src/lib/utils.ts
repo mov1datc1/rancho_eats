@@ -6,6 +6,10 @@ export function statusLabel(status: string): string {
   const labels: Record<string, string> = {
     PENDING: 'Pendiente',
     ACCEPTED: 'Aceptado',
+    PREPARING: 'En preparación',
+    PICKING: 'En surtido',
+    ADJUSTED: 'Ajustado',
+    READY: 'Listo para recoger',
     ON_THE_WAY: 'En camino',
     DELIVERED: 'Entregado',
     REJECTED: 'Rechazado',

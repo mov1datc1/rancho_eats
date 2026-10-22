@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {supabase} from '../../lib/supabase';
-import {formatPrice} from '../../lib/utils';
+import {formatMoney as formatPrice} from '../../lib/adminPeriods';
 import {downloadCSV,mexicoToday,periodRange} from '../../lib/adminPeriods';
 import PeriodFilter from './PeriodFilter';
 export default function CommissionLedger(){

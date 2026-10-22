@@ -12,3 +12,5 @@ export function periodRange(kind:string, anchor:string){
 export const mexicoToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 export const dateBounds=(from:string,to:string)=>({start:from+'T00:00:00-06:00',end:new Date(Date.parse(to+'T00:00:00-06:00')+86400000).toISOString()});
 export function downloadCSV(name:string,rows:unknown[][]){const cell=(v:unknown)=>{let s=String(v??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url);}
+
+export const formatMoney=(v:unknown)=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',minimumFractionDigits:2}).format(Number(v)||0);

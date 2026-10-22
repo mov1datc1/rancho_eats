@@ -664,9 +664,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedRestaurant) return;
+    if (!selectedRestaurant || isAdminRoute) return;
     void loadRestaurantData(selectedRestaurant.id);
-  }, [selectedRestaurant?.id]);
+  }, [selectedRestaurant?.id, isAdminRoute]);
 
   useEffect(() => {
     const bootAdmin = async () => {
@@ -764,7 +764,7 @@ export default function App() {
   selectedRestaurantIdRef.current = selectedRestaurant?.id ?? null;
 
   useEffect(() => {
-    if (!selectedRestaurant?.id) return;
+    if (!selectedRestaurant?.id || isAdminRoute) return;
     const restaurantId = selectedRestaurant.id;
 
     console.log('[PideYa Realtime] Subscribing to orders for restaurant:', restaurantId);
@@ -810,7 +810,7 @@ export default function App() {
       clearInterval(pollingInterval);
       void supabase.removeChannel(channel);
     };
-  }, [selectedRestaurant?.id]);
+  }, [selectedRestaurant?.id, isAdminRoute]);
 
   useEffect(() => {
     if (!searchedOrder?.id) return;
@@ -4280,7 +4280,7 @@ PideYa
                                   }}
                                 />
                               </div>
-                              <button className="btn ghost danger" style={{ marginTop: '1.2rem' }} onClick={() => setCommissionTiersDraft((prev) => prev.filter((_, i) => i !== idx))} disabled={commissionTiersDraft.length <= 1}></button>
+                              <button className="btn ghost danger" style={{ marginTop: '1.2rem' }} onClick={() => setCommissionTiersDraft((prev) => prev.filter((_, i) => i !== idx))} disabled={commissionTiersDraft.length <= 1}>Eliminar</button>
                             </div>
                           ))}
                         </div>
