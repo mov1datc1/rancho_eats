@@ -6,7 +6,7 @@ CREATE FUNCTION pg_temp.assert(ok boolean,msg text) RETURNS void LANGUAGE plpgsq
 CREATE FUNCTION pg_temp.reject(statement text,pattern text) RETURNS void LANGUAGE plpgsql AS $$BEGIN BEGIN EXECUTE statement;EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT ILIKE '%'||pattern||'%' THEN RAISE EXCEPTION 'Unexpected error: %',SQLERRM;END IF;RETURN;END;RAISE EXCEPTION 'Expected rejection: %',pattern;END;$$;
 INSERT INTO auth.users(id,email) VALUES('00000000-0000-0000-0000-000000000001','owner@test.invalid'),('00000000-0000-0000-0000-000000000002','client@test.invalid'),('00000000-0000-0000-0000-000000000003','other@test.invalid');
 INSERT INTO restaurants(id,name,phone,email,type,owner_id,lat,lng,is_open,status) VALUES('00000000-0000-0000-0000-000000000010','QA','1234567890','qa@test.invalid','Restaurantes','00000000-0000-0000-0000-000000000001',20,-102,true,'ACTIVE');
-INSERT INTO app_categories(id,name,emoji,release_mode) VALUES('00000000-0000-0000-0000-000000000011','Restaurantes','R','public');
+INSERT INTO app_categories(id,name,emoji,release_mode,is_active) VALUES('00000000-0000-0000-0000-000000000011','Restaurantes','R','public',true);
 INSERT INTO menu_items(id,restaurant_id,name,price) VALUES('00000000-0000-0000-0000-000000000012','00000000-0000-0000-0000-000000000010','QA Pizza',100);
 INSERT INTO driver_profiles(id,restaurant_id,name,phone,access_token) VALUES('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000010','QA Driver','3312345678','qa-driver-code-12345678901234567890');
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
@@ -62,7 +62,7 @@ SELECT pg_temp.reject($q$UPDATE orders SET status='ACCEPTED' WHERE id='00000000-
 SELECT cancel_orphan_orders();
 SELECT pg_temp.assert((SELECT status='CANCELLED' FROM orders WHERE id='00000000-0000-0000-0000-000000000031'),'pending expiration');
 -- Missing inventory must not dispatch an empty basket or charge its fees.
-INSERT INTO app_categories(name,emoji,flow_type,release_mode) VALUES('Frutería','F','picked','public');
+INSERT INTO app_categories(name,emoji,flow_type,release_mode,is_active) VALUES('Frutería','F','picked','public',true);
 UPDATE restaurants SET type='Frutería';
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
 INSERT INTO orders(id,restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,subtotal,commission_amount,delivery_amount,total,status,payment_method,delivery_type)
