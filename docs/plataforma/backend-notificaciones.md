@@ -7,8 +7,13 @@ El trabajador supervisor ejecuta rutas independientes y expone /healthz. Service
 
 No apagar los disparadores antiguos hasta verificar trabajador vivo y rutas activas. Nunca dejar ambos enviando el mismo evento. Cambio de sesión desregistra dispositivos. Recordatorios de pendientes y alertas no deben notificar un pedido ya atendido.
 
-Migraciones 030a–044 aplicadas el 22 de octubre de 2026. Pruebas de SQL en réplica local del esquema real. Aún se requiere prueba física con Android bloqueado, permisos, optimización de batería y señal rural. No se ha acreditado capacidad de 50.000 usuarios simultáneos mediante carga real.
+Migraciones 030a–051 aplicadas; última liberación verificada el 23 de octubre de 2026 (ver despliegues.md). Pruebas de SQL en réplica local del esquema real. Aún se requiere prueba física con Android bloqueado, permisos, optimización de batería y señal rural. No se ha acreditado capacidad de 50.000 usuarios simultáneos mediante carga real.
 
 Desplegado: Render `pideya-notifications`, plan Starter, región Oregon, `/healthz`, auto-deploy de main. Cuatro rutas activas desde el 22 de octubre; deshabilitados `trg_notify_driver_assignment` y `trg_order_status_push`. Las credenciales están en variables privadas de Render. Registros recientes de dispositivos heredados válidos: cero; abrir las apps nuevas con permisos para registrar dispositivos antes de la prueba física.
 
 Campañas de publicidad (046): eventos `marketing.campaign` sin pedido, con campaña obligatoria. El worker de cliente prepara lotes de 500 destinatarios y utiliza los límites globales documentados en admin.md. La recuperación de eventos al registrar otro dispositivo excluye publicidad para no duplicar el envío por cuenta. El payload omite `eventId` de pedidos en publicidad para compatibilidad con el cliente 1.3.0. El procesador antiguo `send_scheduled_promotions` queda como no-op.
+
+
+Campañas por comportamiento (050): historial de entregas ligado a cuenta, alcance del patrocinador o plataforma, ubicación conocida dentro de cobertura para anuncios de negocio y exclusiones por incidencia/pedido activo, restricciones y preferencias. La elegibilidad se comprueba al encolar y al despachar; `AUDIENCE_CHANGED` evita publicidad que ya perdió pertinencia. La ventana de asociación de compras es de siete días desde aceptación del proveedor y no mide efecto causal. Los recibos continúan procesándose aunque cambie la audiencia.
+
+Revisión de permisos 23/10: 051 retira grants explícitos de anon/authenticated a helpers y procesadores internos de campañas. Los permisos por defecto de Supabase hacían insuficiente revocar solo PUBLIC. Ver `SEGURIDAD_CAPACIDAD_Y_ACTUALIZACIONES.md`.

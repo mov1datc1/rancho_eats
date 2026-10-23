@@ -9,7 +9,7 @@ Las métricas se agregan en el servidor con filtros por período, negocio, categ
 
 Incidencia abierta/atendiendo/esperando devolución/resuelta. Registrar razón y siguiente acción: dirección, ausencia, acceso, avería, señal, rechazo, efectivo o devolución. Demora superior a dos horas genera incidencia, no cancelación de una entrega en camino.
 
-Categorías nuevas quedan cerradas por defecto. El botón Abrir piloto permite pruebas restringidas; publicar para todos requiere elegir Pública en Operación.
+Categorías nuevas quedan cerradas por defecto. El botón Abrir piloto permite pruebas restringidas; publicar para todos requiere elegir Pública en Categorías u Operación.
 
 ## Pedidos y finanzas · actualización 22 de octubre
 
@@ -25,7 +25,7 @@ Nuevo estudio separado de las promociones históricas. Audiencias: sin pedido en
 
 La cancelación detiene trabajos pendientes; no puede retirar mensajes aceptados por el proveedor o que ya estaban enviándose. «Procesada» significa que se evaluó la audiencia; «Aceptadas» son recibos del proveedor, no lectura del usuario. Los antiguos broadcasts quedan deshabilitados y sus registros se conservan sin reenviarlos. No se creó ninguna campaña real durante la implementación.
 
-Compatibilidad del cliente 1.3.0: tocar publicidad abre la app, sin navegación a pedidos ni enlace directo al patrocinador. Las preferencias `marketing_preferences` permiten excluir cuentas y el usuario autenticado puede administrar su propio registro; la pantalla móvil para gestionarlas sigue pendiente. Los permisos del sistema operativo también controlan la recepción. La segmentación por cobertura geográfica y atribución de compras a campañas requieren una fase posterior.
+Compatibilidad del cliente 1.3.0: tocar publicidad abre la app, sin navegación a pedidos ni enlace directo al patrocinador. Las preferencias `marketing_preferences` permiten excluir cuentas y el usuario autenticado puede administrar su propio registro; la pantalla móvil para gestionarlas sigue pendiente. Los permisos del sistema operativo también controlan la recepción. La migración 050 añadió segmentación por cobertura y asociación temporal de compras posteriores. No representa atribución causal, aperturas ni clics; ver la sección de campañas por comportamiento.
 
 ## Catálogo, reportes, territorio y protección — 22/10/2026
 

@@ -23,6 +23,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Web regression tests
+        run: node --test tests/*.test.cjs
+
+      - name: Worker dependencies
+        run: npm ci --prefix notification-worker
+
+      - name: Worker regression tests
+        run: npm test --prefix notification-worker
+
       - name: Type check
         run: npm run typecheck
 

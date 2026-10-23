@@ -2,7 +2,7 @@
 
 # PideYa: administración general y reparto flexible
 
-Estado: 22 de octubre de 2026. Propuesta revisada con el contexto rural y de efectivo aportado por el dueño. Los flujos nuevos descritos no están implementados ni desplegados.
+Estado histórico de la propuesta: 22 de octubre de 2026. Las frases «pendiente», «local» y «sin desplegar» del cuerpo describen aquella revisión, no el estado actual. Al 23/10 hay implementaciones y despliegues posteriores; consultar el [estado vigente y prioridades](plataforma/ESTADO_Y_PRIORIDADES.md) y el [registro de despliegues](plataforma/despliegues.md).
 
 ## Qué existe y qué se corrigió
 
