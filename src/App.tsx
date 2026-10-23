@@ -1,3 +1,9 @@
+import BusinessPinInput from './components/map/BusinessPinInput';
+import {validMexicoPoint} from './components/map/InteractiveMap';
+import CategoryManager from './components/admin/CategoryManager';
+import BusinessReports from './components/admin/BusinessReports';
+import LiveOperationsMap from './components/admin/LiveOperationsMap';
+import AbuseControl from './components/admin/AbuseControl';
 import OrderExplorer from './components/admin/OrderExplorer';
 import CommissionLedger from './components/admin/CommissionLedger';
 import CampaignStudio from './components/admin/CampaignStudio';
@@ -269,6 +275,7 @@ export default function App() {
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
 
   const [registerForm, setRegisterForm] = useState(baseForm);
+  const [registerPinChosen,setRegisterPinChosen]=useState(false),[registerLocationConfirmed,setRegisterLocationConfirmed]=useState(false),[registerPickupNotes,setRegisterPickupNotes]=useState('');
   const [registerMessage, setRegisterMessage] = useState('');
   const [menuDraft, setMenuDraft] = useState({
     name: '',
@@ -1844,16 +1851,20 @@ export default function App() {
   };
 
   const submitRegister = async () => {
+    if(!registerPinChosen||!registerLocationConfirmed||!validMexicoPoint(registerPoint.lat,registerPoint.lng)||registerForm.address.trim().length<8||registerPickupNotes.trim().length<5){setRegisterMessage('Confirma la dirección, el acceso y el pin del negocio antes de continuar.');return;}
     try {
       setActionLoading(true);
       setRegisterMessage('');
 
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      const { data: existingSession } = await supabase.auth.getSession();
+      const sameUser = existingSession.session?.user.email?.toLowerCase() === registerForm.email.trim().toLowerCase();
+      const { data: signUpData, error: signUpError } = sameUser ? { data: { user: existingSession.session!.user, session: existingSession.session }, error: null } : await supabase.auth.signUp({
         email: registerForm.email,
         password: registerForm.password
       });
 
       if (signUpError) throw signUpError;
+      if (!signUpData.session) { setRegisterMessage('Confirma tu correo con el enlace recibido e inicia sesión antes de enviar la solicitud del negocio. Tu negocio todavía no se ha registrado.'); return; }
 
       const { error: insertError } = await supabase.from('restaurants').insert({
         name: registerForm.restaurantName,
@@ -1861,7 +1872,8 @@ export default function App() {
         phone: registerForm.whatsapp,
         email: registerForm.email,
         type: registerForm.type,
-        address: registerForm.address || null,
+        address: registerForm.address.trim(),
+        pickup_instructions: registerPickupNotes.trim(),
         lat: registerPoint.lat,
         lng: registerPoint.lng,
         delivery_radius_km: Number(registerForm.radius),
@@ -1880,6 +1892,7 @@ export default function App() {
 
       setRegisterMessage('✅ Tu solicitud fue enviada. El admin la revisará para activarte.');
       setRegisterForm(baseForm);
+      setRegisterPinChosen(false);setRegisterLocationConfirmed(false);setRegisterPickupNotes('');
       setRegisterPoint({ lat: 21.0419, lng: -102.3425 });
       setSelectedZones(['Aranda centro']);
       await loadInitialData();
@@ -3970,8 +3983,8 @@ PideYa
           <div className="regpage">
             <div className="regcard">
               <div className="reghead">
-                <h2>Registra tu restaurante</h2>
-                <p>El admin revisará y activará tu cuenta en 24 hrs</p>
+                <h2>Registra tu negocio</h2>
+                <p>PideYa revisará tus datos y confirmará la ubicación antes de activar tu negocio.</p>
               </div>
               <div className="regbody">
                 <div className="fg"><label>Nombre del restaurante</label><input className="fi" placeholder="ej. Birriería La Guadalupana" value={registerForm.restaurantName} onChange={(e) => setRegisterForm((p) => ({ ...p, restaurantName: e.target.value }))} /></div>
@@ -3988,11 +4001,11 @@ PideYa
                 </div>
                 <div className="fg"><label>Descripción breve</label><textarea className="fta" placeholder="¿Qué hace especial a tu restaurante?" value={registerForm.description} onChange={(e) => setRegisterForm((p) => ({ ...p, description: e.target.value }))} /></div>
                 <div className="fg"><label>Radio de entrega máximo</label><select className="fs" value={registerForm.radius} onChange={(e) => setRegisterForm((p) => ({ ...p, radius: e.target.value }))}><option value="5">5 km</option><option value="10">10 km</option><option value="15">15 km</option><option value="20">20 km</option><option value="30">30 km</option></select></div>
-                <div className="fg"><label>Dirección base del restaurante</label><input className="fi" placeholder="Ej. Av. Hidalgo 120, Arandas" value={registerForm.address} onChange={(e) => setRegisterForm((p) => ({ ...p, address: e.target.value }))} /></div>
-                <div className="fg"><label>Ubicación en mapa del restaurante</label><MapPicker lat={registerPoint.lat} lng={registerPoint.lng} addressText={registerForm.address} onAddressTextChange={(value) => setRegisterForm((p) => ({ ...p, address: value }))} onChange={setRegisterPoint} /></div>
-                <div className="fg"><label>Zonas que cubre</label><div className="zchips">{['Aranda centro', 'Arandas', 'El Saucito', 'Las Flores', 'La Providencia', 'San José', 'El Llano', 'Ranchos varios'].map((zone) => (<button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>))}</div></div>
+                <div className="fg"><label>Dirección base del restaurante</label><input className="fi" placeholder="Ej. Av. Hidalgo 120, Arandas" value={registerForm.address} onChange={(e) => {setRegisterLocationConfirmed(false);setRegisterForm((p) => ({ ...p, address: e.target.value }));}} /></div>
+                <div className="fg"><label>Ubicación en mapa del restaurante</label><BusinessPinInput lat={registerPoint.lat} lng={registerPoint.lng} onChange={p=>{setRegisterPoint(p);setRegisterPinChosen(true);setRegisterLocationConfirmed(false);}} /></div>
+                <div className="fg"><label>Acceso e instrucciones de recogida</label><input className="fi" value={registerPickupNotes} maxLength={1000} onChange={e=>{setRegisterPickupNotes(e.target.value);setRegisterLocationConfirmed(false);}} placeholder="Puerta, fachada, cruce o referencia del camino"/></div><label><input type="checkbox" disabled={!registerPinChosen} checked={registerLocationConfirmed} onChange={e=>setRegisterLocationConfirmed(e.target.checked)}/> El pin corresponde al acceso de mi negocio, no a mi domicilio personal.</label><div className="fg"><label>Zonas que cubre</label><div className="zchips">{['Aranda centro', 'Arandas', 'El Saucito', 'Las Flores', 'La Providencia', 'San José', 'El Llano', 'Ranchos varios'].map((zone) => (<button key={zone} type="button" className={`zchip ${selectedZones.includes(zone) ? 'on' : ''}`} onClick={() => toggleZone(zone)}>{zone}</button>))}</div></div>
                 <div className="frow"><div className="fg"><label>Apertura</label><input className="fi" type="time" value={registerForm.openTime} onChange={(e) => setRegisterForm((p) => ({ ...p, openTime: e.target.value }))} /></div><div className="fg"><label>Cierre</label><input className="fi" type="time" value={registerForm.closeTime} onChange={(e) => setRegisterForm((p) => ({ ...p, closeTime: e.target.value }))} /></div></div>
-                <button className="btnreg" onClick={submitRegister} disabled={actionLoading}>Enviar registro →</button>
+                <button className="btnreg" onClick={submitRegister} disabled={actionLoading||!registerLocationConfirmed}>Enviar registro →</button>
                 {registerMessage && <div className="regterms">{registerMessage}</div>}
               </div>
             </div>
@@ -4177,65 +4190,9 @@ PideYa
 
                   {(adminPanel === 'dashboard' || adminPanel === 'pedidos') && <OrderExplorer />}
 
-                  {(adminPanel === 'dashboard' || adminPanel === 'antispam') && (
-                    <article className="admin-card spam-card">
-                      <h4> Panel Anti-Spam — IPs y dispositivos sospechosos</h4>
-                      <table className="spam-table">
-                        <thead>
-                          <tr><th>IP / Dispositivo</th><th>Pedidos hoy</th><th>Cancelados</th><th>Rechazados</th><th>Último pedido</th><th>Acción</th></tr>
-                        </thead>
-                        <tbody>
-                          {adminAntiSpam.map((row) => (
-                            <tr key={row.entity}>
-                              <td>{row.entity}</td>
-                              <td>{row.orders_today}</td>
-                              <td>{row.cancelled}</td>
-                              <td>{row.rejected}</td>
-                              <td>{formatRelative(row.last_order_at)}</td>
-                              <td><button className={`btn ${row.orders_today >= 5 ? 'red' : 'ghost'}`} onClick={() => row.orders_today >= 5 && void blockEntity(row.entity)} disabled={actionLoading}>{row.orders_today >= 5 ? 'Bloquear IP' : 'Vigilar'}</button></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </article>
-                  )}
-
-                  {(adminPanel === 'dashboard' || adminPanel === 'mapa') && (
-                    <article className="admin-card">
-                      <h4> Mapa en vivo — restaurantes activos</h4>
-                      <div className="admin-live-map">
-                        {adminMapPoints.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((point) => {
-                          const x = Math.min(96, Math.max(4, ((point.lng + 103) / 1.5) * 100));
-                          const y = Math.min(94, Math.max(6, ((21.8 - point.lat) / 1.2) * 100));
-                          return (
-                            <div key={point.id} className="admin-map-point" style={{ left: `${x}%`, top: `${y}%` }}>
-                              <span className={`admin-map-dot ${point.status === 'ACTIVE' ? 'ok' : 'warn'}`}></span>
-                              <small>{point.name}</small>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </article>
-                  )}
-
-                  {(adminPanel === 'dashboard' || adminPanel === 'reportes') && (
-                    <article className="admin-card">
-                      <h4> Pedidos por restaurante — últimos 30 días</h4>
-                      <div className="bars">
-                        {adminOrdersChart.map((item) => {
-                          const max = Math.max(1, ...adminOrdersChart.map(row => row.orders_count));
-                          const width = Math.max(8, Math.round((item.orders_count / max) * 100));
-                          return (
-                            <div key={item.restaurant_name} className="bar-row">
-                              <span>{item.restaurant_name}</span>
-                              <div className="bar-track"><div className="bar-fill" style={{ width: `${width}%` }} /></div>
-                              <strong>{item.orders_count}</strong>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </article>
-                  )}
+                  {adminPanel === 'antispam' && <AbuseControl />}
+                  {adminPanel === 'mapa' && <LiveOperationsMap />}
+                  {adminPanel === 'reportes' && <BusinessReports />}
 
                   {adminPanel === 'comisiones' && (
                     <>
@@ -4311,92 +4268,7 @@ PideYa
                   {adminPanel === 'promociones' && <CampaignStudio />}
 
                   {adminPanel === 'operacion' && <><DeliveryOperations /><OperationsControl /></>}
-                  {adminPanel === 'categorias' && (
-                    <article className="admin-card">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h4> Gestión de Categorías Maestras</h4>
-                      </div>
-                      <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
-                        Gestiona las categorías. Para abrir una categoría solo a compradores de prueba, usa Operación → Lanzamiento de categorías. Cerrar bloquea compras nuevas sin cancelar pedidos existentes.
-                      </p>
-
-                      <div className="frow" style={{ marginBottom: '1rem', alignItems: 'flex-end' }}>
-                        <div className="fg" style={{ flex: '0 0 80px' }}>
-                          <label>Emoji</label>
-                          <input className="fi" value={newCategoryEmoji} onChange={(e) => setNewCategoryEmoji(e.target.value)} placeholder="" />
-                        </div>
-                        <div className="fg">
-                          <label>Nombre de Categoría</label>
-                          <input className="fi" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Ej. Ferretería" />
-                        </div>
-                        <div className="fg" style={{ flex: '0 0 auto' }}>
-                          <button className="btn" onClick={createCategory} disabled={actionLoading || !newCategoryName.trim()}>Añadir</button>
-                        </div>
-                      </div>
-
-                      <div className="table-responsive">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>Orden</th>
-                              <th>Icono</th>
-                              <th>Nombre</th>
-                              <th>Tipo de Flujo</th>
-                              <th>Estado</th>
-                              <th>Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {appCategories.map((cat) => (
-                              <tr key={cat.id}>
-                                <td>{cat.sort_order}</td>
-                                <td><span style={{ fontSize: '1.5rem' }}>{cat.emoji}</span></td>
-                                <td><strong>{cat.name}</strong></td>
-                                <td>
-                                  <select
-                                    className="fi"
-                                    value={cat.flow_type || 'prepared'}
-                                    onChange={(e) => void updateFlowType(cat.id, e.target.value)}
-                                    style={{ minWidth: '150px', padding: '6px 10px', fontSize: '0.85rem' }}
-                                  >
-                                    <option value="prepared"> Preparado</option>
-                                    <option value="picked"> Con Picking</option>
-                                    <option value="pharmacy"> Farmacia</option>
-                                  </select>
-                                </td>
-                                <td>
-                                  <span className={`status-badge ${cat.is_active ? 'active' : 'suspended'}`}>
-                                    {cat.is_active ? 'Activo' : 'Oculto'}
-                                  </span>
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <button className="btn ghost" onClick={() => toggleCategory(cat.id, cat.is_active)}>
-                                      {cat.is_active ? 'Cerrar categoría' : 'Abrir piloto'}
-                                    </button>
-                                    <button className="btn ghost" style={{ color: 'var(--error)' }} onClick={() => {
-                                      if (confirm(`¿Eliminar categoría ${cat.name}? Esto podría afectar restaurantes que la usen.`)) {
-                                        void deleteCategory(cat.id);
-                                      }
-                                    }}>
-                                      Eliminar
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                            {appCategories.length === 0 && (
-                              <tr>
-                                <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)' }}>
-                                  No hay categorías configuradas.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </article>
-                  )}
+                  {adminPanel === 'categorias' && <CategoryManager />}
 
                   {adminPanel === 'config' && (
                     <article className="admin-card">

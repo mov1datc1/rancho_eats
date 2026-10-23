@@ -26,3 +26,23 @@ Nuevo estudio separado de las promociones históricas. Audiencias: sin pedido en
 La cancelación detiene trabajos pendientes; no puede retirar mensajes aceptados por el proveedor o que ya estaban enviándose. «Procesada» significa que se evaluó la audiencia; «Aceptadas» son recibos del proveedor, no lectura del usuario. Los antiguos broadcasts quedan deshabilitados y sus registros se conservan sin reenviarlos. No se creó ninguna campaña real durante la implementación.
 
 Compatibilidad del cliente 1.3.0: tocar publicidad abre la app, sin navegación a pedidos ni enlace directo al patrocinador. Las preferencias `marketing_preferences` permiten excluir cuentas y el usuario autenticado puede administrar su propio registro; la pantalla móvil para gestionarlas sigue pendiente. Los permisos del sistema operativo también controlan la recepción. La segmentación por cobertura geográfica y atribución de compras a campañas requieren una fase posterior.
+
+## Catálogo, reportes, territorio y protección — 22/10/2026
+
+Categorías usa ocho iconos SVG originales de PideYa con una paleta verde uniforme. El editor acepta SVG, PNG, WebP y JPEG de hasta 2 MB; los SVG se validan con una lista limitada de elementos y atributos, y todo archivo subido se convierte a PNG de 512 × 512. El bucket público permite escritura solo al administrador. Las categorías nuevas comienzan cerradas; el editor distingue cerrado, piloto y público. Cerrar conserva pedidos existentes. No se permite renombrar categorías usadas ni cambiar el flujo con pedidos activos. La APK actual del cliente conserva sus imágenes locales: esta entrega cambia el panel y publica los recursos, no actualiza esa APK.
+
+Reportes calcula en servidor el periodo completo (máximo tres años), con filtros de negocio y categoría: pedidos, ventas entregadas, comisiones generadas, ticket promedio, entregas, cancelaciones, clientes recurrentes, incidencias y efectivo pendiente. Incluye tendencia diaria, motivos de cancelación, ranking por negocio y exportación CSV. Las duraciones solo usan timestamps válidos; ausencia de datos no equivale a cero minutos. Las comisiones generadas no son pagos recibidos: la conciliación corresponde a Comisiones.
+
+Mapa en vivo usa Leaflet con zoom y desplazamiento sobre México. Distingue negocios activos, pendientes y suspendidos, y tiene una pestaña para pedidos activos. Consulta cada 15 segundos mientras está visible; muestra hasta 2.000 negocios y 1.000 pedidos activos. No inventa coordenadas ausentes. La ubicación del repartidor es la última disponible: una señal sin hora o de más de dos minutos se considera antigua. La línea origen-destino no es una ruta vial. Perder señal no cancela pedidos.
+
+El alta web requiere dirección escrita, selección del pin y confirmación explícita del acceso. Un negocio nuevo queda pendiente y cerrado. El administrador verifica dirección, pin e instrucciones desde el mapa antes de activarlo. Los negocios ya activos se conservan; sus ubicaciones pueden revisarse gradualmente. No se cambia el punto de recogida con pedidos activos. La app nativa no ofrece todavía una solicitud autónoma de cambio de domicilio.
+
+Anti-spam limita por cuenta autenticada: ocho pedidos en diez minutos y cuatro pendientes vigentes. Señales de volumen y cancelaciones se revisan, no producen sanciones automáticas. El administrador puede reportar un pedido, registrar su resolución y aplicar restricciones temporales de 1 hora a 30 días, con motivo, auditoría y revocación. No se bloquea a todos los usuarios de una IP compartida ni se confía en una IP declarada por el cliente. El filtrado de ataques por IP debe hacerse en infraestructura que conozca la IP real; no se implementó un WAF en esta entrega.
+
+### Referencias y operación del mapa
+
+- [Uber: dirección, pin e instrucciones de recogida](https://help.uber.com/merchants-and-restaurants/article/updating-your-pin-location-service-hours-address-and-phone-number?nodeId=441508ba-1ac4-45a2-8fe4-088893dcf492).
+- [DoorDash: negocios y sucursales](https://developer.doordash.com/en-US/docs/drive_classic/reference/businesses_and_stores/).
+- [Leaflet 1.9.4](https://leafletjs.com/reference.html).
+- [Política de tiles de OpenStreetMap](https://operations.osmfoundation.org/policies/tiles/): atribución visible, sin descarga masiva; el servicio público no ofrece SLA. `VITE_MAP_TILE_URL` permite cambiar de proveedor; adaptar también la atribución al proveedor contratado antes de hacerlo.
+- [Nominatim](https://operations.osmfoundation.org/policies/nominatim/): no se añadió autocompletado contra su servicio público. El alta nueva usa dirección, pin y GPS solicitado por el usuario.

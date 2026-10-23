@@ -10,3 +10,7 @@ Caja registra dinero realmente recibido y comprobación. Diferencias generan inc
 Surtido: retirar faltantes; no inventar sustituciones. Cantidad parcial solo si fue permitida; total se recalcula a la baja. Pedidos completamente sin existencias se cancelan sin cobro.
 
 En esta primera versión, custodia única y caja se aplican tanto a propios como temporales. Las rutas con varias entregas simultáneas no están habilitadas; evitan repartir efectivo entre pedidos sin conciliación.
+
+## Ubicación al solicitar el alta — 22/10/2026
+
+El registro web pide dirección, instrucciones para encontrar la entrada y un pin seleccionado en el mapa (o GPS), con confirmación explícita. El registro comienza pendiente y cerrado; PideYa verifica la ubicación antes de activar. El dueño no puede autoaprobarse ni mover unilateralmente el punto de recogida. No se permiten cambios de ubicación con pedidos activos. Los negocios activos anteriores no se desactivan por esta actualización. La configuración nativa existente de horarios y radio continúa funcionando; la revisión del domicilio se gestiona con PideYa. El radio de cobertura sigue siendo distancia geográfica, no distancia de carretera ni garantía de acceso rural.
