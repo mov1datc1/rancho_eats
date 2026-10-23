@@ -35,7 +35,7 @@ Urgencias: `hotfix/<tema>` nace de la rama de producción, pasa CI/prueba reduci
 ## Gates y lo que falta automatizar
 
 - CI ya incluye las pruebas web/worker, corre en main/staging y en PR.
-- Se prepara protección de ramas mediante checks y PR; verificar su configuración real en GitHub. Un check llamado `build` es requerido solo en rancho_eats, donde existe. No exigir ese nombre en repos sin ese workflow.
+- Protecciones verificadas: rancho_eats main/staging exige PR, check `build` actualizado y resolución de conversaciones; cliente develop/staging y repartidor main/staging exigen PR. Sin force push ni borrado, también para administradores. No se exige un check inexistente en las apps. GitHub devolvió HTTP 403 para el negocio privado: requiere GitHub Pro; no se cambió su privacidad.
 - El entorno de GitHub controla los jobs que lo usan; **no controla por sí solo los despliegues automáticos de Vercel o Render**.
 - Render estaba configurado `On Commit`. Cambiar a `After CI Checks Pass` desde Settings; no se dispone de operación de modificación de ese ajuste en el conector actual. La protección de main reduce el riesgo antes del merge, pero no sustituye la configuración del proveedor.
 - Falta CI de migraciones desde base vacía y actualización desde versión anterior. La historia actual incluye cambios de esquema fuera de las migraciones iniciales; la rama Supabase se inicializó desde el historial actual, no por replay certificado de los archivos 001–052. No activar `supabase db push` automático hasta reconciliar baseline e historial.
@@ -108,3 +108,12 @@ Preparar datos sintéticos representativos y presupuesto; correr 10 → 50 → 1
 - [Supabase: conexión Prometheus/Grafana](https://supabase.com/docs/guides/observability/metrics/grafana-self-hosted).
 - [Render: despliegue después de CI](https://render.com/docs/deploys).
 - [GitHub: entornos y protección](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+
+## Verificación de esta entrega
+
+- Commits publicados: `88cafe4` (seguridad/documentación) y `b12f14b` (staging/monitoreo).
+- [Staging web](https://rancho-eats-git-staging-jhons-projects-2d167afe.vercel.app/administrador): Vercel Ready; puede solicitar acceso a la cuenta de Vercel.
+- [CI staging](https://github.com/mov1datc1/rancho_eats/actions/runs/39987977028) y [validación aislada](https://github.com/mov1datc1/rancho_eats/actions/runs/39988086510): success. CI de main también aprobada.
+- 34 pruebas JavaScript y compilación aprobadas. API de catálogo staging: HTTP 200, cero negocios, como corresponde a una base sin datos copiados. Falta poblarla con fixtures sintéticos.
+- Render `dep-dbdopc4s728c73fuv5k0`: live con b12f14b; `/healthz` devuelve healthy=true. `/metrics` devuelve 404 porque aún no se ha configurado el token/colector. No hay alertas automáticas enviándose.
+- No se publicaron APK/AAB nuevas ni se enviaron promociones/push reales durante esta configuración.
