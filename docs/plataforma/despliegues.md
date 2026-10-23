@@ -49,3 +49,7 @@ Pendiente: validar visualmente el nuevo flujo completo de campañas autenticado 
 ## 23/10 — permisos internos de base (051)
 
 Aplicada `051_internal_function_privileges.sql`: revoke explícito de helpers/procesadores de campañas para PUBLIC/anon/authenticated, admin RPC solo autenticadas con validación interna y defaults de funciones creadas por postgres sin acceso público automático. Se conservan rutas de las APK y worker. Prueba previa con ROLLBACK y verificación posterior `tests/security-privileges.sql` aprobadas; 31 pruebas JavaScript aprobadas. Sin envíos push ni cambios de pedidos. No hubo nueva APK ni despliegue web/worker. Migración, informe y mejora de CI quedan locales pendientes de commit/push. Ver `SEGURIDAD_CAPACIDAD_Y_ACTUALIZACIONES.md` para riesgos aún abiertos.
+
+## 23/10 — preparación de staging y monitoreo
+
+El commit `88cafe4` publicó la corrección 051 y la documentación previa; CI aprobada. Se creó Supabase persistente `pideya-staging` sin datos y ramas staging en los cuatro repositorios. Las previews de Vercel y secretos del entorno GitHub staging usan ese proyecto aislado. 052 de métricas agregadas aplicada primero en staging y después en producción, solo service_role. Ver `STAGING_VERSIONES_Y_MONITOREO.md` para preparación y limitaciones: Grafana/alertas, worker y APK de QA siguen pendientes.

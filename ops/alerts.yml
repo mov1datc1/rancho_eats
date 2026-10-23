@@ -1,0 +1,33 @@
+groups:
+  - name: pideya
+    rules:
+      - alert: PideyaMetricsUnavailable
+        expr: up{job="pideya-worker"} == 0
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: 'No se pueden consultar las métricas del trabajador'
+      - alert: PideyaSnapshotStale
+        expr: time() - pideya_snapshot_timestamp_seconds > 150
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 'La muestra de la base está atrasada'
+      - alert: PideyaDatabaseConnections
+        expr: pideya_db_connections / pideya_db_max_connections > 0.70
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Conexiones de PostgreSQL por encima del 70%'
+      - alert: PideyaOperationalQueueDelayed
+        expr: pideya_queue_oldest_operational_seconds > 30
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: 'Hay una notificación operativa esperando más de 30 segundos'
+      - alert: PideyaDeadNotifications
+        expr: pideya_queue_dead_last_hour > 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Existen notificaciones fallidas definitivamente en la última hora'

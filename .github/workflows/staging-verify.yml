@@ -1,0 +1,44 @@
+name: Verify staging isolation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: staging-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      PIDEYA_ENV: staging
+      PRODUCTION_SUPABASE_REF: ${{ vars.PRODUCTION_SUPABASE_REF }}
+      EXPECTED_SUPABASE_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Reject missing or production credentials
+        run: node scripts/release/environment.mjs
+      - run: npm ci
+      - run: node --test tests/*.test.cjs
+      - run: npm ci --prefix notification-worker
+      - run: npm test --prefix notification-worker
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-web-${{ github.sha }}
+          path: dist
+          retention-days: 7
+      - name: Verify staging database permissions
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          test -n "$STAGING_DATABASE_URL" || { echo 'Missing staging database connection'; exit 1; }
+          node scripts/release/check-db-target.mjs
+          psql "$STAGING_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f tests/security-privileges.sql

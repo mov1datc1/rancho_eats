@@ -44,3 +44,6 @@ if ('serviceWorker' in navigator) {
     }).catch(() => undefined);
   });
 }
+
+// A visible browser title distinguishes QA from the production application.
+if (import.meta.env.VITE_PIDEYA_ENV === 'staging') document.title = '[PRUEBAS] PideYa';

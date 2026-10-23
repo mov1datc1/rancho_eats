@@ -113,3 +113,7 @@ No prometer cero interrupciones: buscar cambios compatibles y medibles, con roll
 - [Supabase: entornos y migraciones](https://supabase.com/docs/guides/deployment/managing-environments).
 - [Expo: runtime y compatibilidad de actualizaciones](https://docs.expo.dev/eas-update/runtime-versions/).
 - [Expo: rollback de actualizaciones](https://docs.expo.dev/eas-update/rollbacks/).
+
+## Actualización posterior del 23/10
+
+El commit `88cafe4` ya publicó los cambios locales anteriores. Se creó staging Supabase y se conectaron previews/secrets aislados; consultar [el proceso actualizado](STAGING_VERSIONES_Y_MONITOREO.md). Esto no cierra por sí solo los riesgos de permisos, los ensayos de carga ni el circuito de entrega real.
