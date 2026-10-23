@@ -26,6 +26,7 @@ export function eligible(job, receipts, now = Date.now()) {
   if (job.event.kind === 'driver.assigned' && (job.current_driver_id !== job.event.driver_id || ['DELIVERED','CANCELLED','REJECTED'].includes(job.current_status))) return { state: 'expired', code: 'ASSIGNMENT_CHANGED' };
   if (job.event.kind === 'order.time_proposal' && job.current_status !== 'PENDING') return { state: 'expired', code: 'ORDER_ALREADY_HANDLED' };
   if (job.event.kind === 'marketing.campaign') {
+    if (job.marketing_target_valid === false) return { state: 'expired', code: 'AUDIENCE_CHANGED' };
     if (job.campaign_state === 'cancelled' || job.marketing_enabled === false) return { state: 'expired', code: 'MARKETING_DISABLED' };
     const hour = Number(new Intl.DateTimeFormat('en-GB', {timeZone:'America/Mexico_City',hour:'2-digit',hourCycle:'h23'}).format(new Date(now)));
     if (hour < 9 || hour >= 20) return { state: 'expired', code: 'QUIET_HOURS' };

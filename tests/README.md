@@ -7,3 +7,5 @@
 La prueba física está en docs/plataforma/pruebas.md. Los push requieren instalar las nuevas compilaciones y registrar dispositivos reales; compilar correctamente no prueba entrega de notificaciones.
 
 `admin-modules.sql` prueba catálogo cerrado por defecto, permisos de mapas/reportes, alta sin autoaprobación, verificación del pin, bloqueo de traslado con pedidos activos, límites de pedidos, reportes de abuso, restricción y revocación auditadas. Ejecutar únicamente en PostgreSQL desechable con auth/storage simulados, esquema y migraciones hasta 049. Todo el escenario termina en ROLLBACK; no usar datos reales.
+
+`intelligent-campaigns.sql` requiere migraciones hasta 050 en PostgreSQL desechable. Verifica segmentación por negocio, cancelados excluidos, frecuencia/gasto, privacidad, cobertura, preferencias, límites y programación. Los fixtures históricos desactivan triggers solo dentro de la transacción local que acaba en ROLLBACK. No usar en producción. `notification-worker/tests/worker.test.mjs` comprueba también la exclusión por cambio de audiencia después de encolar.

@@ -46,3 +46,21 @@ Anti-spam limita por cuenta autenticada: ocho pedidos en diez minutos y cuatro p
 - [Leaflet 1.9.4](https://leafletjs.com/reference.html).
 - [Política de tiles de OpenStreetMap](https://operations.osmfoundation.org/policies/tiles/): atribución visible, sin descarga masiva; el servicio público no ofrece SLA. `VITE_MAP_TILE_URL` permite cambiar de proveedor; adaptar también la atribución al proveedor contratado antes de hacerlo.
 - [Nominatim](https://operations.osmfoundation.org/policies/nominatim/): no se añadió autocompletado contra su servicio público. El alta nueva usa dirección, pin y GPS solicitado por el usuario.
+
+## Campañas por comportamiento — migración 050
+
+Desde Reportes se puede abrir Promociones conservando el negocio seleccionado. El alcance es ese negocio, o toda PideYa si no hay patrocinador. La segmentación utiliza exclusivamente pedidos DELIVERED asociados a `client_user_id`; no identifica clientes por nombre o teléfono. Una entrega histórica sin usuario no cuenta como historial identificable, y el panel muestra esa limitación.
+
+- Primera compra: cero entregas en el alcance.
+- Recuperación: al menos una entrega histórica y ninguna desde el umbral elegido (15, 30, 60, 90, 180 o 365 días).
+- Ocasionales: entre una compra y el umbral de frecuentes menos uno, dentro de la ventana.
+- Frecuentes: al menos el número configurado de entregas en la ventana.
+- Mayor gasto: subtotal de productos entregados por encima del mínimo, sin envío ni comisión.
+
+Calcular audiencia muestra cuentas con push, coincidencias y elegibles, junto con exclusiones. Las campañas patrocinadas requieren negocio activo, acceso público/piloto autorizado y dirección predeterminada guardada o última ubicación de entrega dentro del radio del negocio. Sin ubicación, se excluye; no es GPS actual ni garantía de acceso vial. También se excluyen cuentas restringidas, publicidad desactivada, pedidos/incidencias abiertos y límites de frecuencia. Las preferencias, cobertura y pertenencia al segmento vuelven a comprobarse al preparar y despachar cada envío. Los recibos de proveedor se siguen procesando aunque la persona ya haya comprado.
+
+Los límites siguen siendo una promoción cada 72 horas, dos en siete días, un dispositivo y horario CDMX 09–20. La vista previa es una estimación, no una reserva ni garantía de recepción; solo permite programar si existe audiencia elegible en ese momento. Las campañas antiguas también pasan por estas exclusiones. La audiencia `inactive30` ahora significa comprador que no ha vuelto, no incluye personas sin primera compra.
+
+El precio del patrocinio es referencia del acuerdo comercial, no cargo, factura ni pago recibido. Pedidos posteriores: pedidos entregados creados dentro de siete días de una notificación aceptada por el proveedor; cada pedido se asigna solo al contacto aceptado más reciente compatible con su negocio. Es asociación temporal, no prueba causal ni apertura/clic. No se implementaron descuentos automáticos, cupones ni una suscripción de cobro al negocio. La campaña mantiene texto y condiciones que el administrador debe acordar con el patrocinador.
+
+La investigación y el backlog priorizado están en [INVESTIGACION_DELIVERY_2023_2026.md](INVESTIGACION_DELIVERY_2023_2026.md).

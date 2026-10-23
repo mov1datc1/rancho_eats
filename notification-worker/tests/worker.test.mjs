@@ -127,3 +127,8 @@ test('marketing respects quiet hours, cancellation, opt out and order-independen
  assert.equal(eligible(j,false,Date.parse('2026-10-23T03:00:00Z')).code,'QUIET_HOURS');
 });
 test('campaign payload remains compatible with clients that only navigate order eventIds',()=>{const j=job();j.event.kind='marketing.campaign';j.event.campaign_id='campaign';j.event.order_id=null;const payload=messageFor(j);assert.equal(payload.data.eventId,undefined);assert.equal(payload.data.campaignId,'campaign');assert.equal(messageFor(job()).data.eventId,'event-1');});
+
+test('a purchase or service incident after queueing suppresses marketing at dispatch',()=>{
+ const j=job();j.event.kind='marketing.campaign';j.event.order_id=null;j.campaign_state='running';j.marketing_enabled=true;j.marketing_target_valid=false;
+ assert.equal(eligible(j,false,Date.parse('2026-10-22T18:00:00Z')).code,'AUDIENCE_CHANGED');
+});

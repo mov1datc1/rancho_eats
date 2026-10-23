@@ -1,0 +1,46 @@
+# Qué aprender de otras plataformas para PideYa
+
+Revisión: 22 de octubre de 2026. Ventana de interés: octubre de 2023 a octubre de 2026. Las fuentes distinguen anuncios de producto, documentación vigente y encuestas; un anuncio demuestra que existe una solución, no que el problema haya desaparecido. Los resultados estadounidenses no representan automáticamente Los Altos de Jalisco. Las propuestas siguientes son decisiones de producto para validar localmente, no funciones que se den por implementadas.
+
+## Hallazgos y decisiones
+
+| Problema / necesidad | Evidencia reciente | Aplicación a PideYa | Prioridad y comprobación |
+|---|---|---|---|
+| Dirección escrita que no coincide con el acceso real | Uber lanzó ubicación compartida para entregas en marzo de 2024, con duración limitada y posibilidad de apagarla [1]. | Mantener dirección + pin + referencia rural. Proponer fotografía opcional del acceso y punto de encuentro. No convertir señal perdida en abandono. Compartir GPS del cliente solo durante la entrega y con consentimiento. | P0. Probar tres ranchos con mala señal y medir incidencias de dirección por 100 entregas. El pin y la revisión del negocio ya existen; compartir GPS del cliente y foto son pendientes. |
+| Faltantes y reemplazos que el cliente no quería | Instacart simplificó las decisiones de reemplazo en octubre de 2025 a partir de preferencias del comprador [2]. Uber reforzó en septiembre de 2025 su revisión de problemas de frescura [3]. | Por producto: sustituto expresamente autorizado o retirar y recalcular. Una recomendación del sistema no equivale a autorización. Registrar cantidad/peso final y total de efectivo antes de salir. | P0 antes de abrir frutería/carnicería al público. Probar sustitución rechazada, silencio del cliente, diferencia de peso y eliminación del último artículo. Revisar también calidad, empaque y devolución. |
+| La app vende algo que ya no hay | Instacart anunció Store View y Second Store Check en marzo de 2025 para mejorar información de inventario y resolver faltantes [4]. | Empezar con agotado temporal y recordatorio de revisión del menú, no con inventario predictivo. No copiar por ahora la compra en segunda tienda: complica quién cobra, entrega y responde por el efectivo. | P0. Medir porcentaje de líneas retiradas, no solo pedidos cancelados. |
+| Promociones masivas poco relevantes | Uber presentó en septiembre de 2026 más herramientas para audiencias y recompra [5]. DoorDash documenta segmentación según compras y ausencia de compras recientes [6]. | Segmentos explícitos por negocio o plataforma; solo entregados, alcance geográfico, límites entre anunciantes y exclusión de incidencias. Mostrar tamaño antes de vender el patrocinio. | Implementado en migración 050 y CampaignStudio; requiere despliegue y pruebas indicados en el registro de entrega. No vender audiencia garantizada si la estimación es cero. |
+| Creer que cada compra posterior fue causada por un push | Uber diferencia medición incremental de resultados atribuidos en sus herramientas de septiembre de 2026 [5]. | Mostrar pedidos posteriores en siete días como asociación, sin llamarlos ventas incrementales. Próxima etapa: cupón verificable y grupo de control aleatorio persistente, cuando exista volumen suficiente. | P1. No prometer ROI ni cobrar por «venta causada» sin medición. |
+| Soporte lento o que no resuelve excepciones | DoorDash presentó mejoras de soporte al repartidor en octubre de 2024 [7]. Sus directrices de agosto de 2025 contemplan apelación de decisiones [8]. | Incidencia con motivo, responsable, siguiente acción, plazo y resolución visible en negocio/admin. Revisión humana de bloqueos y diferencias de efectivo. Un chatbot futuro debe escalar, no cerrar un caso por su cuenta. | P0. Simular cliente ausente, camino cerrado, avería, devolución y faltante de cambio; medir tiempo hasta resolución. |
+| Preferencias alimentarias que no llegan a cocina | Uber destacó solicitudes de alergias en la app del negocio y recibos en mayo de 2024 [9]. | Separar preferencias de solicitudes de alergias, resaltarlas y exigir que el negocio confirme si puede atenderlas. No inferir alergias de compras ni usarlas para publicidad. | P1. Diseño pendiente; no ofrecer garantía de ausencia de alérgenos. |
+| Una actualización rompe pedidos o inicio de sesión | DoorDash documentó despliegues guiados por métricas de salud en julio de 2024 [10]. | Publicar a pruebas internas, piloto de un pueblo y apertura gradual; vigilar cierres, login, creación, aceptación, push, GPS y conciliación. Tener versión anterior y mecanismo de desactivación de cada función. | P0. Las categorías piloto ya existen; faltan métricas de crash/ANR y un ensayo de rollback automatizado. |
+| Recomendaciones que no ayudan a decidir | Encuesta de DoorDash publicada en mayo de 2025: 52% de participantes estadounidenses estaban abiertos a recomendaciones basadas en pedidos previos [11]. | Primero favoritos, volver a pedir, listas reutilizables y disponibilidad real. No hace falta un modelo generativo para segmentar bien. | P1. Medir conversión de lista/recompra y abandono; validar con usuarios locales, sin trasladar el porcentaje a México. |
+| Efectivo sin trazabilidad o demasiado dinero en custodia | El informe anual 2025 de Uber reconoce efectivo en mercados como México y riesgos asociados [12]. | Mantener un ciclo de custodia: retiro, entrega/devolución, cobro, retorno y conciliación. Antes de ampliar rutas múltiples, probar límites de saldo y cierre con diferencias. | P0. No dar por disponible a un repartidor temporal solo porque marcó una entrega si todavía debe liquidar. |
+
+## Orden recomendado de trabajo
+
+1. **Antes del piloto abierto:** recorrido físico completo en Redmi, prueba sin señal, total final exacto en efectivo, rechazo por distancia, entrega devuelta y conciliación. Medir el tiempo de aceptación y las entregas inconclusas.
+2. **Piloto de crecimiento:** pocas campañas, negocios con capacidad para cumplir, segmento pequeño y tamaño comprobado. Comparar recompra, bajas de publicidad, cancelaciones e incidencias; parar promociones si empeora la operación.
+3. **Antes de abrir nuevas categorías:** medir faltantes y sustituciones por artículo; revisar peso/precio, empaques y reclamaciones. No liberar todas a la vez.
+4. **Con datos suficientes:** experimentos con grupo de control, cupones con condiciones verificables y resultados comerciales para patrocinadores. Después considerar recomendaciones más complejas.
+
+## Datos que aún debemos obtener en Los Altos
+
+Entrevistar clientes, negocios y repartidores de al menos tres pueblos: cobertura real, referencias rurales útiles, cambio disponible, tolerancia a esperas, teléfonos compartidos, notificaciones en Android con ahorro de batería y motivos para dejar de comprar. Registrar resultados sin convertir opiniones aisladas en porcentajes de toda la región.
+
+Métricas mínimas: aceptación p50/p90; entrega dentro del intervalo prometido; pedidos sin cierre; incidencias por 100 entregas; tiempo de resolución; diferencia de efectivo; disponibilidad de artículos; tasa de sustitución rechazada; clientes identificados/entregas; repetición a 30 días; publicidad aceptada por proveedor y bajas. No mezclar notificación aceptada con vista o leída. Datos históricos sin usuario o timestamps válidos deben quedar marcados como incompletos.
+
+## Fuentes
+
+1. Uber, 14/03/2024: [Live Location Sharing](https://www.uber.com/de/de/newsroom/live-location-sharing-eats/).
+2. Instacart, 16/10/2025: [Replacements experience](https://company.instacart.com/shopper-community/providing-a-more-straightforward-replacements-experience).
+3. Uber, 25/09/2025: [Smarter Shopping, Bigger Savings](https://www.uber.com/us/en/newsroom/grocery-product/).
+4. Instacart, 27/03/2025: [Store View y Second Store Check](https://company.instacart.com/updates/introducing-store-view-and-second-store-check).
+5. Uber, septiembre de 2026: [Ads & Offers tools](https://merchants.ubereats.com/ca/en/resources/articles/product-highlights/sept-2026-ads-offers-updates/). Disponibilidad regional variable.
+6. DoorDash, documentación consultada el 22/10/2026: [Targeting Overview](https://help.doordash.com/en-us/advertising/article/targeting-overview). No se presupone fecha de lanzamiento.
+7. DoorDash, 16/10/2024: [Making the Dashing Experience Even Better](https://about.doordash.com/en-us/news/making-the-dashing-experience-even-better).
+8. DoorDash, actualización 05/08/2025: [Community Guidelines](https://help.doordash.com/s/community-guidelines?language=en_US).
+9. Uber, 28/05/2024: [Features for consumers with food allergies](https://www.uber.com/us/en/newsroom/introducing-new-features-for-consumers-with-food-allergies/).
+10. DoorDash Engineering, 15/07/2024: [Metric-aware rollouts](https://careersatdoordash.com/blog/app-health-through-metric-aware-rollouts/).
+11. DoorDash, 15/05/2025: [Delivery Trends Report](https://about.doordash.com/en-us/news/doordash-delivery-trends-report). Encuesta estadounidense, no estudio de PideYa.
+12. Uber, informe anual 2025 publicado en 2026: [Annual Report](https://s23.q4cdn.com/407969754/files/doc_events/2026/May/04/2025-Annual-Report.pdf). No se extrapolan sus proporciones de efectivo a PideYa.

@@ -246,6 +246,7 @@ export default function App() {
   const [restaurantsMenuOpen, setRestaurantsMenuOpen] = useState(false);
   const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('dashboard');
   const [selectedZones, setSelectedZones] = useState<string[]>(['Aranda centro', 'El Saucito']);
+  const [campaignShop,setCampaignShop]=useState('');
   const [adminPanel, setAdminPanel] = useState<AdminPanelKey>('dashboard');
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
 
@@ -4192,7 +4193,7 @@ PideYa
 
                   {adminPanel === 'antispam' && <AbuseControl />}
                   {adminPanel === 'mapa' && <LiveOperationsMap />}
-                  {adminPanel === 'reportes' && <BusinessReports />}
+                  {adminPanel === 'reportes' && <BusinessReports onCampaign={id=>{setCampaignShop(id);setAdminPanel('promociones');}} />}
 
                   {adminPanel === 'comisiones' && (
                     <>
@@ -4265,7 +4266,7 @@ PideYa
                     </>
                   )}
 
-                  {adminPanel === 'promociones' && <CampaignStudio />}
+                  {adminPanel === 'promociones' && <CampaignStudio initialShop={campaignShop} />}
 
                   {adminPanel === 'operacion' && <><DeliveryOperations /><OperationsControl /></>}
                   {adminPanel === 'categorias' && <CategoryManager />}
