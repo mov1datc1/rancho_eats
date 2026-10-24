@@ -1,3 +1,4 @@
+import TechnicalIncidents from './components/admin/TechnicalIncidents';
 import BusinessPinInput from './components/map/BusinessPinInput';
 import {validMexicoPoint} from './components/map/InteractiveMap';
 import CategoryManager from './components/admin/CategoryManager';
@@ -43,7 +44,7 @@ import type {
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'comisiones' | 'config';
-type AdminPanelKey = 'operacion' | 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config' | 'categorias';
+type AdminPanelKey = 'incidencias' | 'operacion' | 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config' | 'categorias';
 
 type CommissionTier = { up_to: number | null; fee: number };
 type CommissionConfig = { tiers: CommissionTier[]; cutoffFrom: string; cutoffTo: string };
@@ -4050,6 +4051,7 @@ PideYa
                   { key: 'antispam', label: ' Anti-spam' },
                   { key: 'mapa', label: ' Mapa en vivo' },
                   { key: 'reportes', label: ' Reportes' },
+                  { key: 'incidencias', label: ' Incidencias técnicas' },
                   { key: 'categorias', label: ' Categorías' },
                   { key: 'operacion', label: ' Operación' },
                   { key: 'config', label: ' Config' }
@@ -4098,6 +4100,7 @@ PideYa
                       { key: 'antispam', label: ' Anti-spam' },
                       { key: 'mapa', label: ' Mapa en vivo' },
                       { key: 'reportes', label: ' Reportes' },
+                  { key: 'incidencias', label: ' Incidencias técnicas' },
                       { key: 'categorias', label: ' Categorías' },
                   { key: 'operacion', label: ' Operación' },
                       { key: 'config', label: ' Config' }
@@ -4193,6 +4196,7 @@ PideYa
 
                   {adminPanel === 'antispam' && <AbuseControl />}
                   {adminPanel === 'mapa' && <LiveOperationsMap />}
+                  {adminPanel === 'incidencias' && <TechnicalIncidents />}
                   {adminPanel === 'reportes' && <BusinessReports onCampaign={id=>{setCampaignShop(id);setAdminPanel('promociones');}} />}
 
                   {adminPanel === 'comisiones' && (
