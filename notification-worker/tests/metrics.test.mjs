@@ -7,7 +7,7 @@ test('metrics require an explicit strong bearer token',()=>{
  assert.equal(authorizedMetrics('Bearer undefined',undefined),false);
 });
 test('exporter fails closed on missing, stale, or invalid samples and omits extra data',()=>{
- const s={sampled_at:1000,db_connections:5,db_max_connections:60,queue_pending:0,queue_oldest_operational_seconds:0,queue_dead_1h:0,queue_expired_leases:0,secret:'do-not-export'};
+ const s={technical_errors_1h:3,technical_affected_users_1h:2,technical_incidents_open:1,checkout_errors_15m:2,sampled_at:1000,db_connections:5,db_max_connections:60,queue_pending:0,queue_oldest_operational_seconds:0,queue_dead_1h:0,queue_expired_leases:0,secret:'do-not-export'};
  const result=renderMetrics(s,1000000);assert.match(result,/pideya_db_connections 5/);assert.ok(!result.includes('do-not-export'));
  assert.throws(()=>renderMetrics(s,1200000));assert.throws(()=>renderMetrics(null));
  assert.throws(()=>renderMetrics({...s,db_connections:NaN},1000000));

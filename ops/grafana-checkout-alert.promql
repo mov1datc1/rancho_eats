@@ -1,0 +1,1 @@
+max(pideya_checkout_errors_last_15m{scrape_job="pideya-worker-production"}) >= 5
