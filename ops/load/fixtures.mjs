@@ -37,8 +37,10 @@ if(mode==='seed'){
 }else{
  const r=JSON.parse(fs.readFileSync(file,'utf8'));
  if(r.ref!==ref||!r.category.startsWith('QA_LOAD_')||r.businesses.length!==100)throw Error('Invalid fixture receipt');
- const existing=ok(await db.from('restaurants').select('id,email,owner_id,type').in('id',r.businesses));
- if(existing.some(b=>b.owner_id!==r.owner||b.type!==r.category||b.email!==`load-${b.id}@example.invalid`))throw Error('Fixture ownership mismatch');
+ // Since 068 the e-mail lives in restaurant_private; older databases still have it in restaurants.
+ const existing=ok(await db.from('restaurants').select('id,email,owner_id,type,restaurant_private(email)').in('id',r.businesses));
+ const mail=b=>(Array.isArray(b.restaurant_private)?b.restaurant_private[0]?.email:b.restaurant_private?.email)??b.email;
+ if(existing.some(b=>b.owner_id!==r.owner||b.type!==r.category||mail(b)!==`load-${b.id}@example.invalid`))throw Error('Fixture ownership mismatch');
  if(mode==='activate'){
   ok(await db.from('restaurants').update({location_verified_at:new Date().toISOString(),location_verified_by:r.owner}).in('id',r.businesses));
   ok(await db.from('restaurants').update({status:'ACTIVE',is_open:true}).in('id',r.businesses));

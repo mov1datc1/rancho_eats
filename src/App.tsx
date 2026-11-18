@@ -142,9 +142,14 @@ const activityDotClass: Record<string, string> = {
   REGISTRATION_PENDING: 'dot-amber'
 };
 
-const nextStatusByOrderState: Record<string, Array<'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED'>> = {
+type MerchantNextStatus = 'ACCEPTED' | 'REJECTED' | 'READY' | 'ON_THE_WAY' | 'DELIVERED';
+// READY mirrors the merchant app: platform drivers can only take (and the merchant can only
+// hand over) a prepared order once it is READY.
+const nextStatusByOrderState: Record<string, MerchantNextStatus[]> = {
   PENDING: ['ACCEPTED', 'REJECTED'],
-  ACCEPTED: ['ON_THE_WAY', 'DELIVERED'],
+  ACCEPTED: ['READY', 'ON_THE_WAY', 'DELIVERED'],
+  PREPARING: ['READY', 'ON_THE_WAY', 'DELIVERED'],
+  READY: ['ON_THE_WAY', 'DELIVERED'],
   ON_THE_WAY: ['DELIVERED']
 };
 
@@ -1665,7 +1670,7 @@ export default function App() {
 
   const updateRestaurantOrderStatus = async (
     order: Order,
-    nextStatus: 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED',
+    nextStatus: MerchantNextStatus,
     reason?: string
   ) => {
     if (!selectedRestaurant) return;
@@ -1706,6 +1711,9 @@ export default function App() {
           } else if (nextStatus === 'REJECTED') {
             title = '❌ Pedido Rechazado';
             body = `Tu pedido en ${selectedRestaurant.name} no pudo ser procesado.`;
+          } else if (nextStatus === 'READY') {
+            title = '🥡 Pedido listo';
+            body = `Tu pedido en ${selectedRestaurant.name} está listo.`;
           } else if (nextStatus === 'ON_THE_WAY') {
             title = '🛵 ¡Tu pedido va en camino!';
             body = `El repartidor de ${selectedRestaurant.name} va para tu ubicación.`;
@@ -1729,7 +1737,7 @@ export default function App() {
 
   const handleQuickOrderStatusChange = async (order: Order, rawStatus: string) => {
     if (!rawStatus) return;
-    const status = rawStatus as 'ACCEPTED' | 'REJECTED' | 'ON_THE_WAY' | 'DELIVERED';
+    const status = rawStatus as MerchantNextStatus;
 
     if (status === 'REJECTED') {
       const reason = window.prompt('Motivo de rechazo:', 'No alcanzamos a cubrir esa zona por ahora.');
@@ -3668,6 +3676,11 @@ PideYa
                               ✗ Rechazar por distancia
                             </button>
                             <button className="btn" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'ACCEPTED', 'Pedido aceptado, habrá demora en entrega.')}>🕒 Aprobado, me tardaré</button>
+                          </div>
+                        )}
+                        {['ACCEPTED', 'PREPARING'].includes(order.status) && (
+                          <div className="order-actions">
+                            <button className="btn green" disabled={actionLoading} onClick={() => void updateRestaurantOrderStatus(order, 'READY')}>✅ Pedido listo</button>
                           </div>
                         )}
                         <div className="order-actions" style={{ marginTop: '.4rem' }}>
