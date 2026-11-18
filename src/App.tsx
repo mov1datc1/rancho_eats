@@ -2981,12 +2981,14 @@ PideYa
 
       const { data, error } = await supabase
         .from('restaurants')
-        .select('id,name,status,email,phone,owner_id,created_at')
+        .select('id,name,status,email,phone,owner_id,created_at,restaurant_private(email)')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      const visibleRows = (data ?? []) as Array<Pick<Restaurant, 'id' | 'name' | 'status' | 'email' | 'phone' | 'owner_id' | 'created_at'>>;
+      // Login e-mail lives in restaurant_private (068); only owner/superadmin can read it.
+      const visibleRows = ((data ?? []) as Array<Pick<Restaurant, 'id' | 'name' | 'status' | 'email' | 'phone' | 'owner_id' | 'created_at'> & { restaurant_private?: { email: string | null } | Array<{ email: string | null }> | null }>)
+        .map(({ restaurant_private: priv, ...row }) => ({ ...row, email: (Array.isArray(priv) ? priv[0]?.email : priv?.email) ?? row.email }));
 
       const { count: pendingVisibleCount } = await supabase
         .from('restaurants')
@@ -3553,7 +3555,7 @@ PideYa
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>⚙️ Configuración del restaurante</div>
                 <p className="orders-mode-note" style={{ marginTop: 0 }}>Este panel conserva el mismo correo de registro del restaurante.</p>
                 <div className="frow">
-                  <div className="fg"><label>Correo de acceso</label><input className="fi" value={selectedRestaurant?.email ?? ''} readOnly /></div>
+                  <div className="fg"><label>Correo de acceso</label><input className="fi" value={adminUser?.email ?? selectedRestaurant?.email ?? ''} readOnly /></div>
                   <div className="fg"><label>Nueva contraseña</label><input className="fi" type="password" placeholder="Mínimo 8 caracteres" value={configPassword} onChange={(e) => setConfigPassword(e.target.value)} /></div>
                 </div>
                 <button className="btn ghost" onClick={updateRestaurantPassword} disabled={actionLoading}>Cambiar contraseña</button>

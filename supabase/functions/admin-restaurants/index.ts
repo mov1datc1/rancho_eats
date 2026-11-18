@@ -85,7 +85,7 @@ serve(async (req) => {
 
       const { data: restaurant, error: restaurantError } = await serviceClient
         .from('restaurants')
-        .select('id,name,owner_id,email')
+        .select('id,name,owner_id')
         .eq('id', body.restaurant_id)
         .maybeSingle();
 
@@ -99,7 +99,6 @@ serve(async (req) => {
 
       const { error: authError } = await serviceClient.auth.admin.updateUserById(restaurant.owner_id, {
         password: nextPassword,
-        email: restaurant.email ?? undefined,
         email_confirm: true
       });
 
