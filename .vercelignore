@@ -1,0 +1,17 @@
+node_modules/
+.git/
+.vercel/
+dist/
+.env
+.env.*
+**/.env
+**/.env.*
+**/.sentryclirc
+**/sentry.properties
+**/*.pem
+**/*.key
+**/*.jks
+**/.credentials.md
+notification-worker/
+supabase/
+tests/

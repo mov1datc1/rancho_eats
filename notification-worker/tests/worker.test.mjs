@@ -132,3 +132,10 @@ test('a purchase or service incident after queueing suppresses marketing at disp
  const j=job();j.event.kind='marketing.campaign';j.event.order_id=null;j.campaign_state='running';j.marketing_enabled=true;j.marketing_target_valid=false;
  assert.equal(eligible(j,false,Date.parse('2026-10-22T18:00:00Z')).code,'AUDIENCE_CHANGED');
 });
+
+test('delivery offers expire when reassigned or after the offer deadline',()=>{
+ const offer=job();offer.event.audience='driver';offer.event.kind='driver.offered';offer.event.driver_id='driver-a';offer.endpoint.driver_id='driver-a';offer.current_driver_id='driver-a';
+ assert.equal(eligible(offer,false,now),null);
+ offer.current_driver_id='driver-b';assert.equal(eligible(offer,false,now).code,'ASSIGNMENT_CHANGED');
+ offer.current_driver_id='driver-a';offer.event.expires_at=new Date(now).toISOString();assert.equal(eligible(offer,false,now).code,'TTL_EXPIRED');
+});

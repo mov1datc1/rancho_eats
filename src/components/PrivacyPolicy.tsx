@@ -4,12 +4,13 @@ export default function PrivacyPolicy() {
   return (
     <div style={{ maxWidth: '800px', margin: '40px auto', padding: '20px', fontFamily: 'system-ui, sans-serif', lineHeight: '1.6', color: '#2D3748' }}>
       <h1 style={{ color: '#1A202C' }}>Aviso de Privacidad de Pide Ya</h1>
-      <p><strong>Última actualización:</strong> 25 de mayo de 2026</p>
+      <p><strong>Última actualización:</strong> 29 de octubre de 2026</p>
 
       <h2>1. Información que recopilamos</h2>
       <p>En <strong>Pide Ya</strong> recopilamos la siguiente información personal para brindar y mejorar nuestros servicios:</p>
       <ul>
         <li><strong>Información de cuenta:</strong> Nombre, número de teléfono, correo electrónico y dirección de entrega.</li>
+        <li><strong>Solicitudes de negocios:</strong> Nombre del negocio y de contacto, WhatsApp, correo, ciudad o localidad, categoría, forma de reparto y los comentarios que compartes en el formulario.</li>
         <li><strong>Datos de ubicación:</strong> Recopilamos datos de ubicación precisos (GPS) para mostrarte establecimientos cercanos, calcular costos de envío y permitir que los repartidores entreguen tu pedido de manera exacta.</li>
         <li><strong>Información de uso:</strong> Historial de pedidos y preferencias dentro de la aplicación.</li>
       </ul>
@@ -20,6 +21,7 @@ export default function PrivacyPolicy() {
         <li>Procesar y entregar tus pedidos de comida o productos.</li>
         <li>Comunicarnos contigo respecto al estado de tu orden.</li>
         <li>Proporcionar soporte al cliente.</li>
+        <li>Evaluar solicitudes de incorporación de negocios y contactar a quienes solicitan información para dar seguimiento al alta.</li>
         <li>Mejorar el rendimiento y la seguridad de la aplicación.</li>
       </ul>
 

@@ -1,0 +1,17 @@
+PideYa — Pedido entregado
+Pizzería de ejemplo
+PY-DEMO01 · 30 de octubre de 2026, 3:30 p.m.
+
+1 × Pizza Margherita mediana: $189.00
+2 × Agua mineral: $40.00
+
+Productos: $229.00
+Envío: $25.00
+Servicio PideYa: $15.00
+Total final: $269.00 MXN
+Forma de pago: Efectivo
+
+Consulta el pedido en el historial de tu cuenta en la app.
+https://www.pide-ya.app/
+
+Este es un resumen de tu pedido, sin promociones.

@@ -1,0 +1,18 @@
+{
+  "mode": "built-in image_gen",
+  "purpose": "Original illustrative food photography; no claims of actual partner restaurants",
+  "assets": [
+    {
+      "asset": "public/landing/antojos-1280.webp",
+      "prompt": "Use case: ads-marketing. Asset type: premium restaurant delivery landing page hero photography for PideYa, a local food ordering app in Los Altos de Jalisco, Mexico. Create an editorial commercial food photograph, landscape 3:2 composition, no lettering, no logos, no watermark, no phones or UI. On a warm off-white stone restaurant table, one gorgeous handmade Neapolitan margherita pizza with airy blistered crust, vivid tomato, melted mozzarella and fresh basil, beside one juicy double smash cheeseburger in a shiny brioche bun with caramelized onions and a small serving of golden crispy fries. Natural appetizing imperfect textures, genuine food styling, tiny crumbs, parchment paper, subtle sage green linen napkin, small ramekin of red salsa. Warm late afternoon sunlight, soft rich shadows, close 3/4 overhead camera angle, premium magazine art direction, lively and welcoming, photorealistic. Food fills the frame with pizza to upper right and burger in lower left. Warm cream, tomato red and agave teal accents. No people, no hands, no alcoholic drinks, no packaging brands. Make the food look extraordinarily delicious while believable."
+    },
+    {
+      "asset": "public/landing/pizzeria-800.webp",
+      "prompt": "Use case: ads-marketing. Asset type: editorial photograph for PideYa local restaurant landing page. Portrait 4:5 image, warm authentic small pizzeria in Mexico. Foreground freshly baked wood-fired margherita pizza on a wooden counter, blistered airy crust, bubbling mozzarella, vivid tomato and basil, a pizza peel subtly visible; background charming tile oven in soft focus with a warm flame, inviting soft evening light. Tactile rich food textures, candid magazine food photography, premium natural art direction. Warm terracotta and cream with subtle green accents. No people, no hands, no words, no signage, no brands, no watermarks. Not a collage. Appetizing believable restaurant food, not illustration."
+    },
+    {
+      "asset": "public/landing/hamburguesa-800.webp",
+      "prompt": "Use case: ads-marketing. Asset type: editorial photograph for PideYa food delivery landing page. Portrait 4:5 image. Close-up juicy double smash cheeseburger with crispy edges, melted cheddar, glossy golden brioche bun, pickle and onion, accompanied by crunchy fries on pale cream parchment on the counter of a cozy local burger restaurant in Mexico. Slightly low three-quarter camera angle, burger fills the foreground, warm softly lit grill restaurant in blurred background, a subtle agave teal wall accent. Beautiful natural appetizing texture, soft side lighting, premium magazine photography with realistic imperfect food styling. No people, no hands, no text, no logos, no watermarks. Not a collage."
+    }
+  ]
+}

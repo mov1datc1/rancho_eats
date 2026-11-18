@@ -1,0 +1,25 @@
+-- Isolated local PostgreSQL fixture; never run on an application database.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+DO $$BEGIN CREATE ROLE anon;EXCEPTION WHEN duplicate_object THEN NULL;END$$;
+DO $$BEGIN CREATE ROLE authenticated;EXCEPTION WHEN duplicate_object THEN NULL;END$$;
+DO $$BEGIN CREATE ROLE service_role BYPASSRLS;EXCEPTION WHEN duplicate_object THEN NULL;END$$;
+CREATE SCHEMA auth;
+CREATE TABLE auth.users(id uuid PRIMARY KEY,email text);
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+GRANT USAGE ON SCHEMA public,auth TO anon,authenticated,service_role;
+CREATE SCHEMA cron;
+CREATE FUNCTION cron.schedule(text,text,text) RETURNS bigint LANGUAGE sql AS $$SELECT 1::bigint$$;
+CREATE TABLE restaurants(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid REFERENCES auth.users,name text);
+CREATE TABLE driver_profiles(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),restaurant_id uuid REFERENCES restaurants,name text,phone text,vehicle_label text,last_location_at timestamptz,access_token text UNIQUE,is_active boolean DEFAULT true);
+CREATE TYPE public.order_status AS ENUM('PENDING','ACCEPTED','PREPARING','PICKING','ADJUSTED','READY','ON_THE_WAY','DELIVERED','CANCELLED','REJECTED');
+CREATE TABLE orders(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),restaurant_id uuid REFERENCES restaurants,client_user_id uuid REFERENCES auth.users,order_number integer GENERATED ALWAYS AS IDENTITY,client_name text,client_phone text,client_lat float,client_lng float,client_location_note text,subtotal numeric,commission_amount numeric,delivery_amount numeric,driver_last_lat float,driver_last_lng float,driver_location_accuracy_m float,driver_location_updated_at timestamptz,items jsonb DEFAULT '[]',total numeric DEFAULT 100,adjusted_total numeric,payment_method text DEFAULT 'cash',delivery_type text DEFAULT 'delivery',status public.order_status DEFAULT 'READY',delivery_driver_id uuid REFERENCES driver_profiles,delivery_driver_name text,delivery_driver_phone text,delivery_assigned_at timestamptz,delivery_started_at timestamptz,delivered_at timestamptz,cancelled_at timestamptz,cancelled_by text,rejection_reason text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now(),response_deadline timestamptz DEFAULT now()+interval '10 minutes',accepted_at timestamptz,promised_from timestamptz,promised_to timestamptz,proposal_expires_at timestamptz,client_confirmed_at timestamptz,delivery_photo_url text,notification_revision bigint DEFAULT 1);
+CREATE TABLE operation_audit(id bigserial PRIMARY KEY,order_id uuid REFERENCES orders,actor uuid,action text,details jsonb,created_at timestamptz DEFAULT clock_timestamp());
+CREATE TABLE order_incidents(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,cause text,description text);
+CREATE FUNCTION public.can_manage_business(p_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT EXISTS(SELECT 1 FROM restaurants WHERE id=p_id AND owner_id=auth.uid())$$;
+CREATE FUNCTION public.report_order_incident(p_order_id uuid,p_cause text,p_description text,p_driver_token text DEFAULT NULL) RETURNS uuid LANGUAGE plpgsql AS $$DECLARE i uuid;BEGIN INSERT INTO order_incidents(order_id,cause,description) VALUES(p_order_id,p_cause,p_description) RETURNING id INTO i;RETURN i;END$$;
+CREATE TABLE notification_routes(capture_enabled boolean);INSERT INTO notification_routes VALUES(true);
+CREATE TABLE notification_events(order_id uuid,revision bigint,driver_id uuid,kind text,expires_at timestamptz DEFAULT now()+interval '1 hour');
+CREATE TABLE dispatch_test_notices(order_id uuid,kind text,title text);
+CREATE FUNCTION public.enqueue_order_notice(uuid,bigint,text,uuid,uuid,text,text,text,smallint DEFAULT 1) RETURNS void LANGUAGE sql AS $$INSERT INTO dispatch_test_notices VALUES($1,$6,$7);INSERT INTO notification_events(order_id,revision,driver_id,kind) VALUES($1,$2,$5,$6)$$;
+GRANT SELECT,UPDATE ON orders TO authenticated;
+GRANT SELECT ON restaurants,driver_profiles TO authenticated;

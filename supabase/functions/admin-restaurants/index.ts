@@ -1,22 +1,28 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS'
-};
+// Explicit origin allowlist (same as staff-auth); never '*'.
+const origins = new Set(['https://www.pide-ya.app', 'https://pide-ya.app', 'http://localhost:5173', 'http://127.0.0.1:5173']);
+let corsHeaders: Record<string, string> = {};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
     headers: {
       ...corsHeaders,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store'
     }
   });
 
 serve(async (req) => {
+  const origin = req.headers.get('origin') || '';
+  corsHeaders = {
+    'Access-Control-Allow-Origin': origins.has(origin) ? origin : 'https://www.pide-ya.app',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin'
+  };
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -79,7 +85,7 @@ serve(async (req) => {
 
       const { data: restaurant, error: restaurantError } = await serviceClient
         .from('restaurants')
-        .select('id,name,owner_id,email')
+        .select('id,name,owner_id')
         .eq('id', body.restaurant_id)
         .maybeSingle();
 
@@ -88,9 +94,11 @@ serve(async (req) => {
         return json({ error: 'Restaurant has no linked owner user' }, 400);
       }
 
+      const {data:protectedAccount,error:protectionError}=await serviceClient.rpc('staff_account_protected',{p_user:restaurant.owner_id});
+      if(protectionError||protectedAccount)return json({error:'Staff passwords require the staff recovery flow'},403);
+
       const { error: authError } = await serviceClient.auth.admin.updateUserById(restaurant.owner_id, {
         password: nextPassword,
-        email: restaurant.email ?? undefined,
         email_confirm: true
       });
 

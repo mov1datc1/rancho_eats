@@ -1,13 +1,25 @@
-import React from 'react';
+import React, {lazy,Suspense} from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import App from './App';
-import './index.css';
+import { BrowserRouter,Navigate,useLocation } from 'react-router-dom';
+import LandingPage from './components/landing/LandingPage';
+import RouteBoundary from './components/RouteBoundary';
+import {resolveAppRoute} from './lib/appRoutes';
+import './shell.css';
+const App=lazy(()=>import('./App'));
+const AdminEntry=lazy(()=>import('./components/admin/AdminEntry'));
+const StaffPassword=lazy(()=>import('./components/admin/StaffPassword'));
+function RootRoute(){
+  const location=useLocation();
+  const route=resolveAppRoute(location.pathname);
+  if(route.redirect)return <Navigate replace to={{pathname:route.canonical,search:location.search,hash:location.hash}}/>;
+  if(route.kind==='missing')return <main className="route-message"><h1>No encontramos esta página</h1><p>Elige dónde quieres continuar.</p><a href="/administrador">Abrir administración</a><a href="/">Ir al inicio</a></main>;
+  return <RouteBoundary key={location.pathname}>{route.kind==='landing'?<LandingPage/>:<Suspense fallback={<div className="route-loading" role="status">Abriendo PideYa…</div>}>{location.pathname==='/administrador/acceso'?<StaffPassword/>:location.pathname==='/administrador'?<AdminEntry/>:<App/>}</Suspense>}</RouteBoundary>;
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <App />
+      <RootRoute />
     </BrowserRouter>
   </React.StrictMode>
 );

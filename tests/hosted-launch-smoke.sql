@@ -1,0 +1,38 @@
+-- STAGING ONLY. All synthetic fixtures and resulting outbox records roll back.
+-- Run only after migrations 053–057. No external notification is committed.
+BEGIN;
+SET LOCAL statement_timeout='20s';
+CREATE FUNCTION pg_temp.release_assert(ok boolean,msg text) RETURNS void LANGUAGE plpgsql AS $$BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'Release smoke: %',msg;END IF;END;$$;
+INSERT INTO auth.users(id,email) VALUES('f0000000-0000-0000-0000-000000000001','release-owner@example.invalid'),('f0000000-0000-0000-0000-000000000002','release-client@example.invalid'),('f0000000-0000-0000-0000-000000000003','release-admin@example.invalid');
+INSERT INTO admin_profiles(id,email) VALUES('f0000000-0000-0000-0000-000000000003','release-admin@example.invalid');
+INSERT INTO app_categories(name,emoji,flow_type,is_active,release_mode) VALUES('QA_RELEASE_20261029','QA','prepared',true,'public');
+INSERT INTO restaurants(id,name,phone,email,type,owner_id,lat,lng,is_open,status,delivery_radius_km,address) VALUES('f0000000-0000-0000-0000-000000000010','QA release','3300000001','release-shop@example.invalid','QA_RELEASE_20261029','f0000000-0000-0000-0000-000000000001',21,-102,true,'ACTIVE',30,'Domicilio QA de pruebas');
+SELECT set_config('request.jwt.claim.sub','f0000000-0000-0000-0000-000000000003',true);
+SELECT admin_verify_business_location('f0000000-0000-0000-0000-000000000010','Domicilio QA de pruebas',21,-102,'QA release fixture');
+UPDATE restaurants SET status='ACTIVE',is_open=true WHERE id='f0000000-0000-0000-0000-000000000010';
+INSERT INTO menu_items(id,restaurant_id,name,price,available) VALUES('f0000000-0000-0000-0000-000000000012','f0000000-0000-0000-0000-000000000010','QA item',100,true);
+INSERT INTO driver_profiles(id,restaurant_id,name,phone,access_token,is_active) VALUES('f0000000-0000-0000-0000-000000000020','f0000000-0000-0000-0000-000000000010','QA driver','3300000003','release-smoke-disposable-driver-code',true);
+INSERT INTO app_settings(setting_key,value) VALUES('commission_config','{"commission_tiers":[{"up_to":null,"fee":0}]}') ON CONFLICT(setting_key) DO UPDATE SET value=excluded.value;
+SELECT set_config('request.jwt.claim.sub','f0000000-0000-0000-0000-000000000002',true);
+SELECT pg_temp.release_assert((quote_delivery('f0000000-0000-0000-0000-000000000010','delivery',21,-102)->>'fee')::numeric=20,'base tariff');
+INSERT INTO orders(id,restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,subtotal,commission_amount,delivery_amount,total,status,payment_method,delivery_type) VALUES('f0000000-0000-0000-0000-000000000030','f0000000-0000-0000-0000-000000000010','f0000000-0000-0000-0000-000000000002','QA client','3300000002',21,-102,'[{"id":"f0000000-0000-0000-0000-000000000012","price":100,"quantity":1}]',100,0,20,120,'PENDING','cash','delivery');
+SELECT pg_temp.release_assert((SELECT (delivery_pricing_snapshot->>'fee')::numeric=20 FROM orders WHERE id='f0000000-0000-0000-0000-000000000030'),'price snapshot');
+SELECT set_config('request.jwt.claim.sub','f0000000-0000-0000-0000-000000000001',true);
+UPDATE orders SET status='ACCEPTED' WHERE id='f0000000-0000-0000-0000-000000000030';
+SELECT driver_set_shift('release-smoke-disposable-driver-code',clock_timestamp()+interval '8 hours');
+SELECT merchant_offer_delivery('f0000000-0000-0000-0000-000000000030','f0000000-0000-0000-0000-000000000020',null,90,null);
+SELECT driver_reply_delivery('release-smoke-disposable-driver-code',(SELECT id FROM delivery_offers WHERE order_id='f0000000-0000-0000-0000-000000000030'),true,null);
+SELECT pg_temp.release_assert(NOT EXISTS(SELECT 1 FROM delivery_cycles WHERE order_id='f0000000-0000-0000-0000-000000000030'),'acceptance is not custody');
+UPDATE orders SET status='READY' WHERE id='f0000000-0000-0000-0000-000000000030';
+SELECT merchant_confirm_handover((SELECT id FROM delivery_offers WHERE order_id='f0000000-0000-0000-0000-000000000030'));
+SELECT driver_take_order('release-smoke-disposable-driver-code','f0000000-0000-0000-0000-000000000030');
+UPDATE driver_profiles SET is_active=false WHERE id='f0000000-0000-0000-0000-000000000020';
+SELECT pg_temp.release_assert(EXISTS(SELECT 1 FROM driver_get_session('release-smoke-disposable-driver-code')),'revoked driver can resolve existing custody');
+SELECT driver_complete_cash('release-smoke-disposable-driver-code','f0000000-0000-0000-0000-000000000030',120,null);
+SELECT pg_temp.release_assert(EXISTS(SELECT 1 FROM delivery_cycles WHERE order_id='f0000000-0000-0000-0000-000000000030' AND closed_at IS NULL),'delivery keeps cash custody');
+SELECT merchant_settle_cycle((SELECT id FROM delivery_cycles WHERE order_id='f0000000-0000-0000-0000-000000000030'),120,'QA exact cash',false);
+SELECT pg_temp.release_assert(NOT EXISTS(SELECT 1 FROM delivery_cycles WHERE order_id='f0000000-0000-0000-0000-000000000030' AND closed_at IS NULL),'exact settlement closes custody');
+SELECT pg_temp.release_assert(NOT EXISTS(SELECT 1 FROM driver_get_session('release-smoke-disposable-driver-code')),'revoked driver cannot reopen session after settling');
+SELECT pg_temp.release_assert(NOT has_function_privilege('anon','public.admin_save_delivery_pricing(jsonb,bigint)','execute'),'admin-only tariff');
+ROLLBACK;
+SELECT 'hosted_launch_smoke_passed_and_rolled_back' AS result;

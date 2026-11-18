@@ -1,0 +1,6 @@
+label_replace((1 - (max(up{scrape_job="pideya-worker-production"}) or vector(0))), "motivo", "worker_inaccesible", "", "")
+or label_replace(((time() - max(pideya_snapshot_timestamp_seconds{scrape_job="pideya-worker-production"})) > bool 150), "motivo", "muestra_obsoleta", "", "")
+or label_replace((max(pideya_queue_oldest_operational_seconds{scrape_job="pideya-worker-production"}) > bool 30), "motivo", "cola_retrasada", "", "")
+or label_replace((max(pideya_queue_dead_last_hour{scrape_job="pideya-worker-production"}) > bool 0), "motivo", "notificaciones_fallidas", "", "")
+or label_replace((max(pideya_queue_expired_leases{scrape_job="pideya-worker-production"}) > bool 0), "motivo", "leases_vencidos", "", "")
+or label_replace(((max(pideya_db_connections{scrape_job="pideya-worker-production"}) / max(pideya_db_max_connections{scrape_job="pideya-worker-production"})) > bool 0.7), "motivo", "conexiones_altas", "", "")

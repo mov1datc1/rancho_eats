@@ -246,3 +246,13 @@ Build y TypeScript de web correctos; TypeScript del repartidor correcto; cinco p
 La primera revisión rural fue documental. La continuación añadió la vista operativa web descrita arriba; los flujos de turnos, caja, expedientes y sustituciones siguen pendientes. No se cambiaron cron, políticas ni datos remotos.
 
 Referencias consultadas para faltantes: [Instacart: reemplazos elegidos por el cliente](https://docs.instacart.com/storefront/learn_about_your_storefront/cart_and_checkout/replacements/) y [Uber Eats: opciones ante faltantes](https://help.uber.com/en/merchants-and-restaurants/article/how-do-grocery-order-replacements-work-?nodeId=036167a4-b1c3-47ce-88ab-e422eb6645d5). La regla de PideYa es una decisión específica para este piloto en efectivo; no copia automáticamente las políticas de esos servicios.
+
+## Actualización 25 de octubre: pausa de domicilio y revisión del punto
+
+Preparado localmente: control independiente de domicilio manteniendo recogida, aviso anticipado al cliente y comprobación en servidor. El negocio puede abrir el punto del pedido en Google Maps antes de aceptar, salvo recogida, y rechazar por acceso/distancia o falta de repartidor. Sin nuevas compilaciones mientras se prueba Negocios 1.4.1.
+
+[Reglas, pruebas y orden de despliegue](plataforma/DISPONIBILIDAD_ENTREGAS.md).
+
+## Revisión de temporales bajo demanda — 25 octubre
+
+[Arquitectura y avance local de repartidores temporales](plataforma/REPARTIDORES_TEMPORALES.md): alta aprobada por negocio, disponibilidad decidida por el repartidor, hora final visible y cierre condicionado a resolver entrega/efectivo. El panel ahora distingue libres de custodios y muestra propios/temporales con fin de turno. La solicitud pública y la identidad verificada permanecen pendientes; no confundir este avance con un piloto temporal completo. Sin nuevas compilaciones.
