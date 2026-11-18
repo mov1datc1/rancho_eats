@@ -1,4 +1,8 @@
 {
+  "redirects": [
+    { "source": "/administracion", "destination": "/administrador", "permanent": true },
+    { "source": "/admin", "destination": "/administrador", "permanent": true }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",

@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const dir=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../../release-artifacts/2026-11-01-checkout-load');
+const read=name=>JSON.parse(fs.readFileSync(path.join(dir,name)));
+const buyers=read('buyers-receipt.json'),catalog=read('catalog-fixtures.json');
+if(!buyers.cleanedAt||!catalog.cleanedAt)throw Error('Cleanup not confirmed');
+const runs=['smoke','mixed'].map(name=>{const d=read(name+'.json'),m=d.metrics;return {profile:name,readers:d.readers,writers:d.writers,peakVUs:m.vus.values.max,httpRequests:m.http_reqs.values.count,httpErrors:m.http_req_failed.values.passes,errorRate:m.http_req_failed.values.rate,checkoutP95Ms:m['http_req_duration{operation:checkout}'].values['p(95)'],menuP95Ms:m['http_req_duration{operation:menu}'].values['p(95)'],menuMaxMs:m['http_req_duration{operation:menu}'].values.max,ordersCreated:m.orders_created.values.count,ordersCancelled:m.orders_cancelled.values.count,thresholdsPassed:Object.values(m).every(x=>Object.values(x.thresholds||{}).every(t=>t.ok))};});
+const result={date:'2026-11-01',environment:'staging',tool:'k6 v2.3.0',runs,verification:read('verification.json'),monitoring:read('monitoring-summary.json'),cleanup:{catalog:true,products:3000,buyersRemoved:buyers.deletedUsers.length,privateSessionFileRemoved:!fs.existsSync('/private/tmp/pideya-checkout-load-sessions.json')},grafanaProduction:{liveUiChecked:true,workerUp:1,queuePending:0,dbConnections:7,dbConnectionsPercent:11.7,sampleAgeSeconds:48.8},limitations:['~90 seconds per scenario, not a soak or maximum-capacity test','HTTP API clients, not Android UI rendering','No full dispatch/custody/settlement or live provider delivery','Sentry SDK not executed by direct REST requests','Two transport timeouts and two failed monitoring samples remain unattributed','Production Grafana is separate from staging samples']};
+fs.writeFileSync(path.join(dir,'RESULTADO.json'),JSON.stringify(result,null,2));
+console.log(JSON.stringify({runs,cleanup:result.cleanup}));

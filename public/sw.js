@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pideya-v4';
+const CACHE_NAME = 'pideya-v6-admin-routes';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.svg', '/icon-512.svg'];
 
 const isHttpRequest = (url) => url.protocol === 'http:' || url.protocol === 'https:';
@@ -100,16 +100,25 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', copy)).catch(() => undefined);
+          if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
+            const copy = response.clone();
+            event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', copy)).catch(() => undefined));
+          }
           return response;
         })
-        .catch(() => caches.match(event.request).then((match) => match || caches.match('/index.html')))
+        .catch(async () => {
+          try {
+            const shell = await caches.match('/index.html');
+            if (shell) return shell;
+          } catch { /* Storage can be unavailable in private browsing. */ }
+          return new Response('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PideYa · Sin conexión</title><body style="margin:40px 24px;font:16px/1.6 system-ui;color:#1e293b"><h1>No pudimos conectar</h1><p>Revisa tu conexión y vuelve a abrir PideYa.</p><a href="/administrador">Reintentar administración</a></body></html>', {status:503,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
+        })
     );
     return;
   }
 
-  // Cache-first for same-origin static assets.
+  // Cache only static assets, never same-origin API/auth responses.
+  if (!['script','style','image','font','manifest','worker'].includes(event.request.destination) && !APP_SHELL.includes(requestUrl.pathname)) return;
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -121,6 +130,6 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => undefined);
         return response;
       });
-    })
+    }).catch(() => new Response('', {status:503,headers:{'Cache-Control':'no-store'}}))
   );
 });

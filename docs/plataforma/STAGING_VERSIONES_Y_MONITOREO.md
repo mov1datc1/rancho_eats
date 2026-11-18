@@ -63,13 +63,24 @@ El supervisor incorpora `/metrics` compatible con Prometheus:
 - Consulta agregados cada 60 segundos, no por cada visitante del endpoint; si la muestra está vieja responde 503.
 - La salud del proceso continúa en `/healthz`; no se reinicia el envío porque Grafana esté caído.
 
-`ops/prometheus.example.yml` y `ops/alerts.yml` preparan la conexión y alarmas. **No hay Grafana ni receptor de alertas configurados todavía.** El exporter queda deshabilitado hasta guardar un token fuerte en Render y en el recolector. No publicar la clave service_role en la web/admin ni usarla como token de `/metrics`.
+`ops/prometheus.example.yml` y `ops/alerts.yml` preparan la conexión y alarmas. **Grafana Cloud recibe métricas de Supabase y del worker de producción.** El exporter está habilitado con token exclusivo. El contacto `PideYa - Jonathan` usa `agenciamovidatci@gmail.com`, está vinculado a la regla del worker y pasó la prueba de envío de Grafana. No publicar la clave service_role en la web/admin ni usarla como token de `/metrics`.
+
+### Grafana conectado el 23/10/2026
+
+- Instancia: `lankynuthatch225.grafana.net`. Integración oficial Supabase 1.2.0 instalada.
+- Trabajo `pideya-production`, habilitado, proyecto `apnxrbuqwgnfuelqjjfy`, recopilación cada minuto. El propietario autorizó explícitamente guardar la credencial privilegiada del proyecto en este destino. No se incluyó su valor en documentación ni Git.
+- Prueba de conexión exitosa y trabajo guardado. El tablero de diagnóstico mostró aproximadamente 1,06 K muestras recopiladas y series reales de CPU y latencia SQL/HTTP. Esto confirma ingesta; no demuestra capacidad de carga ni entrega de notificaciones.
+- [Tablero del proyecto](https://lankynuthatch225.grafana.net/d/d402d94e-da48-48e4-ac52-53026b96a000/supabase-project).
+- [Diagnóstico de recopilación](https://lankynuthatch225.grafana.net/d/metricsendpoint-scrape-overview/metrics-endpoint-scrape-overview).
+- Al iniciar, el tablero tuvo filtros vacíos y `No data` antes de llegar las primeras muestras. Revisar primero el diagnóstico de recopilación y luego actualizar el tablero; no crear trabajos duplicados.
+- Tras llegar las muestras y actualizar, el tablero seleccionó el trabajo/proyecto y mostró CPU, memoria y disco. Algunos paneles permanecen N/A/No data. Las primeras tasas de CPU necesitan historial suficiente y contraste con Supabase antes de concluir saturación; no usar una lectura inicial aislada para dimensionar.
+- Pendientes: comprobar un ciclo completo de disparo y recuperación, y decidir límites/costos al terminar el trial. No se contrató un plan de pago.
 
 Para activarlo:
 
-1. Crear espacio de Grafana Cloud o servicio equivalente y elegir responsable/receptor de alertas.
-2. Conectar Supabase por su integración oficial Metrics API. Guardar su clave en el gestor del recolector; nunca en React ni GitHub artifacts.
-3. Generar token aleatorio exclusivo para `/metrics`, guardarlo como `METRICS_TOKEN` en Render y en Grafana/Prometheus. Desplegar y comprobar 401 sin token, 200 con token, muestra reciente y series numéricas.
+1. Espacio de Grafana Cloud creado. Responsable/receptor: contacto `PideYa - Jonathan`, correo `agenciamovidatci@gmail.com`.
+2. Supabase de producción conectado por su integración oficial Metrics API. Su credencial se guardó en Grafana con autorización; nunca debe estar en React ni GitHub artifacts.
+3. Token exclusivo de `/metrics` configurado en Render y Grafana; despliegue live y comprobaciones 401/200 aprobadas. Rotarlo en ambos destinos cuando corresponda.
 4. Importar las reglas incluidas, asignar entorno, probar una alerta controlada y su recuperación. Los archivos por sí solos no envían avisos.
 5. Incorporar crash/ANR y errores de checkout móvil mediante una herramienta de errores con eliminación de datos personales. Sentry es una opción; no se configuró en esta entrega.
 
@@ -115,5 +126,18 @@ Preparar datos sintéticos representativos y presupuesto; correr 10 → 50 → 1
 - [Staging web](https://rancho-eats-git-staging-jhons-projects-2d167afe.vercel.app/administrador): Vercel Ready; puede solicitar acceso a la cuenta de Vercel.
 - [CI staging](https://github.com/mov1datc1/rancho_eats/actions/runs/39987977028) y [validación aislada](https://github.com/mov1datc1/rancho_eats/actions/runs/39988086510): success. CI de main también aprobada.
 - 34 pruebas JavaScript y compilación aprobadas. API de catálogo staging: HTTP 200, cero negocios, como corresponde a una base sin datos copiados. Falta poblarla con fixtures sintéticos.
-- Render `dep-dbdopc4s728c73fuv5k0`: live con b12f14b; `/healthz` devuelve healthy=true. `/metrics` devuelve 404 porque aún no se ha configurado el token/colector. No hay alertas automáticas enviándose.
+- Verificación inicial de Render: `dep-dbdopc4s728c73fuv5k0` live con b12f14b. La activación posterior de métricas y su nuevo deploy están registrados abajo; el envío de prueba al destinatario vigente fue aceptado por Grafana.
 - No se publicaron APK/AAB nuevas ni se enviaron promociones/push reales durante esta configuración.
+
+## Worker conectado y correo configurado — 23/10/2026
+
+- Render: deploy `dep-dbdqhf3l550s7381t70g` verificado **live**, commit `d5caae3`. Se añadió únicamente `METRICS_TOKEN`, sin reemplazar las demás variables.
+- Verificación HTTP: `/healthz` 200 healthy=true; `/metrics` sin token 401 y con token 200; siete series numéricas, muestra reciente, 7/60 conexiones y cola vacía en la comprobación puntual.
+- Grafana: trabajo `pideya-worker-production`, cada minuto, HTTPS + Bearer exclusivo; conexión exitosa y trabajo guardado. Integración Metrics Endpoint 1.0.0 instalada.
+- Regla `PideYa - Salud operativa del worker` (UID `ag24csyfgvz7kf`), carpeta PideYa Operaciones: evaluación cada minuto, condición >0 sostenida 2 minutos, seis instancias diferenciadas por `motivo`. Todas normales en la previsualización con datos reales.
+- Señales: worker inaccesible (incluye serie ausente), muestra >150 s, cola operativa >30 s, fallos definitivos en última hora >0, leases vencidos >0, conexiones >70%. La regla Cloud usa 2 minutos para todas las señales; `ops/alerts.yml` sigue siendo una plantilla alternativa de Prometheus con tiempos distintos, no la configuración activa.
+- Consulta reproducible: `ops/grafana-worker-alert.promql`. Tablero reproducible: `ops/grafana-worker-dashboard.json`, datasource `grafanacloud-prom`.
+- Destinatario vigente por indicación del propietario: `agenciamovidatci@gmail.com`. Contacto `PideYa - Jonathan` guardado y seleccionado en la regla `ag24csyfgvz7kf`; estado Normal con seis instancias. Grafana confirmó “Test notification sent successfully”. Esto confirma aceptación del envío, no lectura/recepción final en la bandeja. El destinatario anterior fue descartado y no se envió ninguna invitación de acceso.
+- No se detuvo el worker ni se crearon pedidos/notificaciones falsas para probar alarmas. La previsualización normal no sustituye una prueba completa de disparo, recuperación y recepción del correo.
+
+Tablero operativo importado y verificado con ocho indicadores: [PideYa · Notificaciones y base de datos](https://lankynuthatch225.grafana.net/d/pideya-worker-production). Consulta normal: worker accesible=1, pendientes/fallos/leases=0 y conexiones=7 (11,7%). Son lecturas puntuales, no una prueba de carga.

@@ -1,6 +1,7 @@
 export type RestaurantStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED';
 
 export interface Restaurant {
+  delivery_enabled?: boolean;
   id: string;
   name: string;
   description: string | null;

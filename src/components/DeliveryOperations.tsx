@@ -1,3 +1,4 @@
+import ConsoleTable from './admin/ConsoleTable';
 import {useEffect,useMemo,useState} from 'react';
 import {statusLabel} from '../lib/utils';
 import {supabase} from '../lib/supabase';
@@ -54,7 +55,7 @@ export default function DeliveryOperations({restaurantId}:{restaurantId?:string}
  <p>Métricas calculadas en servidor sobre todos los pedidos del período y filtros. Promedio salida → entrega: {serverMetrics?.average_delivery_minutes??'Sin datos'} min. Promedio de aceptación: {serverMetrics?.average_response_minutes??'Sin datos'} min. Efectivo pendiente: ${serverMetrics?.cash_pending??'—'}.</p>
 
  <label><input type="checkbox" checked={alertsOnly} onChange={e=>{setAlertsOnly(e.target.checked);setPage(0);}}/> Solo con alertas</label>
- <div className="admin-orders-table-wrap"><table className="spam-table"><thead><tr><th>Pedido</th><th>Negocio / categoría</th><th>Estado</th><th>Alerta / motivo registrado</th><th>Última ubicación</th></tr></thead><tbody>{visible.slice(page*25,page*25+25).map(o=><tr key={o.id}><td>#{o.order_number}</td><td>{byId.get(o.restaurant_id)?.name??'No disponible'} / {byId.get(o.restaurant_id)?.type??'—'}</td><td>{statusLabel(o.status)}</td><td>{[...operationalAlerts(o,sampledAt),o.rejection_reason].filter(Boolean).join(' · ')||'Sin alerta ni motivo registrado'}</td><td>{o.driver_location_updated_at?new Date(o.driver_location_updated_at).toLocaleString():'Sin registro'}</td></tr>)}</tbody></table></div>
+ <ConsoleTable><table><thead><tr><th>Pedido</th><th>Negocio / categoría</th><th>Estado</th><th>Alerta / motivo registrado</th><th>Última ubicación</th></tr></thead><tbody>{visible.slice(page*25,page*25+25).map(o=><tr key={o.id}><td>#{o.order_number}</td><td>{byId.get(o.restaurant_id)?.name??'No disponible'} / {byId.get(o.restaurant_id)?.type??'—'}</td><td>{statusLabel(o.status)}</td><td>{[...operationalAlerts(o,sampledAt),o.rejection_reason].filter(Boolean).join(' · ')||'Sin alerta ni motivo registrado'}</td><td>{o.driver_location_updated_at?new Date(o.driver_location_updated_at).toLocaleString():'Sin registro'}</td></tr>)}</tbody></table></ConsoleTable>
  {!visible.length&&<p>Sin pedidos para estos filtros.</p>}<button className="btn ghost" disabled={page===0} onClick={()=>setPage(x=>x-1)}>Anterior</button> <span>Página {page+1}</span> <button className="btn ghost" disabled={(page+1)*25>=visible.length} onClick={()=>setPage(x=>x+1)}>Siguiente</button>
  <p>Las alertas no cancelan pedidos. Consulta el expediente y registra la recepción de efectivo en Incidencias y liquidaciones.</p></>}
  </article>;

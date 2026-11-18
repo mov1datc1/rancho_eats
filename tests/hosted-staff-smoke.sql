@@ -1,0 +1,86 @@
+-- STAGING ONLY. All synthetic fixtures and resulting outbox records roll back.
+-- Run after migration 061. Includes the existing complete delivery/commission cycle; everything rolls back.
+ROLLBACK;
+BEGIN;
+SET LOCAL statement_timeout='20s';
+CREATE FUNCTION pg_temp.release_assert(ok boolean,msg text) RETURNS void LANGUAGE plpgsql AS $$BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'Release smoke: %',msg;END IF;END;$$;
+INSERT INTO auth.users(id,email) VALUES('f2000000-0000-0000-0000-000000000001','commission-owner@example.invalid'),('f2000000-0000-0000-0000-000000000002','commission-client@example.invalid'),('f2000000-0000-0000-0000-000000000003','commission-admin@example.invalid');
+INSERT INTO admin_profiles(id,email) VALUES('f2000000-0000-0000-0000-000000000003','commission-admin@example.invalid');
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('f6100000-0000-0000-0000-000000000001','staff-ops-rollback@example.invalid',now()),('f6100000-0000-0000-0000-000000000002','staff-finance-rollback@example.invalid',now()),('f6100000-0000-0000-0000-000000000003','staff-commercial-rollback@example.invalid',now());
+SELECT set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000003',true);
+SELECT staff_grant_existing('staff-ops-rollback@example.invalid','Operación QA','operations');
+SELECT staff_grant_existing('staff-finance-rollback@example.invalid','Finanzas QA','finance');
+SELECT staff_grant_existing('staff-commercial-rollback@example.invalid','Comercial QA','commercial');
+SELECT pg_temp.release_assert(NOT EXISTS(SELECT 1 FROM admin_profiles WHERE id IN('f6100000-0000-0000-0000-000000000001','f6100000-0000-0000-0000-000000000002','f6100000-0000-0000-0000-000000000003')),'limited roles have no full-admin membership');
+INSERT INTO app_categories(name,emoji,flow_type,is_active,release_mode) VALUES('QA_COMMISSIONS_20261029','QA','prepared',true,'public');
+INSERT INTO restaurants(id,name,phone,email,type,owner_id,lat,lng,is_open,status,delivery_radius_km,address) VALUES('f2000000-0000-0000-0000-000000000010','QA release','3300000001','commission-shop@example.invalid','QA_COMMISSIONS_20261029','f2000000-0000-0000-0000-000000000001',21,-102,true,'ACTIVE',30,'Domicilio QA de pruebas');
+SELECT set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000003',true);
+SELECT admin_verify_business_location('f2000000-0000-0000-0000-000000000010','Domicilio QA de pruebas',21,-102,'QA release fixture');
+UPDATE restaurants SET status='ACTIVE',is_open=true WHERE id='f2000000-0000-0000-0000-000000000010';
+INSERT INTO menu_items(id,restaurant_id,name,price,available) VALUES('f2000000-0000-0000-0000-000000000012','f2000000-0000-0000-0000-000000000010','QA item',100,true);
+INSERT INTO driver_profiles(id,restaurant_id,name,phone,access_token,is_active) VALUES('f2000000-0000-0000-0000-000000000020','f2000000-0000-0000-0000-000000000010','QA driver','3300000003','commission-smoke-disposable-driver-code',true);
+INSERT INTO app_settings(setting_key,value) VALUES('commission_config','{"commission_tiers":[{"up_to":null,"fee":8}]}') ON CONFLICT(setting_key) DO UPDATE SET value=excluded.value;
+SELECT set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000002',true);
+SELECT pg_temp.release_assert((quote_delivery('f2000000-0000-0000-0000-000000000010','delivery',21,-102)->>'fee')::numeric=20,'base tariff');
+INSERT INTO orders(id,restaurant_id,client_user_id,client_name,client_phone,client_lat,client_lng,items,subtotal,commission_amount,delivery_amount,total,status,payment_method,delivery_type) VALUES('f2000000-0000-0000-0000-000000000030','f2000000-0000-0000-0000-000000000010','f2000000-0000-0000-0000-000000000002','QA client','3300000002',21,-102,'[{"id":"f2000000-0000-0000-0000-000000000012","price":100,"quantity":1}]',100,8,20,128,'PENDING','cash','delivery');
+SELECT pg_temp.release_assert((SELECT (delivery_pricing_snapshot->>'fee')::numeric=20 FROM orders WHERE id='f2000000-0000-0000-0000-000000000030'),'price snapshot');
+SELECT set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000001',true);
+SELECT set_config('request.jwt.claim.sub','f6100000-0000-0000-0000-000000000001',true);
+SELECT staff_update_order('f2000000-0000-0000-0000-000000000030','PENDING','ACCEPTED','Aceptado por operación en QA');
+SELECT set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000001',true);
+SELECT driver_set_shift('commission-smoke-disposable-driver-code',clock_timestamp()+interval '8 hours');
+SELECT merchant_offer_delivery('f2000000-0000-0000-0000-000000000030','f2000000-0000-0000-0000-000000000020',null,90,null);
+SELECT driver_reply_delivery('commission-smoke-disposable-driver-code',(SELECT id FROM delivery_offers WHERE order_id='f2000000-0000-0000-0000-000000000030'),true,null);
+SELECT pg_temp.release_assert(NOT EXISTS(SELECT 1 FROM delivery_cycles WHERE order_id='f2000000-0000-0000-0000-000000000030'),'acceptance is not custody');
+UPDATE orders SET status='READY' WHERE id='f2000000-0000-0000-0000-000000000030';
+SELECT merchant_confirm_handover((SELECT id FROM delivery_offers WHERE order_id='f2000000-0000-0000-0000-000000000030'));
+SELECT driver_take_order('commission-smoke-disposable-driver-code','f2000000-0000-0000-0000-000000000030');
+UPDATE driver_profiles SET is_active=false WHERE id='f2000000-0000-0000-0000-000000000020';
+SELECT pg_temp.release_assert(EXISTS(SELECT 1 FROM driver_get_session('commission-smoke-disposable-driver-code')),'revoked driver can resolve existing custody');
+SELECT driver_complete_cash('commission-smoke-disposable-driver-code','f2000000-0000-0000-0000-000000000030',128,null);
+SELECT pg_temp.release_assert(EXISTS(SELECT 1 FROM delivery_cycles WHERE order_id='f2000000-0000-0000-0000-000000000030' AND closed_at IS NULL),'delivery keeps cash custody');
+SELECT merchant_settle_cycle((SELECT id FROM delivery_cycles WHERE order_id='f2000000-0000-0000-0000-000000000030'),128,'QA exact cash',false);
+SELECT pg_temp.release_assert(NOT EXISTS(SELECT 1 FROM delivery_cycles WHERE order_id='f2000000-0000-0000-0000-000000000030' AND closed_at IS NULL),'exact settlement closes custody');
+SELECT pg_temp.release_assert(NOT EXISTS(SELECT 1 FROM driver_get_session('commission-smoke-disposable-driver-code')),'revoked driver cannot reopen session after settling');
+SELECT pg_temp.release_assert(NOT has_function_privilege('anon','public.admin_save_delivery_pricing(jsonb,bigint)','execute'),'admin-only tariff');
+SELECT set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000001',true);
+SELECT pg_temp.release_assert((commission_statement('f2000000-0000-0000-0000-000000000010',(now() AT TIME ZONE 'America/Mexico_City')::date,(now() AT TIME ZONE 'America/Mexico_City')::date)->'balances'->0->>'due')::numeric=8,'merchant commission excludes delivery');
+DO $$DECLARE merchant jsonb;admin jsonb;receipt jsonb;retry jsonb;BEGIN
+ merchant:=commission_statement('f2000000-0000-0000-0000-000000000010',(now() AT TIME ZONE 'America/Mexico_City')::date,(now() AT TIME ZONE 'America/Mexico_City')::date);
+ PERFORM set_config('request.jwt.claim.sub','f6100000-0000-0000-0000-000000000002',true);
+ admin:=admin_commission_statement((now() AT TIME ZONE 'America/Mexico_City')::date,(now() AT TIME ZONE 'America/Mexico_City')::date,'f2000000-0000-0000-0000-000000000010');
+ PERFORM pg_temp.release_assert(merchant->'balances'=admin->'balances','identical balances');
+ receipt:=admin_receive_commissions('f2000000-0000-0000-0000-000000000010',(now() AT TIME ZONE 'America/Mexico_City')::date,(now() AT TIME ZONE 'America/Mexico_City')::date,8,'Prueba transaccional QA','Gestor QA','cash','f2000000-0000-0000-0000-000000000090');
+ retry:=admin_receive_commissions('f2000000-0000-0000-0000-000000000010',(now() AT TIME ZONE 'America/Mexico_City')::date,(now() AT TIME ZONE 'America/Mexico_City')::date,8,'Prueba transaccional QA','Gestor QA','cash','f2000000-0000-0000-0000-000000000090');
+ PERFORM pg_temp.release_assert(receipt=retry,'idempotent receipt');
+ PERFORM set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000001',true);
+ PERFORM pg_temp.release_assert(commission_receipt((receipt->>'id')::uuid)=receipt,'merchant sees same receipt');
+ PERFORM pg_temp.release_assert((commission_statement('f2000000-0000-0000-0000-000000000010',(now() AT TIME ZONE 'America/Mexico_City')::date,(now() AT TIME ZONE 'America/Mexico_City')::date)->'balances'->0->>'due')::numeric=0,'merchant balance updated');
+ PERFORM pg_temp.release_assert(receipt->>'collection_frequency'='monthly','default monthly');
+END $$;
+
+SELECT set_config('request.jwt.claim.sub','f6100000-0000-0000-0000-000000000001',true);
+SET LOCAL ROLE authenticated;
+DO $$BEGIN
+ IF NOT staff_can('orders.write') OR staff_can('commissions.collect') THEN RAISE EXCEPTION 'operation permissions';END IF;
+ BEGIN PERFORM admin_commission_statement(current_date,current_date);RAISE EXCEPTION 'operation saw finances';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'not_authorized' THEN RAISE;END IF;END;
+ BEGIN PERFORM count(*) FROM staff_members;RAISE EXCEPTION 'staff enumeration allowed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;
+ BEGIN PERFORM staff_grant_existing('staff-commercial-rollback@example.invalid','Escalation','administrator');RAISE EXCEPTION 'escalation allowed';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'not_authorized' THEN RAISE;END IF;END;
+END $$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub','f6100000-0000-0000-0000-000000000002',true);
+SET LOCAL ROLE authenticated;
+DO $$BEGIN
+ IF NOT staff_can('commissions.collect') OR staff_can('orders.write') THEN RAISE EXCEPTION 'finance permissions';END IF;
+ BEGIN PERFORM staff_workspace('orders',current_date,current_date);RAISE EXCEPTION 'finance read unrelated orders';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'not_authorized' THEN RAISE;END IF;END;
+END $$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub','f2000000-0000-0000-0000-000000000003',true);
+SELECT staff_update_member('f6100000-0000-0000-0000-000000000002','Finanzas QA','finance',false,1);
+SELECT set_config('request.jwt.claim.sub','f6100000-0000-0000-0000-000000000002',true);
+SET LOCAL ROLE authenticated;
+DO $$BEGIN IF staff_can('commissions.collect') OR(staff_my_access()->>'active')::boolean THEN RAISE EXCEPTION 'suspension ineffective';END IF;END$$;
+RESET ROLE;
+
+ROLLBACK;
+SELECT 'hosted_staff_smoke_passed_and_rolled_back' AS result;

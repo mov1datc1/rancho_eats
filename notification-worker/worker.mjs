@@ -23,7 +23,7 @@ export function eligible(job, receipts, now = Date.now()) {
   if (job.event.audience === 'driver' ? job.endpoint.driver_id !== job.event.driver_id : job.endpoint.user_id !== job.event.user_id) return { state: 'expired', code: 'OWNER_CHANGED' };
   if (Date.parse(job.event.expires_at) <= now) return { state: 'expired', code: 'TTL_EXPIRED' };
   if (['order.created','order.reminder'].includes(job.event.kind) && job.current_status !== 'PENDING') return { state: 'expired', code: 'ORDER_ALREADY_HANDLED' };
-  if (job.event.kind === 'driver.assigned' && (job.current_driver_id !== job.event.driver_id || ['DELIVERED','CANCELLED','REJECTED'].includes(job.current_status))) return { state: 'expired', code: 'ASSIGNMENT_CHANGED' };
+  if (['driver.assigned','driver.offered'].includes(job.event.kind) && (job.current_driver_id !== job.event.driver_id || ['DELIVERED','CANCELLED','REJECTED'].includes(job.current_status))) return { state: 'expired', code: 'ASSIGNMENT_CHANGED' };
   if (job.event.kind === 'order.time_proposal' && job.current_status !== 'PENDING') return { state: 'expired', code: 'ORDER_ALREADY_HANDLED' };
   if (job.event.kind === 'marketing.campaign') {
     if (job.marketing_target_valid === false) return { state: 'expired', code: 'AUDIENCE_CHANGED' };

@@ -12,6 +12,10 @@ dist
 notification-worker/.env*
 !notification-worker/.env.example
 
+# Transactional email secrets
+email-worker/.env*
+!email-worker/.env.example
+
 # Generated TypeScript build cache
 *.tsbuildinfo
 .vercel

@@ -1,3 +1,11 @@
+import BusinessEnquiries from './components/admin/BusinessEnquiries';
+import StaffSettings from './components/admin/StaffSettings';
+import {useStaffAccess} from './lib/staffAccess';
+import './index.css';
+import AdminNavigation,{ADMIN_PANELS,type AdminPanelKey} from './components/admin/AdminNavigation';
+import DeliveryPricing from './components/admin/DeliveryPricing';
+import DeliveryDispatchControl from './components/DeliveryDispatchControl';
+import DriverOffersControl from './components/DriverOffersControl';
 import TechnicalIncidents from './components/admin/TechnicalIncidents';
 import BusinessPinInput from './components/map/BusinessPinInput';
 import {validMexicoPoint} from './components/map/InteractiveMap';
@@ -8,6 +16,7 @@ import AbuseControl from './components/admin/AbuseControl';
 import OrderExplorer from './components/admin/OrderExplorer';
 import CommissionLedger from './components/admin/CommissionLedger';
 import CampaignStudio from './components/admin/CampaignStudio';
+import PromotionsStudio from './components/admin/PromotionsStudio';
 import OperationsControl from './components/OperationsControl';
 import DeliveryOperations from './components/DeliveryOperations';
 import { normalizeOrderItems, escapeHtml } from './lib/orderItems';
@@ -44,7 +53,6 @@ import type {
 
 type TabKey = 'cliente' | 'seguimiento' | 'restaurante' | 'registro' | 'admin';
 type RestaurantPanelKey = 'dashboard' | 'resumen' | 'pedidos' | 'drivers' | 'menu' | 'delivery' | 'comisiones' | 'config';
-type AdminPanelKey = 'incidencias' | 'operacion' | 'dashboard' | 'restaurantes' | 'comisiones' | 'pedidos' | 'antispam' | 'mapa' | 'reportes' | 'promociones' | 'config' | 'categorias';
 
 type CommissionTier = { up_to: number | null; fee: number };
 type CommissionConfig = { tiers: CommissionTier[]; cutoffFrom: string; cutoffTo: string };
@@ -170,16 +178,6 @@ const buildDriverAccessUrl = (accessToken: string) => {
   return `${window.location.origin}/repartidor?token=${accessToken}`;
 };
 
-const getRestaurantDeliveryFeeByDistance = (restaurant: Restaurant | null, distanceKm: number | null) => {
-  if (!restaurant || !Number.isFinite(Number(distanceKm)) || distanceKm == null) return 0;
-  const d = Number(distanceKm);
-  if (d <= 10) return Math.max(0, Number(restaurant.delivery_fee_0_10 ?? 0));
-  if (d <= 15) return Math.max(0, Number(restaurant.delivery_fee_10_15 ?? 0));
-  if (d <= 20) return Math.max(0, Number(restaurant.delivery_fee_15_20 ?? 0));
-  if (d <= 30) return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
-  return Math.max(0, Number(restaurant.delivery_fee_20_30 ?? 0));
-};
-
 const isRpcMissingError = (error: unknown) => {
   const err = error as { code?: string; message?: string; details?: string } | null;
   if (!err) return false;
@@ -243,6 +241,7 @@ const baseForm = {
 };
 
 export default function App() {
+  const staffAccess=useStaffAccess();
   const [activeTab, setActiveTab] = useState<TabKey>('cliente');
   const [restaurantsMenuOpen, setRestaurantsMenuOpen] = useState(false);
   const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelKey>('dashboard');
@@ -419,12 +418,25 @@ export default function App() {
   const derivedPendingFromOverview = useMemo(() => adminRestaurants.filter((item) => item.status === 'PENDING'), [adminRestaurants]);
   const cartCount = useMemo(() => cartItems.reduce((acc, item) => acc + item.qty, 0), [cartItems]);
   const cartSubtotal = useMemo(() => cartItems.reduce((acc, item) => acc + item.subtotal, 0), [cartItems]);
-  const estimatedDeliveryDistanceKm = useMemo(() => {
-    if (!selectedRestaurant) return null;
-    if (!Number.isFinite(Number(selectedRestaurant.lat)) || !Number.isFinite(Number(selectedRestaurant.lng))) return null;
-    return haversineKm(Number(selectedRestaurant.lat), Number(selectedRestaurant.lng), clientPoint.lat, clientPoint.lng);
-  }, [selectedRestaurant, clientPoint.lat, clientPoint.lng]);
-  const cartDelivery = useMemo(() => (cartCount > 0 && orderWizardStep >= 3 && deliveryType === 'delivery' ? getRestaurantDeliveryFeeByDistance(selectedRestaurant, estimatedDeliveryDistanceKm) : 0), [cartCount, orderWizardStep, selectedRestaurant, estimatedDeliveryDistanceKm, deliveryType]);
+  const [shippingQuote,setShippingQuote]=useState<{fee:number;error:string;loading:boolean}>({fee:0,error:'',loading:true});
+  useEffect(()=>{
+    let alive=true,request=0;
+    if(!selectedRestaurant||!cartCount){setShippingQuote({fee:0,error:'',loading:false});return;}
+    const quote=async()=>{
+      const current=++request;
+      setShippingQuote(v=>({...v,loading:true,error:''}));
+      const {data,error}=await supabase.rpc('quote_delivery',{p_restaurant:selectedRestaurant.id,p_type:deliveryType,p_lat:clientPoint.lat,p_lng:clientPoint.lng});
+      if(!alive||current!==request)return;
+      if(error||typeof data?.fee!=='number'||!Number.isFinite(data.fee))setShippingQuote({fee:0,loading:false,error:error?.message||'No se pudo consultar el envío.'});
+      else setShippingQuote({fee:data.fee,loading:false,error:''});
+    };
+    const debounce=setTimeout(()=>void quote(),350);
+    const timer=setInterval(()=>{if(!document.hidden)void quote();},30000);
+    const resume=()=>{if(!document.hidden)void quote();};document.addEventListener('visibilitychange',resume);
+    const channel=supabase.channel('web-delivery-pricing').on('postgres_changes',{event:'UPDATE',schema:'public',table:'delivery_pricing'},()=>void quote()).subscribe();
+    return()=>{alive=false;clearTimeout(debounce);clearInterval(timer);document.removeEventListener('visibilitychange',resume);void supabase.removeChannel(channel);};
+  },[selectedRestaurant?.id,deliveryType,clientPoint.lat,clientPoint.lng,!!cartCount]);
+  const cartDelivery=shippingQuote.fee;
   const cartCommission = useMemo(() => (cartCount > 0 ? calculateCommission(cartSubtotal, commissionConfig.tiers) : 0), [cartCount, cartSubtotal, commissionConfig.tiers]);
   const cartTotal = useMemo(() => cartSubtotal + cartCommission + cartDelivery, [cartSubtotal, cartCommission, cartDelivery]);
   const groupedMenuItems = useMemo(() => {
@@ -1763,6 +1775,11 @@ export default function App() {
       setActionLoading(true);
       setErrorMessage('');
 
+      if(shippingQuote.loading||shippingQuote.error)throw new Error(shippingQuote.error||'Espera a que se cotice el envío.');
+      const latest=await supabase.rpc('quote_delivery',{p_restaurant:selectedRestaurant.id,p_type:deliveryType,p_lat:clientPoint.lat,p_lng:clientPoint.lng});
+      if(latest.error)throw latest.error;
+      if(typeof latest.data?.fee!=='number')throw new Error('No se pudo consultar el envío.');
+      if(latest.data.fee!==cartDelivery){setShippingQuote({fee:latest.data.fee,loading:false,error:''});throw new Error('La tarifa cambió. Revisa el nuevo total y confirma nuevamente.');}
       const { data: orderNumberData, error: orderNumberError } = await supabase.rpc('get_next_order_number');
       if (orderNumberError) throw orderNumberError;
 
@@ -1938,6 +1955,19 @@ export default function App() {
     return owned;
   };
 
+  const toggleRestaurantDelivery = async () => {
+    if (!selectedRestaurant || actionLoading) return;
+    setActionLoading(true); setErrorMessage('');
+    try {
+      const {data,error} = await supabase.from('restaurants')
+        .update({delivery_enabled: selectedRestaurant.delivery_enabled === false})
+        .eq('id', selectedRestaurant.id).eq('owner_id', adminUser?.id ?? '').select('*').single();
+      if(error) throw error;
+      setSelectedRestaurant(data as Restaurant);
+    } catch {setErrorMessage('No se pudo cambiar la disponibilidad de entrega. Reintenta.');}
+    finally {setActionLoading(false);}
+  };
+
   const toggleRestaurantOpenStatus = async () => {
     if (!selectedRestaurant) return;
 
@@ -2062,10 +2092,6 @@ export default function App() {
       const parsedLat = Number(configDraft.lat);
       const parsedLng = Number(configDraft.lng);
       const radiusKm = Math.max(0, Number(configDraft.deliveryRadius || 10));
-      const fee0_10 = Math.max(0, Number(configDraft.deliveryFee0_10 || 0));
-      const fee10_15 = Math.max(0, Number(configDraft.deliveryFee10_15 || 0));
-      const fee15_20 = Math.max(0, Number(configDraft.deliveryFee15_20 || 0));
-      const fee20_30 = Math.max(0, Number(configDraft.deliveryFee20_30 || 0));
 
       if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
         setErrorMessage('Configura coordenadas válidas del restaurante para calcular envío por kilometraje.');
@@ -2079,11 +2105,7 @@ export default function App() {
         address: configDraft.address || null,
         lat: parsedLat,
         lng: parsedLng,
-        delivery_radius_km: radiusKm,
-        delivery_fee_0_10: fee0_10,
-        delivery_fee_10_15: fee10_15,
-        delivery_fee_15_20: fee15_20,
-        delivery_fee_20_30: fee20_30
+        delivery_radius_km: radiusKm
       };
 
       const { data, error } = await supabase
@@ -2201,32 +2223,17 @@ export default function App() {
     try {
       setActionLoading(true);
       setErrorMessage('');
-      const payload = driver
-        ? {
-            delivery_driver_id: driver.id,
-            delivery_driver_name: driver.name,
-            delivery_driver_phone: driver.phone,
-            delivery_assigned_at: new Date().toISOString()
-          }
-        : {
-            delivery_driver_id: null,
-            delivery_driver_name: null,
-            delivery_driver_phone: null,
-            delivery_assigned_at: null,
-            delivery_started_at: null,
-            driver_last_lat: null,
-            driver_last_lng: null,
-            driver_location_accuracy_m: null,
-            driver_location_updated_at: null
-          };
-
-      const { error } = await supabase
-        .from('orders')
-        .update(payload)
-        .eq('id', order.id)
-        .eq('restaurant_id', selectedRestaurant.id);
-
-      if (error) throw error;
+      const note=order.delivery_driver_id?window.prompt('Motivo para cambiar o retirar la reserva (mínimo 5 caracteres)'):null;
+      if(order.delivery_driver_id&&(!note||note.trim().length<5))return;
+      if(driver){
+        const r=await supabase.rpc('merchant_offer_delivery',{p_order_id:order.id,p_driver_id:driver.id,p_expected_driver:order.delivery_driver_id,p_ttl_seconds:90,p_note:note});
+        if(r.error)throw r.error;
+      }else{
+        const offer=await supabase.from('delivery_offers').select('id').eq('order_id',order.id).in('state',['OFFERED','ACCEPTED']).maybeSingle();
+        if(offer.error||!offer.data)throw Error('No hay una reserva liberable. Actualiza el pedido.');
+        const r=await supabase.rpc('release_delivery_reservation',{p_order_id:order.id,p_offer_id:offer.data.id,p_note:note,p_token:null});
+        if(r.error)throw r.error;
+      }
       await loadRestaurantData(selectedRestaurant.id);
       if (searchedOrder?.id === order.id) {
         const { data } = await supabase.from('orders').select('*').eq('id', order.id).maybeSingle();
@@ -2249,7 +2256,7 @@ export default function App() {
   };
 
   const loadDriverOrders = async (token: string) => {
-    const { data, error } = await supabase.rpc('driver_get_assigned_orders', { p_access_token: token });
+    const { data, error } = await supabase.rpc('driver_orders_secure', { p_token: token,p_order_id:null,p_history:false });
     if (error) throw error;
     setDriverOrders((data ?? []) as Order[]);
   };
@@ -2669,7 +2676,7 @@ export default function App() {
       window.alert(`✅ Contraseña actualizada para ${restaurantName}. Comparte la nueva clave con el restaurante.`);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No pudimos resetear la contraseña del restaurante. Ejecuta las migraciones 013 y 014 en Supabase para habilitar el reset sin Edge Function.');
+      setErrorMessage((error as {message?:string})?.message==='staff_password_requires_recovery'?'Esta cuenta pertenece al equipo de PideYa. Usa Configuración → Usuarios para solicitar su recuperación por correo.':'No pudimos cambiar la contraseña del negocio. Revisa tu conexión y vuelve a intentar.');
     } finally {
       setActionLoading(false);
     }
@@ -3028,10 +3035,11 @@ PideYa
   ];
 
   return (
-    <div>
+    <div className={isAdminRoute ? 'admin-app' : undefined}>
       <nav className="ae-nav">
         <div className="logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>Pide<span> ya</span></div>
-        {!isDriverRoute && (
+        {isAdminRoute && <span className="admin-brand-badge">Superadmin</span>}
+        {!isDriverRoute && !isAdminRoute && (
           <>
             <ul className="nav-links">
               <li><a href="#" onClick={(e) => { e.preventDefault(); navigate('/'); }}>Inicio</a></li>
@@ -3072,6 +3080,7 @@ PideYa
 
             {driverAccessError && <div className="global-error">{driverAccessError}</div>}
 
+            <DriverOffersControl token={driverAccessToken} onChange={()=>void loadDriverOrders(driverAccessToken)}/>
             <div className="driver-grid">
               <section className="driver-panel">
                 <h3>Pedidos asignados</h3>
@@ -3082,13 +3091,13 @@ PideYa
                   {driverOrders.map((order) => (
                     <article key={order.id} className={`incoming-order ${driverActiveOrderId === order.id ? 'selected-driver-order' : ''}`}>
                       <div className="order-head"><h4>{order.reference_code ?? `#${order.order_number}`}</h4><span>{statusLabel(order.status)}</span></div>
-                      <p><strong>Cliente:</strong> {order.client_name ?? 'Sin nombre'} · {order.client_phone ?? 'Sin teléfono'}</p>
+                      <p><strong>Cliente:</strong> {order.client_name ?? 'Sin nombre'}</p>
                       <p><strong>Referencia:</strong> {order.client_location_note ?? 'Sin referencia'}</p>
                       <p><strong>Total:</strong> {formatPrice(Number(order.total))}</p>
                       <div className="driver-actions">
                         <button className="btn ghost" onClick={() => setDriverActiveOrderId(order.id)}>Ver este pedido</button>
                         <button className="btn ghost" type="button" onClick={() => void openDriverRoute(order)}>Abrir ruta</button>
-                        <button className="btn green" onClick={() => void startDriverLocationSharing(order)}>{driverActiveOrderId === order.id ? 'Seguir compartiendo GPS' : order.status === 'ACCEPTED' ? 'Tomar pedido y salir' : 'Compartir ubicación'}</button>
+                        <button className="btn green" disabled={order.status!=='ON_THE_WAY'} onClick={() => void startDriverLocationSharing(order)}>{driverActiveOrderId === order.id ? 'Seguir compartiendo GPS' : order.status !== 'ON_THE_WAY' ? 'Confirma recogida arriba' : 'Compartir ubicación'}</button>
                       </div>
                     </article>
                   ))}
@@ -3125,58 +3134,6 @@ PideYa
               </aside>
             </div>
           </div>
-        </div>
-      )}
-
-      {!isAdminRoute && !isRestaurantsRoute && !isTestRoute && !isDriverRoute && !isPrivacyRoute && !isDeleteAccountRoute && activeTab === 'cliente' && (
-        <div className="page active">
-          <div className="hero b2b-hero">
-            <div className="hero-inner">
-              <div className="hero-badge">💼 Plataforma para Negocios</div>
-              <h1>Digitaliza tu negocio y gestiona pedidos desde <em>un solo lugar</em></h1>
-              <p>La solución todo-en-uno más intuitiva. Toma el control de tus ventas, tu menú y tus repartidores.</p>
-              <div className="hero-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '2rem' }}>
-                <button className="btn green" onClick={() => navigate('/restaurantes?mode=register')} style={{ fontSize: '1.1rem', padding: '14px 28px' }}>Empezar ahora</button>
-                <button className="btn ghost" onClick={() => navigate('/restaurantes?mode=login')} style={{ fontSize: '1.1rem', padding: '14px 28px', backgroundColor: 'rgba(255,255,255,0.8)' }}>Ingresar a mi panel</button>
-              </div>
-            </div>
-          </div>
-
-          <div className="section b2b-features">
-            <div className="s-title" style={{ textAlign: 'center', marginBottom: '3rem', fontSize: '2rem' }}>Todo lo que necesitas para operar</div>
-            <div className="features-grid">
-              <div className="feature-card">
-                <div className="feature-icon">📦</div>
-                <h3>Recepción en tiempo real</h3>
-                <p>Recibe notificaciones al instante y acepta pedidos con un clic. Optimiza el tiempo en tu cocina o mostrador.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🛵</div>
-                <h3>Gestión de Repartidores</h3>
-                <p>Asigna pedidos a tu equipo y monitorea su ubicación por GPS. Tus clientes verán su pedido llegar en vivo.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🍽️</div>
-                <h3>Menú Digital Flexible</h3>
-                <p>Añade fotos, ajusta precios, pausa productos agotados y crea variaciones (tamaños, extras) en segundos.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">📊</div>
-                <h3>Control e Historial</h3>
-                <p>Analiza tus pedidos ganados, revisa reportes de ventas diarios y mantén tus cuentas y comisiones claras.</p>
-              </div>
-            </div>
-          </div>
-
-          {showPwaBanner && !isStandalone && !isDriverRoute && (
-            <div className="pwa-banner pwa-banner-footer" style={{ marginTop: '4rem' }}>
-              <div>
-                <p>📲 ¿Administras tu negocio desde el celular o tablet? Instala el Dashboard B2B.</p>
-                {pwaHelpText && <small className="pwa-help">{pwaHelpText}</small>}
-              </div>
-              <button className="pwa-install" onClick={() => void installPwa()}>+ Instalar APP</button>
-            </div>
-          )}
         </div>
       )}
 
@@ -3401,8 +3358,12 @@ PideYa
                 >
                   Cerrar sesión
                 </button>
+                <button className="btn ghost" disabled={actionLoading || !selectedRestaurant} onClick={() => void toggleRestaurantDelivery()}>
+                  {selectedRestaurant?.delivery_enabled === false ? 'Reactivar entrega a domicilio' : 'Pausar entrega a domicilio'}
+                </button>
               </div>
             </div>
+            <p role="status">{selectedRestaurant?.delivery_enabled === false ? 'Solo para recoger: entrega a domicilio pausada.' : 'Entrega a domicilio habilitada dentro de tu cobertura.'} Pausar entregas no cancela pedidos existentes. Mantén el negocio abierto para recibir pedidos para recoger.</p>
 
             <div className="stats-row">
               <article className="stat-card"><p>PEDIDOS</p><strong>{restaurantOrders.length}</strong><small>Últimos registros</small></article>
@@ -3505,20 +3466,11 @@ PideYa
             {restaurantPanel === 'delivery' && (
               <div className="panel-placeholder">
                 <div className="orders-grid-title" style={{ marginTop: 0 }}>🛵 Configuración de delivery</div>
-                <p className="orders-mode-note" style={{ marginTop: 0 }}>Configura la ubicación base del restaurante y la tarifa por rango de distancia.</p>
+                <p className="orders-mode-note" style={{ marginTop: 0 }}>Configura tu ubicación y cobertura. PideYa administra las tarifas de envío desde el panel de superadmin.</p>
 
                 <div className="frow">
                   <div className="fg"><label>Dirección del restaurante</label><input className="fi" value={configDraft.address} onChange={(e) => setConfigDraft((prev) => ({ ...prev, address: e.target.value }))} placeholder="Ej. Calle Morelos 123, Arandas" /></div>
                   <div className="fg"><label>Radio de entrega máximo (km)</label><input className="fi" type="number" min="1" max="100" value={configDraft.deliveryRadius} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryRadius: e.target.value }))} /></div>
-                  <div className="fg"><label>Tarifa 0 a 10 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee0_10} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee0_10: e.target.value }))} /></div>
-                </div>
-                <div className="frow">
-                  <div className="fg"><label>Tarifa 10 a 15 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee10_15} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee10_15: e.target.value }))} /></div>
-                  <div className="fg"><label>Tarifa 15 a 20 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee15_20} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee15_20: e.target.value }))} /></div>
-                </div>
-                <div className="frow">
-                  <div className="fg"><label>Tarifa 20 a 30 km (MXN)</label><input className="fi" type="number" min="0" step="0.01" value={configDraft.deliveryFee20_30} onChange={(e) => setConfigDraft((prev) => ({ ...prev, deliveryFee20_30: e.target.value }))} /></div>
-                  <div className="fg"><label>Vista previa actual</label><input className="fi" readOnly value={estimatedDeliveryDistanceKm == null ? 'Falta coordenada de restaurante o cliente para estimar.' : `${estimatedDeliveryDistanceKm.toFixed(1)} km → ${formatPrice(cartDelivery)}`} /></div>
                 </div>
 
                 <div className="fg">
@@ -3681,7 +3633,7 @@ PideYa
                         <div className="driver-assignment-box">
                           <strong>Repartidor:</strong> {order.delivery_driver_name ?? 'Sin asignar'}
                           <div className="driver-actions">
-                            <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
+                            <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED','PREPARING','PICKING','ADJUSTED','READY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
                               <option value="">Sin asignar</option>
                               {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
                                 <option key={driver.id} value={driver.id}>{driver.name}</option>
@@ -3776,6 +3728,7 @@ PideYa
                       </div>
                     )}
                     <div className="order-actions" style={{ marginTop: '.5rem' }}>
+                      {selectedRestaurant&&selectedOrder.delivery_type!=='pickup'&&<DeliveryDispatchControl orderId={selectedOrder.id} status={selectedOrder.status} onChange={()=>{void loadRestaurantData(selectedRestaurant.id);}}/>}
                       <button className="btn print" onClick={() => printOrderTicket(selectedOrder)}>🖨️ Imprimir ticket</button>
                     </div>
                   </article>
@@ -3814,7 +3767,7 @@ PideYa
                           <td>
                             <div className="table-actions table-actions-stack">
                               <span className="status-chip">{order.delivery_driver_name ?? 'Sin asignar'}</span>
-                              <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED', 'ON_THE_WAY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
+                              <select className="fi" value={order.delivery_driver_id ?? ''} disabled={actionLoading || !['ACCEPTED','PREPARING','PICKING','ADJUSTED','READY'].includes(order.status)} onChange={(e) => void assignDriverToOrder(order, e.target.value)}>
                                 <option value="">Sin asignar</option>
                                 {restaurantDrivers.filter((driver) => driver.is_active).map((driver) => (
                                   <option key={driver.id} value={driver.id}>{driver.name}</option>
@@ -4042,26 +3995,11 @@ PideYa
             {isAdmin && (<aside className="admin-sidebar">
               <h3>PideYa <small>Administración</small></h3>
               <ul>
-                {[
-                  { key: 'dashboard', label: ' Dashboard' },
-                  { key: 'restaurantes', label: ' Negocios' },
-                  { key: 'comisiones', label: ' Comisiones' },
-                  { key: 'pedidos', label: ' Pedidos' },
-                  { key: 'promociones', label: ' Promociones' },
-                  { key: 'antispam', label: ' Anti-spam' },
-                  { key: 'mapa', label: ' Mapa en vivo' },
-                  { key: 'reportes', label: ' Reportes' },
-                  { key: 'incidencias', label: ' Incidencias técnicas' },
-                  { key: 'categorias', label: ' Categorías' },
-                  { key: 'operacion', label: ' Operación' },
-                  { key: 'config', label: ' Config' }
-                ].map((panel) => (
+                {ADMIN_PANELS.map((panel) => (
                   <li
                     key={panel.key}
-                    className={adminPanel === panel.key ? 'active' : ''}
-                    onClick={() => setAdminPanel(panel.key as AdminPanelKey)}
                   >
-                    {panel.label}
+                    <button type="button" className={adminPanel === panel.key ? 'active' : ''} aria-current={adminPanel === panel.key ? 'page' : undefined} onClick={() => setAdminPanel(panel.key)}>{panel.label}</button>
                   </li>
                 ))}
               </ul>
@@ -4076,10 +4014,10 @@ PideYa
               {!isAdmin ? (
                 <article className="admin-card">
                   <h4>Inicia sesión como super admin</h4>
-                  <p>Solo las cuentas en <code>admin_profiles</code> pueden aprobar negocios pendientes.</p>
+                  <p>Usa tu cuenta autorizada para administrar PideYa.</p>
                   <div className="frow" style={{ marginTop: '1rem' }}>
-                    <div className="fg"><label>Email admin</label><input className="fi" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@arandaeats.com" /></div>
-                    <div className="fg"><label>Contraseña</label><input className="fi" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="••••••••" /></div>
+                    <div className="fg"><label htmlFor="admin-email">Correo electrónico</label><input id="admin-email" autoComplete="username" className="fi" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@pide-ya.app" /></div>
+                    <div className="fg"><label htmlFor="admin-password">Contraseña</label><input id="admin-password" autoComplete="current-password" className="fi" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="••••••••" /></div>
                   </div>
                   <button className="btn" onClick={signInAdmin} disabled={actionLoading}>Entrar al panel admin</button>
                 </article>
@@ -4090,31 +4028,11 @@ PideYa
                     <div style={{ display: 'flex', gap: '.5rem' }}><button className="btn ghost" onClick={() => void Promise.all([loadPendingRestaurants(adminRpcEnabled), loadAdminDashboardData(adminRpcEnabled), loadAdminOrders(adminRpcEnabled), loadAdminMapPoints(adminRpcEnabled), loadCommissionSettings()])}>Actualizar</button><button className="btn ghost" onClick={signOutAdmin}>Cerrar sesión</button></div>
                   </div>
 
-                  <div className="admin-panel-tabs">
-                    {[
-                      { key: 'dashboard', label: ' Dashboard' },
-                      { key: 'restaurantes', label: ' Negocios' },
-                      { key: 'comisiones', label: ' Comisiones' },
-                      { key: 'pedidos', label: ' Pedidos' },
-                      { key: 'promociones', label: ' Promociones' },
-                      { key: 'antispam', label: ' Anti-spam' },
-                      { key: 'mapa', label: ' Mapa en vivo' },
-                      { key: 'reportes', label: ' Reportes' },
-                  { key: 'incidencias', label: ' Incidencias técnicas' },
-                      { key: 'categorias', label: ' Categorías' },
-                  { key: 'operacion', label: ' Operación' },
-                      { key: 'config', label: ' Config' }
-                    ].map((panel) => (
-                      <button
-                        key={panel.key}
-                        className={`admin-panel-tab ${adminPanel === panel.key ? 'active' : ''}`}
-                        onClick={() => setAdminPanel(panel.key as AdminPanelKey)}
-                      >
-                        {panel.label}
-                      </button>
-                    ))}
-                  </div>
+                  <AdminNavigation value={adminPanel} onChange={setAdminPanel} />
 
+                  {adminPanel === 'envios' && <DeliveryPricing />}
+                  {adminPanel === 'solicitudes' && <BusinessEnquiries />}
+                  {adminPanel === 'restaurantes' && <article className="admin-card"><h4>¿Llegó una solicitud desde la página principal?</h4><p>Revisa los negocios interesados y da seguimiento antes de preparar su alta.</p><button className="btn ghost" onClick={()=>setAdminPanel('solicitudes')}>Ver solicitudes de negocios</button></article>}
                   {(adminPanel === 'dashboard' || adminPanel === 'restaurantes') && (
                     <div className="admin-stats">
                       <article className="admin-stat-card"><strong>{adminSummary.active_restaurants}</strong><span>REST. ACTIVOS</span></article>
@@ -4209,7 +4127,7 @@ PideYa
 
                         <div style={{ display: 'grid', gap: '.45rem', marginBottom: '.8rem' }}>
                           {commissionTiersDraft.map((tier, idx) => (
-                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '.5rem', alignItems: 'center' }}>
+                            <div key={idx} className="commission-tier-row">
                               <div className="fg" style={{ marginBottom: 0 }}>
                                 <label>{idx === commissionTiersDraft.length - 1 && tier.up_to === null ? 'Sin límite (tope)' : `Hasta subtotal (MXN)`}</label>
                                 <input
@@ -4270,20 +4188,20 @@ PideYa
                     </>
                   )}
 
-                  {adminPanel === 'promociones' && <CampaignStudio initialShop={campaignShop} />}
+                  {adminPanel === 'promociones' && <><CampaignStudio initialShop={campaignShop} /><PromotionsStudio /></>}
 
                   {adminPanel === 'operacion' && <><DeliveryOperations /><OperationsControl /></>}
                   {adminPanel === 'categorias' && <CategoryManager />}
 
                   {adminPanel === 'config' && (
+                    <StaffSettings>
                     <article className="admin-card">
                       <h4>⚙️ Configuración super admin</h4>
                       <div className="frow">
                         <div className="fg"><label>Cuenta actual</label><input className="fi" value={adminUser?.email ?? ''} readOnly /></div>
-                        <div className="fg"><label>Estatus de rol</label><input className="fi" value={isAdmin ? 'SUPER ADMIN ACTIVO' : 'Sin permisos'} readOnly /></div>
+                        <div className="fg"><label>Perfil de acceso</label><input className="fi" value={isAdmin ? (staffAccess?.role||'Administrador') : 'Sin permisos'} readOnly /></div>
                       </div>
-                      <p style={{ color: 'var(--muted)' }}>Proyecto conectado: <code>{import.meta.env.VITE_SUPABASE_URL}</code></p><p style={{ color: 'var(--muted)' }}>Si en SQL Editor ves restaurantes PENDING y aquí no, casi siempre es por URL/KEY de otro proyecto o migraciones 002/003 faltantes.</p>
-                      <p style={{ color: 'var(--muted)' }}>Fallback Edge Function admin-restaurants: <strong>{adminFunctionEnabled ? 'habilitado' : 'deshabilitado (error CORS/404 detectado)'}</strong>.</p>
+                      <p style={{ color: 'var(--muted)' }}>Ajustes de operación, notificaciones y seguimiento de entregas.</p>
 
                       {/* ═══════════════ GPS TRACKING CONFIG ═══════════════ */}
                       <NotificationOperations />
@@ -4400,6 +4318,7 @@ PideYa
                         </div>
                       </div>
                     </article>
+                    </StaffSettings>
                   )}
                 </>
               )}
@@ -4576,7 +4495,7 @@ PideYa
             <div className="cart-bar" style={{ display: 'flex' }}>
               <div className="cart-info">
                 🛒 {cartCount} productos · Subtotal: <strong>{formatPrice(cartSubtotal)}</strong> + Comisión: <strong>{formatPrice(cartCommission)}</strong>
-                {deliveryType === 'delivery' && <> + Delivery: <strong>{formatPrice(cartDelivery)}</strong></>}
+                {deliveryType === 'delivery' && <> + Envío: <strong>{shippingQuote.loading?'Cotizando…':shippingQuote.error?'Por confirmar':formatPrice(cartDelivery)}</strong></>}{shippingQuote.error&&<p role="alert" className="console-error">{shippingQuote.error}</p>}
                 {' '}· Total a pagar: <strong>{formatPrice(cartTotal)}</strong>
                 {deliveryType === 'pickup' && <span style={{ color: 'var(--brand)', fontWeight: 700, marginLeft: '.4rem' }}>(🏠 Pickup)</span>}
               </div>
