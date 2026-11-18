@@ -32,9 +32,11 @@ test('operating budget grows smoothly and caps at 30000 without capping explicit
  assert.equal(forecast({dailyOrders:1000,operationsMxn:15000}).operationsMxn,15000);
  assert.equal(forecast({dailyOrders:1000,operationsMxn:40000}).operationsMxn,40000);
 });
-test('standalone simulator recalculates profit and supports gradual and fixed operation',async()=>{
+const simulatorPath=require('node:path').resolve(__dirname,'../../release-artifacts/2026-11-01-forecast/forecast-operativo.html');
+// The simulator is a local release artifact outside this repository; CI checkouts do not have it.
+test('standalone simulator recalculates profit and supports gradual and fixed operation',{skip:!require('node:fs').existsSync(simulatorPath)&&'local release artifact not present'},async()=>{
  const fs=require('node:fs'),vm=require('node:vm');
- const html=fs.readFileSync(require('node:path').resolve(__dirname,'../../release-artifacts/2026-11-01-forecast/forecast-operativo.html'),'utf8');
+ const html=fs.readFileSync(simulatorPath,'utf8');
  assert.ok(html.includes('Cuánto gano al mes*'));
  const elements={};for(const match of html.matchAll(/<input id="([^"]+)"[^>]*value="([^"]+)"/g))elements[match[1]]={id:match[1],value:match[2],checkValidity:()=>true,addEventListener(){}};
  const inputs=Object.values(elements);elements.operationsMode={value:'auto',addEventListener(){}};elements.manualGoogle={value:'0',addEventListener(){}};
