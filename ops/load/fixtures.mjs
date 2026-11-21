@@ -27,7 +27,7 @@ if(mode==='seed'){
  const user=ok(await db.auth.admin.createUser({email:`load-${randomUUID()}@example.invalid`,email_confirm:true,user_metadata:{synthetic_load_test:true}}));
  receipt.owner=user.user.id;save();
  receipt.categoryId=ok(await db.from('app_categories').insert({name:receipt.category,emoji:'QA',flow_type:'prepared',is_active:true,release_mode:'public'}).select('id').single()).id;save();
- const shops=receipt.businesses.map((id,i)=>({id,name:`QA carga ${String(i).padStart(3,'0')}`,email:`load-${id}@example.invalid`,phone:'0000000000',owner_id:receipt.owner,type:receipt.category,status:'ACTIVE',is_open:true,lat:20.7+(i%10)*0.003,lng:-102.35+Math.floor(i/10)*0.003,address:'Dirección sintética para carga',delivery_radius_km:15}));
+ const shops=receipt.businesses.map((id,i)=>({id,name:`QA carga ${String(i).padStart(3,'0')}`,email:`load-${id}@example.invalid`,phone:'0000000000',owner_id:receipt.owner,type:receipt.category,status:'ACTIVE',is_open:true,open_time:'00:00',close_time:'00:00',lat:20.7+(i%10)*0.003,lng:-102.35+Math.floor(i/10)*0.003,address:'Dirección sintética para carga',delivery_radius_km:15}));
  ok(await db.from('restaurants').insert(shops));
  ok(await db.from('restaurants').update({location_verified_at:new Date().toISOString(),location_verified_by:receipt.owner}).in('id',receipt.businesses));
  ok(await db.from('restaurants').update({status:'ACTIVE',is_open:true}).in('id',receipt.businesses));

@@ -22,6 +22,8 @@ export interface Restaurant {
   zones: string[];
   open_time?: string;
   close_time?: string;
+  weekly_hours?: Record<string, { open: string; close: string } | null> | null;
+  paused_until?: string | null;
   photo_url?: string | null;
   created_at: string;
   updated_at: string;
