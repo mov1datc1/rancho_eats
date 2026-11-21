@@ -80,10 +80,11 @@ function closingDetail(week: WeeklyHours, now: Date): string {
 
 function nextOpening(week: WeeklyHours, now: Date): string {
   const t = mx(now), dow = t.getUTCDay(), mins = t.getUTCHours() * 60 + t.getUTCMinutes();
-  for (let i = 0; i < 7; i++) {
+  // Up to 7 days ahead: a business open one day a week reopens on the same weekday next week.
+  for (let i = 0; i <= 7; i++) {
     const h = day(week, dow + i);
     if (!h || (i === 0 && toMin(h.open) <= mins)) continue;
-    const when = i === 0 ? 'hoy' : i === 1 ? 'mañana' : `el ${WEEKDAYS[(dow + i) % 7].toLowerCase()}`;
+    const when = i === 0 ? 'hoy' : i === 1 ? 'mañana' : i === 7 ? `el próximo ${WEEKDAYS[dow].toLowerCase()}` : `el ${WEEKDAYS[(dow + i) % 7].toLowerCase()}`;
     return `Abre ${when} a las ${formatTime(h.open)}`;
   }
   return 'Sin horario de apertura';
