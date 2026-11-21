@@ -1,3 +1,4 @@
+import { businessOpenState, validTime, weekFromRange, WEEKDAYS, type WeeklyHours } from './lib/businessHours';
 import BusinessEnquiries from './components/admin/BusinessEnquiries';
 import StaffSettings from './components/admin/StaffSettings';
 import {useStaffAccess} from './lib/staffAccess';
@@ -301,6 +302,7 @@ export default function App() {
   const [configDraft, setConfigDraft] = useState({
     openTime: '09:00',
     closeTime: '21:00',
+    week: weekFromRange('09:00', '21:00') as WeeklyHours,
     restaurantImageUrl: '',
     address: '',
     lat: '',
@@ -535,6 +537,7 @@ export default function App() {
     setConfigDraft({
       openTime: selectedRestaurant.open_time ?? '09:00',
       closeTime: selectedRestaurant.close_time ?? '21:00',
+      week: (selectedRestaurant.weekly_hours ?? weekFromRange(selectedRestaurant.open_time?.slice(0, 5), selectedRestaurant.close_time?.slice(0, 5)) ?? weekFromRange('09:00', '21:00')) as WeeklyHours,
       restaurantImageUrl: selectedRestaurant.photo_url ?? '',
       address: selectedRestaurant.address ?? '',
       lat: selectedRestaurant.lat != null ? String(selectedRestaurant.lat) : '',
@@ -1569,8 +1572,9 @@ export default function App() {
   };
 
   const openMenu = (restaurant: Restaurant) => {
-    if (!restaurant.is_open) {
-      setErrorMessage('Este restaurante está cerrado por ahora, disculpa las molestias ocasionadas.');
+    const openState = businessOpenState(restaurant);
+    if (!openState.open) {
+      setErrorMessage(`${restaurant.name}: ${openState.label.toLowerCase()}. ${openState.detail}.`);
       return;
     }
 
@@ -1976,17 +1980,21 @@ export default function App() {
     finally {setActionLoading(false);}
   };
 
-  const toggleRestaurantOpenStatus = async () => {
+  // Pause new orders for a while (minutes) or until resumed (null); true resumes. Timed pauses end by
+  // themselves on the server (migration 071). Orders already accepted are not affected.
+  const setRestaurantService = async (action: number | null | true) => {
     if (!selectedRestaurant) return;
 
     try {
       setActionLoading(true);
       setErrorMessage('');
-      const nextOpenState = !selectedRestaurant.is_open;
+      const patch = action === true
+        ? { is_open: true, paused_until: null }
+        : { is_open: false, paused_until: action ? new Date(Date.now() + action * 60_000).toISOString() : null };
 
       const { data, error } = await supabase
         .from('restaurants')
-        .update({ is_open: nextOpenState })
+        .update(patch)
         .eq('id', selectedRestaurant.id)
         .eq('owner_id', adminUser?.id ?? '')
         .select('*')
@@ -1998,7 +2006,7 @@ export default function App() {
       await Promise.all([loadInitialData(), loadRestaurantData(selectedRestaurant.id)]);
     } catch (error) {
       console.error(error);
-      setErrorMessage('No se pudo actualizar el estado de abierto/cerrado del restaurante.');
+      setErrorMessage('No se pudo cambiar la recepción de pedidos. Revisa la conexión y vuelve a intentar.');
     } finally {
       setActionLoading(false);
     }
@@ -2106,9 +2114,16 @@ export default function App() {
         return;
       }
 
+      if (Object.values(configDraft.week).some((h) => h && (!validTime(h.open) || !validTime(h.close)))) {
+        setErrorMessage('Revisa los horarios: usa el formato HH:MM de 24 horas.');
+        return;
+      }
+      if (!Object.values(configDraft.week).some(Boolean)) {
+        setErrorMessage('Abre al menos un día. Para dejar de recibir pedidos un rato, usa la pausa.');
+        return;
+      }
       const payload = {
-        open_time: configDraft.openTime,
-        close_time: configDraft.closeTime,
+        weekly_hours: configDraft.week,
         photo_url: cleanedImageUrl || null,
         address: configDraft.address || null,
         lat: parsedLat,
@@ -3350,17 +3365,38 @@ PideYa
             <div className="restaurant-header-row">
               <div>
                 <h2>{selectedRestaurant?.name ?? 'Sin restaurante activo'}</h2>
-                <p>{selectedRestaurant?.is_open ? '🟢 Abierto' : '🔴 Cerrado'} · {selectedRestaurant?.type ?? 'Sin tipo'}</p>
+                {(() => {
+                  const state = selectedRestaurant ? businessOpenState(selectedRestaurant) : null;
+                  const icon = !state ? '' : state.reason === 'open' ? '🟢 Recibiendo pedidos' : state.reason === 'paused' ? '🟠 En pausa' : '⚪ Fuera de horario';
+                  return <p>{icon}{state?.detail ? ` · ${state.detail}` : ''} · {selectedRestaurant?.type ?? 'Sin tipo'}</p>;
+                })()}
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <button
-                  className={`btn ${selectedRestaurant?.is_open ? 'ghost' : 'green'}`}
-                  onClick={() => void toggleRestaurantOpenStatus()}
-                  disabled={actionLoading || !selectedRestaurant}
-                  style={{ minHeight: '52px', fontSize: '1.05rem' }}
-                >
-                  {selectedRestaurant?.is_open ? 'Cerrar restaurante' : 'Abrir restaurante'}
-                </button>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {selectedRestaurant && businessOpenState(selectedRestaurant).reason === 'paused' ? (
+                  <button
+                    className="btn green"
+                    onClick={() => void setRestaurantService(true)}
+                    disabled={actionLoading}
+                    style={{ minHeight: '52px', fontSize: '1.05rem' }}
+                  >
+                    Reanudar pedidos
+                  </button>
+                ) : (
+                  <select
+                    className="fi"
+                    aria-label="Pausar pedidos nuevos"
+                    value=""
+                    disabled={actionLoading || !selectedRestaurant}
+                    onChange={(e) => { const v = e.target.value; if (v) void setRestaurantService(v === 'manual' ? null : Number(v)); }}
+                    style={{ minHeight: '52px', fontSize: '1.05rem', width: 'auto' }}
+                  >
+                    <option value="">⏸ Pausar pedidos nuevos…</option>
+                    <option value="30">30 minutos</option>
+                    <option value="60">1 hora</option>
+                    <option value="120">2 horas</option>
+                    <option value="manual">Hasta que la reactive</option>
+                  </select>
+                )}
                 <button
                   className="btn ghost"
                   onClick={() => void signOutRestaurant()}
@@ -3568,9 +3604,26 @@ PideYa
                 </div>
                 <button className="btn ghost" onClick={updateRestaurantPassword} disabled={actionLoading}>Cambiar contraseña</button>
 
-                <div className="frow" style={{ marginTop: '.7rem' }}>
-                  <div className="fg"><label>Hora de apertura</label><input className="fi" type="time" value={configDraft.openTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, openTime: e.target.value }))} /></div>
-                  <div className="fg"><label>Hora de cierre</label><input className="fi" type="time" value={configDraft.closeTime} onChange={(e) => setConfigDraft((prev) => ({ ...prev, closeTime: e.target.value }))} /></div>
+                <div className="fg" style={{ marginTop: '.7rem' }}>
+                  <label>Horario de cada día</label>
+                  <p className="input-help">Formato de 24 horas. Si cierras después de medianoche (18:00 a 02:00) se respeta hasta la madrugada; la misma hora de apertura y cierre significa abierto todo el día.</p>
+                  {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+                    const h = configDraft.week[String(d)];
+                    const setDay = (next: { open: string; close: string } | null) => setConfigDraft((prev) => ({ ...prev, week: { ...prev.week, [String(d)]: next } }));
+                    return (
+                      <div key={d} className="frow" style={{ alignItems: 'center', gap: '.5rem' }}>
+                        <label style={{ minWidth: '7rem', display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+                          <input type="checkbox" checked={!!h} onChange={(e) => setDay(e.target.checked ? (configDraft.week['1'] ?? { open: '09:00', close: '21:00' }) : null)} />
+                          {WEEKDAYS[d]}
+                        </label>
+                        {h ? <>
+                          <input className="fi" type="time" aria-label={`${WEEKDAYS[d]} abre`} value={h.open} onChange={(e) => setDay({ ...h, open: e.target.value })} />
+                          <span>a</span>
+                          <input className="fi" type="time" aria-label={`${WEEKDAYS[d]} cierra`} value={h.close} onChange={(e) => setDay({ ...h, close: e.target.value })} />
+                        </> : <span className="input-help">Cerrado</span>}
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="fg">
                   <label>Imagen del restaurante (opcional)</label>
